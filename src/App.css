@@ -1,10 +1,18 @@
 @keyframes avatar-shimmer {
-  to { background-position: -200% 0; }
+  to {
+    background-position: -200% 0;
+  }
 }
 
 @keyframes dropdown-fade {
-  from { opacity:0; transform:translateY(-4px) scale(.97); }
-  to { opacity:1; transform:translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* Purged most layout & form styles in favor of Tailwind utilities. Keeping only specialized animations and dropdown styles still used in admin components. */

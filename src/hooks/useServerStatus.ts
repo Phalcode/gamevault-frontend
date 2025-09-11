@@ -1,53 +1,59 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 
 export interface ServerInfo {
-  status: string
-  version: string
-  registration_enabled: boolean
-  required_registration_fields: string[]
-  available_authentication_methods: string[]
+  status: string;
+  version: string;
+  registration_enabled: boolean;
+  required_registration_fields: string[];
+  available_authentication_methods: string[];
 }
 
 interface UseServerStatusResult {
-  info: ServerInfo | null
-  loading: boolean
-  error: string | null
-  refresh: () => void
+  info: ServerInfo | null;
+  loading: boolean;
+  error: string | null;
+  refresh: () => void;
 }
 
 export function useServerStatus(): UseServerStatusResult {
-  const { serverUrl } = useAuth()
-  const [info, setInfo] = useState<ServerInfo | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [nonce, setNonce] = useState(0)
+  const { serverUrl } = useAuth();
+  const [info, setInfo] = useState<ServerInfo | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
 
-  const refresh = useCallback(() => setNonce(n => n + 1), [])
+  const refresh = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
-    if (!serverUrl) return
-    const base = serverUrl.replace(/\/+$/, '')
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    ;(async () => {
+    if (!serverUrl) return;
+    const base = serverUrl.replace(/\/+$/, "");
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    (async () => {
       try {
-        const res = await fetch(`${base}/api/status`, { headers: { Accept: 'application/json' } })
+        const res = await fetch(`${base}/api/status`, {
+          headers: { Accept: "application/json" },
+        });
         if (!res.ok) {
-          const txt = await res.text()
-          throw new Error(`Status failed (${res.status}): ${txt || res.statusText}`)
+          const txt = await res.text();
+          throw new Error(
+            `Status failed (${res.status}): ${txt || res.statusText}`,
+          );
         }
-        const data = await res.json()
-        if (!cancelled) setInfo(data)
+        const data = await res.json();
+        if (!cancelled) setInfo(data);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setLoading(false);
       }
-    })()
-    return () => { cancelled = true }
-  }, [serverUrl, nonce])
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [serverUrl, nonce]);
 
-  return { info, loading, error, refresh }
+  return { info, loading, error, refresh };
 }

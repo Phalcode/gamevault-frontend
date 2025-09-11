@@ -1,31 +1,34 @@
-import { useState, FormEvent } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useState, FormEvent } from "react";
+import { useAuth } from "../context/AuthContext";
 
 export function LoginForm() {
-  const { loading, error, loginBasic, auth, user } = useAuth()
-  const [server, setServer] = useState('')
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
+  const { loading, error, loginBasic, auth, user } = useAuth();
+  const [server, setServer] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
   if (auth) {
     return (
       <div className="mt-4 text-[0.9rem] text-text-dim tracking-wide">
-        Logged in{user?.username ? ` as ${user.username}` : ''}.
+        Logged in{user?.username ? ` as ${user.username}` : ""}.
       </div>
-    )
+    );
   }
 
   const onSubmit = async (e: FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
     try {
-      await loginBasic({ server, username, password })
+      await loginBasic({ server, username, password });
     } catch {
       /* handled */
     }
-  }
+  };
 
   return (
-    <form onSubmit={onSubmit} className="flex justify-center w-full px-2 sm:px-4">
+    <form
+      onSubmit={onSubmit}
+      className="flex justify-center w-full px-2 sm:px-4"
+    >
       <div
         className="relative w-full max-w-[1480px] overflow-hidden rounded-[18px] border border-[#2c2b38] hover:border-accent/50 transition-colors
         bg-[linear-gradient(148deg,rgba(27,26,39,0.9),rgba(34,33,48,0.92))] p-10 xl:p-16
@@ -39,13 +42,20 @@ export function LoginForm() {
               <span className="inline-block w-2 h-2 rounded-full bg-accent shadow-[0_0_0_4px_rgba(100,89,223,0.4)]" />
               Sign In
             </h2>
-            <p className="uppercase text-[0.7rem] md:text-[0.75rem] tracking-[.35em] text-text-dim mb-4 md:mb-0">Enter your credentials to continue</p>
-          </div>          
+            <p className="uppercase text-[0.7rem] md:text-[0.75rem] tracking-[.35em] text-text-dim mb-4 md:mb-0">
+              Enter your credentials to continue
+            </p>
+          </div>
         </div>
 
         <div className="relative z-10 mt-8 grid gap-7 md:gap-8 xl:gap-10 mb-8 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
           <div className="flex flex-col gap-2.5">
-            <label htmlFor="server" className="text-[0.65rem] font-semibold tracking-wider uppercase text-text-dim pl-0.5">Server URL</label>
+            <label
+              htmlFor="server"
+              className="text-[0.65rem] font-semibold tracking-wider uppercase text-text-dim pl-0.5"
+            >
+              Server URL
+            </label>
             <input
               id="server"
               type="text"
@@ -58,7 +68,12 @@ export function LoginForm() {
             />
           </div>
           <div className="flex flex-col gap-2.5">
-            <label htmlFor="username" className="text-[0.65rem] font-semibold tracking-wider uppercase text-text-dim pl-0.5">Username</label>
+            <label
+              htmlFor="username"
+              className="text-[0.65rem] font-semibold tracking-wider uppercase text-text-dim pl-0.5"
+            >
+              Username
+            </label>
             <input
               id="username"
               type="text"
@@ -71,7 +86,12 @@ export function LoginForm() {
             />
           </div>
           <div className="flex flex-col gap-2.5">
-            <label htmlFor="password" className="text-[0.65rem] font-semibold tracking-wider uppercase text-text-dim pl-0.5">Password</label>
+            <label
+              htmlFor="password"
+              className="text-[0.65rem] font-semibold tracking-wider uppercase text-text-dim pl-0.5"
+            >
+              Password
+            </label>
             <input
               id="password"
               type="password"
@@ -85,7 +105,10 @@ export function LoginForm() {
         </div>
 
         {error && (
-          <div className="relative z-10 mt-1 mb-5 p-4 rounded-[14px] text-[0.8rem] leading-snug tracking-wide bg-[linear-gradient(140deg,#3f1e25,#331a20)] border border-[#5d2c36] text-[#ffb5c4] shadow-[inset_0_0_0_1px_#402027,0_4px_18px_-10px_rgba(255,107,150,0.25)] animate-fade-in-scale" role="alert">
+          <div
+            className="relative z-10 mt-1 mb-5 p-4 rounded-[14px] text-[0.8rem] leading-snug tracking-wide bg-[linear-gradient(140deg,#3f1e25,#331a20)] border border-[#5d2c36] text-[#ffb5c4] shadow-[inset_0_0_0_1px_#402027,0_4px_18px_-10px_rgba(255,107,150,0.25)] animate-fade-in-scale"
+            role="alert"
+          >
             {error}
           </div>
         )}
@@ -103,11 +126,11 @@ export function LoginForm() {
           >
             <span className="pointer-events-none absolute inset-0 rounded-[16px] opacity-45 mix-blend-overlay bg-[linear-gradient(120deg,rgba(255,255,255,0.2),rgba(255,255,255,0))] group-hover:opacity-55 transition" />
             <span className="relative font-semibold tracking-wide">
-              {loading ? 'Authenticating…' : 'Login'}
+              {loading ? "Authenticating…" : "Login"}
             </span>
           </button>
         </div>
       </div>
     </form>
-  )
+  );
 }
