@@ -1,23 +1,25 @@
 {
-  "name": "gamevault-app-web-frontend",
+  "name": "gamevault-frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "start": "vite",
     "dev": "vite",
+    "tauri": "tauri dev",
     "build": "vite build",
-    "lint": "prettier --write . && eslint .",
-    "preview": "vite preview"
+    "lint": "prettier --write . && eslint ."   
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.13",
+    "@tauri-apps/api": "1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "tailwindcss": "^4.1.13"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
+    "@tauri-apps/cli": "1",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
