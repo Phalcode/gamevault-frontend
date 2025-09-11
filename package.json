@@ -6,20 +6,19 @@
   "scripts": {
     "start": "vite",
     "dev": "vite",
-    "tauri": "tauri dev",
+    "tauridev": "tauri dev",
     "build": "vite build",
-    "lint": "prettier --write . && eslint ."   
+    "lint": "prettier --write . && eslint ."
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.13",
-    "@tauri-apps/api": "1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "tailwindcss": "^4.1.13"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
-    "@tauri-apps/cli": "1",
+    "@tauri-apps/cli": "2.8.4",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
