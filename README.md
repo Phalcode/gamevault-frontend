@@ -4,10 +4,11 @@ React 19 + Vite + Tailwind (v4) powered frontend for the GameVault platform.
 
 ## Tech Stack
 
-- React 19 / Vite 7
-- Tailwind CSS v4 (utility-first custom theme)
-- TypeScript
 - PNPM
+- React 19 / Vite 7
+- TypeScript
+- Tailwind CSS V4 + Tailwind UI Components
+- Tauri
 
 ## Setup
 
