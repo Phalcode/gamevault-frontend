@@ -1,10 +1,10 @@
+import { Logo } from "@components/Logo";
 import { Button } from "@tw/button";
 import { Checkbox, CheckboxField } from "@tw/checkbox";
 import { Field, Label } from "@tw/fieldset";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
-import { Logo } from "@components/Logo";
 
 export function Login() {
   return (
@@ -13,10 +13,10 @@ export function Login() {
       method="POST"
       className="grid w-full max-w-sm grid-cols-1 gap-8"
     >
-      <Logo />
+      <Logo variant="text" className="w-full" height="h-full" />
       <Heading>Sign in to your account</Heading>
       <Field>
-        <Label>Email</Label>
+        <Label>Username or Email</Label>
         <Input type="email" name="email" />
       </Field>
       <Field>

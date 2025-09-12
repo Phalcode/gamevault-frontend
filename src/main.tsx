@@ -10,8 +10,10 @@ import Administration from "./pages/Administration";
 import Community from "./pages/Community";
 import Downloads from "./pages/Downloads";
 import Library from "./pages/Library";
-import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import Settings from "./pages/Settings";
+
+(window as any).global = window;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -27,7 +29,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="downloads" element={<Downloads />} />
           <Route path="community" element={<Community />} />
           <Route path="settings" element={<Settings />} />
-          <Route path="administration" element={<Administration />} />
+          <Route path="admin" element={<Administration />} />
         </Route>
 
         <Route path="*" element={<NotFound />} />

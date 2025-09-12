@@ -14,7 +14,8 @@ export function Register() {
       method="POST"
       className="grid w-full max-w-sm grid-cols-1 gap-8"
     >
-      <Logo />
+      <Logo variant="text" className="w-full" height="h-full" />
+
       <Heading>Create your account</Heading>
       <Field>
         <Label>Email</Label>
@@ -40,7 +41,7 @@ export function Register() {
         <Checkbox name="remember" />
         <Label>Get emails about product updates and news.</Label>
       </CheckboxField>
-      <Button type="submit" className="w-full">
+      <Button type="submit" className="w-full" href="/library">
         Create account
       </Button>
       <Text>
