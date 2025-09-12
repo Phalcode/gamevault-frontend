@@ -1,8 +1,8 @@
 export default function Library() {
-    return (
-      <div>
-        <h1>Library</h1>
-      </div>
-    );
+  return (
+    <div>
+      <h1>Coming Soon...</h1>
+    </div>
+  );
   }
   
