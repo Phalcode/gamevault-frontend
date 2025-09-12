@@ -1,11 +1,11 @@
-import { Logo } from "./Logo";
-import { Button } from "./tailwind/button";
-import { Checkbox, CheckboxField } from "./tailwind/checkbox";
-import { Field, Label } from "./tailwind/fieldset";
-import { Heading } from "./tailwind/heading";
-import { Input } from "./tailwind/input";
-import { Select } from "./tailwind/select";
-import { Strong, Text, TextLink } from "./tailwind/text";
+import { Logo } from "@components/Logo";
+import { Button } from "@tw/button";
+import { Checkbox, CheckboxField } from "@tw/checkbox";
+import { Field, Label } from "@tw/fieldset";
+import { Heading } from "@tw/heading";
+import { Input } from "@tw/input";
+import { Select } from "@tw/select";
+import { Strong, Text, TextLink } from "@tw/text";
 
 export function Register() {
   return (

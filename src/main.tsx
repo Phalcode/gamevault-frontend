@@ -11,6 +11,7 @@ import Community from "./pages/Community";
 import Downloads from "./pages/Downloads";
 import Library from "./pages/Library";
 import Settings from "./pages/Settings";
+import NotFound from "./pages/NotFound";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -29,7 +30,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="administration" element={<Administration />} />
         </Route>
 
-        <Route path="*" element={<h1>404</h1>} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

@@ -14,7 +14,12 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "types": ["react", "react-dom"],
-    "allowJs": false
+    "allowJs": false,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@components/*": ["./src/components/*"],
+      "@tw/*": ["./src/components/tailwind/*"]
+    }
   },
   "include": ["src"],
   "exclude": ["**/*.js", "**/*.jsx"]

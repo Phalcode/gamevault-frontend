@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@headlessui/react": "^2.2.7",
+    "@heroicons/react": "^2.2.0",
     "@tailwindcss/vite": "^4.1.13",
     "clsx": "^2.1.1",
     "motion": "^12.23.12",
@@ -33,6 +34,7 @@
     "globals": "^16.4.0",
     "prettier": "3.6.2",
     "typescript": "^5.9.2",
-    "vite": "^7.1.5"
+    "vite": "^7.1.5",
+    "vite-tsconfig-paths": "^5.1.4"
   }
 }

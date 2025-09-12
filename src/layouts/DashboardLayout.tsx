@@ -1,15 +1,11 @@
+import { Navbar } from "@components/Navbar";
+import { Sidebar } from "@components/Sidebar";
+import { SidebarLayout } from "@tw/sidebar-layout";
 import { Outlet } from "react-router";
-import { Navbar } from "../components/tailwind/navbar";
-import { Sidebar } from "../components/tailwind/sidebar";
-import { SidebarLayout } from "../components/tailwind/sidebar-layout";
 
 export default function DashboardLayout() {
   return (
-    <SidebarLayout
-      sidebar={<Sidebar>{/* Your sidebar content */}</Sidebar>}
-      navbar={<Navbar>{/* Your navbar content */}</Navbar>}
-    >
-      <h1>Dashboard</h1>
+    <SidebarLayout sidebar={<Sidebar />} navbar={<Navbar />}>
       <Outlet />
     </SidebarLayout>
   );

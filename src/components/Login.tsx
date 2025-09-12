@@ -1,10 +1,10 @@
-import { Button } from "./tailwind/button";
-import { Checkbox, CheckboxField } from "./tailwind/checkbox";
-import { Field, Label } from "./tailwind/fieldset";
-import { Heading } from "./tailwind/heading";
-import { Input } from "./tailwind/input";
-import { Strong, Text, TextLink } from "./tailwind/text";
-import { Logo } from "./Logo";
+import { Button } from "@tw/button";
+import { Checkbox, CheckboxField } from "@tw/checkbox";
+import { Field, Label } from "@tw/fieldset";
+import { Heading } from "@tw/heading";
+import { Input } from "@tw/input";
+import { Strong, Text, TextLink } from "@tw/text";
+import { Logo } from "@components/Logo";
 
 export function Login() {
   return (
