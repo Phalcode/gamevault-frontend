@@ -66,7 +66,7 @@ export function Sidebar() {
 
         <SidebarSpacer />
         <SidebarSection>
-          <SidebarItem href="https://gamevau.lt/docs/intro">
+          <SidebarItem href="https://gamevau.lt/docs/intro" target="_blank">
             <LifebuoyIcon />
             <SidebarLabel>Documentation</SidebarLabel>
           </SidebarItem>
@@ -74,11 +74,11 @@ export function Sidebar() {
             <ChatBubbleLeftRightIcon />
             <SidebarLabel>Discord</SidebarLabel>
           </SidebarItem>
-          <SidebarItem>
+          <SidebarItem href="/news">
             <NewspaperIcon />
             <SidebarLabel>News</SidebarLabel>
           </SidebarItem>
-          <SidebarItem href="https://gamevau.lt/gamevault-plus">
+          <SidebarItem href="https://gamevau.lt/gamevault-plus" target="_blank">
             <RocketLaunchIcon />
             <SidebarLabel>GameVault+</SidebarLabel>
           </SidebarItem>
@@ -104,7 +104,7 @@ export function Sidebar() {
             <ChevronUpIcon />
           </DropdownButton>
           <DropdownMenu className="min-w-64" anchor="top start">
-            <DropdownItem href="/my-profile">
+            <DropdownItem href="/profile">
               <UserIcon />
               <DropdownLabel>My profile</DropdownLabel>
             </DropdownItem>

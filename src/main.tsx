@@ -22,6 +22,7 @@ createRoot(document.getElementById("root")!).render(
         <Route element={<FullscreenLayout />}>
           <Route index element={<Login />} />
           <Route path="register" element={<Register />} />
+          <Route path="*" element={<NotFound />} />
         </Route>
 
         <Route element={<DashboardLayout />}>
@@ -31,8 +32,6 @@ createRoot(document.getElementById("root")!).render(
           <Route path="settings" element={<Settings />} />
           <Route path="admin" element={<Administration />} />
         </Route>
-
-        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,
