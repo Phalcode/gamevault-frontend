@@ -87,7 +87,7 @@ export function Sidebar() {
           </SidebarItem>
         </SidebarSection>
       </SidebarBody>
-      <SidebarFooter className="max-lg:hidden">
+      <SidebarFooter>
         <Dropdown>
           <DropdownButton as={SidebarItem}>
             <span className="flex min-w-0 items-center gap-3">
@@ -109,7 +109,7 @@ export function Sidebar() {
               <DropdownLabel>My profile</DropdownLabel>
             </DropdownItem>
             <DropdownDivider />
-            <DropdownItem href="/logout">
+            <DropdownItem href="/login">
               <ArrowRightStartOnRectangleIcon />
               <DropdownLabel>Sign out</DropdownLabel>
             </DropdownItem>

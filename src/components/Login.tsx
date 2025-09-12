@@ -16,12 +16,26 @@ export function Login() {
       <Logo variant="text" className="w-full" height="h-full" />
       <Heading>Sign in to your account</Heading>
       <Field>
+        <Label>Server</Label>
+        <Input
+          type="url"
+          name="url"
+          required
+          value={"https://gamevault.alfagun74.de"}
+        />
+      </Field>
+      <Field>
         <Label>Username or Email</Label>
-        <Input type="email" name="email" />
+        <Input name="email" required autoComplete="username" />
       </Field>
       <Field>
         <Label>Password</Label>
-        <Input type="password" name="password" />
+        <Input
+          type="password"
+          name="password"
+          required
+          autoComplete="current-password"
+        />
       </Field>
       <div className="flex items-center justify-between">
         <CheckboxField>

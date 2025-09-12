@@ -5,7 +5,8 @@ export default function NotFound() {
   return (
     <AuthLayout>
       <div className="flex flex-col items-center">
-        <h1 className="text-4xl mb-4">You took a wrong turn there, friend</h1>
+        <img src="/dead-end.svg" alt="Dead End Roadsign" className="mb-4 h-40" />
+        <h1 className="text-4xl mb-4">I think you took a wrong turn there, mate</h1>
         <Button href="/"> Go Back Home </Button>
       </div>
     </AuthLayout>
