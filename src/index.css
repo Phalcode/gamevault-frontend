@@ -12,3 +12,9 @@
   --font-sans: Inter, sans-serif;
   --font-sans--font-feature-settings: "cv11";
 }
+
+@layer theme {
+  .card {
+    @apply bg-zinc-800 rounded-2xl p-8 mb-4;
+  }
+}
