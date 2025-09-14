@@ -33,8 +33,23 @@ import {
   Sidebar as TailwindSidebar,
 } from "@tw/sidebar";
 import ThemeSwitch from "./ThemeSwitch";
+import { useAuth } from "@/context/AuthContext";
+import { AuthMediaAvatar } from "@/components/AuthMediaAvatar";
+import { useNavigate } from "react-router";
 
 export function Sidebar() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const username = user?.username || (user as any)?.Username || "Unknown";
+  const email = user?.email || (user as any)?.EMail || "";
+  const avatar = user?.avatar;
+
+  const handleLogout = (e: React.MouseEvent) => {
+    e.preventDefault();
+    logout();
+    navigate("/", { replace: true });
+  };
+
   return (
     <TailwindSidebar>
       <SidebarHeader>
@@ -91,14 +106,16 @@ export function Sidebar() {
         <Dropdown>
           <DropdownButton as={SidebarItem}>
             <span className="flex min-w-0 items-center gap-3">
-              <Avatar src="/pfp.jpg" className="size-10" square alt="" />
+              <AuthMediaAvatar media={avatar} size={40} className="size-10" square alt={username} />
               <span className="min-w-0">
                 <span className="block truncate text-sm/5 font-medium text-zinc-950 dark:text-white">
-                  Noel Christus
+                  {username}
                 </span>
-                <span className="block truncate text-xs/5 font-normal text-zinc-500 dark:text-zinc-400">
-                  sag-amen@web.de
-                </span>
+                {email && (
+                  <span className="block truncate text-xs/5 font-normal text-zinc-500 dark:text-zinc-400">
+                    {email}
+                  </span>
+                )}
               </span>
             </span>
             <ChevronUpIcon />
@@ -109,7 +126,7 @@ export function Sidebar() {
               <DropdownLabel>My profile</DropdownLabel>
             </DropdownItem>
             <DropdownDivider />
-            <DropdownItem href="/login">
+            <DropdownItem href="#" onClick={handleLogout}>
               <ArrowRightStartOnRectangleIcon />
               <DropdownLabel>Sign out</DropdownLabel>
             </DropdownItem>
