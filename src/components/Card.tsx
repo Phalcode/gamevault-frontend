@@ -8,7 +8,7 @@ type CardProps = {
 
 export default function Card({ title, children }: CardProps) {
   return (
-    <div className="overflow-hidden rounded-lg bg-zinc-800 shadow-sm mb-4">
+    <div className="overflow-hidden rounded-lg dark:bg-zinc-800 bg-zinc-100 shadow-sm mb-4">
       <div className="px-4 pt-5 sm:px-6">
         <Subheading>{title}</Subheading>
       </div>
