@@ -32,7 +32,7 @@ import { useMemo, useState } from "react";
 import Card from "../components/Card";
 // Legacy modals (inline styles) brought back from old-src for now
 import { RegisterUserModal } from "@/components/admin/RegisterUserModal";
-import { UserEditorModal } from "@/components/admin/UserEditorModal";
+import { UserEditorModalOld } from "@/components/admin/UserEditorModalOld";
 
 export default function Administration() {
   const {
@@ -302,7 +302,7 @@ export default function Administration() {
 
           <div id="portal-modals" className="contents">
             {currentEditingUser && (
-              <UserEditorModal
+              <UserEditorModalOld
                 user={currentEditingUser as any}
                 onClose={() => setEditingUserId(null)}
                 onSave={async (payload) =>

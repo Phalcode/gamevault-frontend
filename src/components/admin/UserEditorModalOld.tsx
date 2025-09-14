@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { User } from '@/types/api'
 import { useAuth } from '@/context/AuthContext'
+import { User } from '@/types/api'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 interface Props {
   user: User
@@ -19,7 +19,7 @@ interface Props {
 type TabKey = 'images' | 'details'
 
 // NOTE: This is a direct port from old-src with minimal stylistic changes to avoid black screen issues.
-export function UserEditorModal({ user, onClose, onSave, onUserUpdated }: Props) {
+export function UserEditorModalOld({ user, onClose, onSave, onUserUpdated }: Props) {
   const { serverUrl, authFetch } = useAuth()
   const [activeTab, setActiveTab] = useState<TabKey>('images')
   const [saving, setSaving] = useState(false)
