@@ -20,7 +20,7 @@ import { Divider } from "@tw/divider";
 import { Heading } from "@tw/heading";
 import { Link } from "@tw/link";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
-import { Switch } from "@tw/switch";
+import { Switch, SwitchField } from "@tw/switch";
 import {
   Table,
   TableBody,
@@ -32,8 +32,9 @@ import {
 import { useMemo, useState } from "react";
 import Card from "../components/Card";
 // Legacy modals (inline styles) brought back from old-src for now
-import { RegisterUserModal } from "@/components/admin/RegisterUserModal";
-import { UserEditorModal } from "@/components/admin/UserEditorModal";
+import { RegisterUserModalOld } from "@/components/admin/RegisterUserModalOld";
+import { UserEditorModalOld } from "@/components/admin/UserEditorModalOld";
+import { Label } from "../components/tailwind/fieldset";
 
 export default function Administration() {
   const {
@@ -169,18 +170,16 @@ export default function Administration() {
               {error}
             </div>
           )}
-          <div className="flex flex-wrap items-center justify-between gap-6 mb-4">
-            <div className="flex items-center gap-3 text-xs text-zinc-400 select-none">
+          <div className="flex items-center justify-between gap-6 mb-4">
+            <SwitchField>
               <Switch
                 name="showDeleted"
                 color="indigo"
                 checked={showDeleted}
                 onChange={() => setShowDeleted((v) => !v)}
               />
-              <span className="uppercase tracking-wide">
-                Show deleted users
-              </span>
-            </div>
+              <Label>Show Deleted Users</Label>
+            </SwitchField>
             <Button
               color="indigo"
               onClick={() => setShowRegister(true)}
@@ -223,8 +222,11 @@ export default function Administration() {
                 const id = u.id ?? (u as any).ID;
                 const deleted = u.deleted_at ?? (u as any).DeletedAt;
                 const busy = opBusy[String(id)];
-                const name = u.username || (u as any).Username || "—";
-                const email = u.email || (u as any).EMail || "";
+                const name =
+                  u.username || (u as any).Username || "Unknown User";
+                const first_name = u.first_name || (u as any).FirstName;
+                const last_name = u.last_name || (u as any).LastName;
+                const email = u.email || (u as any).EMail;
                 const avatarId = (u.avatar as any)?.id || (u.avatar as any)?.ID;
                 const roleNumeric =
                   typeof u.role === "number"
@@ -243,7 +245,16 @@ export default function Administration() {
                         />
                         <div>
                           <div className="font-medium flex items-center gap-2">
-                            {name}
+                            <span>
+                              {name}{" "}
+                              {(first_name || last_name) && (
+                                <span className="font-normal">
+                                  (
+                                  {`${first_name ?? ""} ${last_name ?? ""}`.trim()}
+                                  )
+                                </span>
+                              )}
+                            </span>
                             {deleted && (
                               <span className="rounded bg-red-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-400">
                                 Deleted
@@ -308,7 +319,7 @@ export default function Administration() {
                       <div className="flex gap-2 justify-end">
                         {!deleted && (
                           <Button
-                            color="red"
+                            color="rose"
                             disabled={busy}
                             onClick={() => deleteUser(u)}
                             title="Delete User"
@@ -348,7 +359,7 @@ export default function Administration() {
 
           <div id="portal-modals" className="contents">
             {currentEditingUser && (
-              <UserEditorModal
+              <UserEditorModalOld
                 user={currentEditingUser as any}
                 onClose={() => setEditingUserId(null)}
                 onSave={async (payload) =>
@@ -367,7 +378,7 @@ export default function Administration() {
               />
             )}
             {showRegister && (
-              <RegisterUserModal
+              <RegisterUserModalOld
                 onClose={() => setShowRegister(false)}
                 onRegistered={(u) => {
                   setUsers((prev) => [...prev, u]);
