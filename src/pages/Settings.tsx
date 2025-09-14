@@ -1,5 +1,5 @@
-import { Divider } from "../components/tailwind/divider";
-import { Heading } from "../components/tailwind/heading";
+import { Divider } from "@tw/divider";
+import { Heading } from "@tw/heading";
 
 export default function Settings() {
   return (

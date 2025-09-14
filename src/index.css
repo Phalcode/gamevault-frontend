@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@plugin "@tailwindcss/typography";
 
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
@@ -13,8 +12,12 @@
   --font-sans--font-feature-settings: "cv11";
 }
 
-@layer theme {
+@layer base {
   .card {
     @apply bg-zinc-800 rounded-2xl p-8 mb-4;
+  }
+
+  a {
+    @apply font-semibold text-indigo-200;
   }
 }

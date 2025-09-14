@@ -1,3 +1,5 @@
+import { AuthMediaAvatar } from "@/components/AuthMediaAvatar";
+import { useAuth } from "@/context/AuthContext";
 import { Logo } from "@components/Logo";
 import {
   ArrowDownTrayIcon,
@@ -13,7 +15,7 @@ import {
   UserIcon,
 } from "@heroicons/react/16/solid";
 import { Cog6ToothIcon } from "@heroicons/react/20/solid";
-import { Avatar } from "@tw/avatar";
+import { Badge } from "@tw/badge";
 import {
   Dropdown,
   DropdownButton,
@@ -32,10 +34,8 @@ import {
   SidebarSpacer,
   Sidebar as TailwindSidebar,
 } from "@tw/sidebar";
-import ThemeSwitch from "./ThemeSwitch";
-import { useAuth } from "@/context/AuthContext";
-import { AuthMediaAvatar } from "@/components/AuthMediaAvatar";
 import { useNavigate } from "react-router";
+import ThemeSwitch from "./ThemeSwitch";
 
 export function Sidebar() {
   const { user, logout } = useAuth();
@@ -57,21 +57,29 @@ export function Sidebar() {
       </SidebarHeader>
       <SidebarBody>
         <SidebarSection>
-          <SidebarItem href="/library">
+          <SidebarItem href="/library" disabled={true}>
             <Squares2X2Icon />
-            <SidebarLabel>Library</SidebarLabel>
+            <SidebarLabel className="flex justify-between w-full">
+              Library <Badge>Soon</Badge>
+            </SidebarLabel>
           </SidebarItem>
-          <SidebarItem href="/downloads">
+          <SidebarItem href="/downloads" disabled={true}>
             <ArrowDownTrayIcon />
-            <SidebarLabel>Dowloads</SidebarLabel>
+            <SidebarLabel className="flex justify-between w-full">
+              Downloads <Badge>Soon</Badge>
+            </SidebarLabel>
           </SidebarItem>
-          <SidebarItem href="/community">
+          <SidebarItem href="/community" disabled={true}>
             <UserGroupIcon />
-            <SidebarLabel>Community</SidebarLabel>
+            <SidebarLabel className="flex justify-between w-full">
+              Community <Badge>Soon</Badge>
+            </SidebarLabel>
           </SidebarItem>
-          <SidebarItem href="/settings">
+          <SidebarItem href="/settings" disabled={true}>
             <Cog6ToothIcon />
-            <SidebarLabel>Settings</SidebarLabel>
+            <SidebarLabel className="flex justify-between w-full">
+              Settings <Badge>Soon</Badge>
+            </SidebarLabel>
           </SidebarItem>
           <SidebarItem href="/admin">
             <ShieldExclamationIcon />
@@ -106,7 +114,13 @@ export function Sidebar() {
         <Dropdown>
           <DropdownButton as={SidebarItem}>
             <span className="flex min-w-0 items-center gap-3">
-              <AuthMediaAvatar media={avatar} size={40} className="size-10" square alt={username} />
+              <AuthMediaAvatar
+                media={avatar}
+                size={40}
+                className="size-10"
+                square
+                alt={username}
+              />
               <span className="min-w-0">
                 <span className="block truncate text-sm/5 font-medium text-zinc-950 dark:text-white">
                   {username}

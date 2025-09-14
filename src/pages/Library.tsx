@@ -1,13 +1,13 @@
+import { Divider } from "@tw/divider";
 import { Heading } from "@tw/heading";
 import {
-  Pagination,
-  PaginationGap,
-  PaginationList,
-  PaginationNext,
-  PaginationPage,
-  PaginationPrevious,
+    Pagination,
+    PaginationGap,
+    PaginationList,
+    PaginationNext,
+    PaginationPage,
+    PaginationPrevious,
 } from "@tw/pagination";
-import { Divider } from "../components/tailwind/divider";
 
 export default function Library() {
   return (

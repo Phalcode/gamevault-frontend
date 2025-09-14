@@ -32,7 +32,7 @@ export function Logo({
 
   if (variant === "sidebar") {
     return (
-      <SidebarItem href="/library">
+      <SidebarItem href="/">
         <img src="/logo.svg" alt={alt} className={`${height} ${className}`} />
         <img
           key={srcText}

@@ -1,10 +1,19 @@
 import { AuthLayout } from "@tw/auth-layout";
 import { Outlet } from "react-router";
+import RedirectIfAuth from "../guards/RedirectIfAuth";
 
-export default function FullscreenLayout() {
+interface FullscreenLayoutProps {
+  guarded?: boolean; // optional prop to toggle guarding, default true
+}
+
+export default function FullscreenLayout({
+  guarded = true,
+}: FullscreenLayoutProps) {
   return (
-    <AuthLayout>
-      <Outlet />
-    </AuthLayout>
+    <RedirectIfAuth guarded={guarded}>
+      <AuthLayout>
+        <Outlet />
+      </AuthLayout>
+    </RedirectIfAuth>
   );
 }
