@@ -1,6 +1,6 @@
-import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { User } from "@/types/api";
+import { useState } from "react";
 
 interface Props {
   onClose: () => void;
@@ -8,7 +8,7 @@ interface Props {
   requiredFields?: Set<string>;
 }
 
-export function RegisterUserModal({
+export function RegisterUserModalOld({
   onClose,
   onRegistered,
   requiredFields,

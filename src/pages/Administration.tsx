@@ -31,7 +31,7 @@ import {
 import { useMemo, useState } from "react";
 import Card from "../components/Card";
 // Legacy modals (inline styles) brought back from old-src for now
-import { RegisterUserModal } from "@/components/admin/RegisterUserModal";
+import { RegisterUserModalOld } from "@/components/admin/RegisterUserModalOld";
 import { UserEditorModalOld } from "@/components/admin/UserEditorModalOld";
 
 export default function Administration() {
@@ -193,8 +193,10 @@ export default function Administration() {
                 const id = u.id ?? (u as any).ID;
                 const deleted = u.deleted_at ?? (u as any).DeletedAt;
                 const busy = opBusy[String(id)];
-                const name = u.username || (u as any).Username || "—";
-                const email = u.email || (u as any).EMail || "";
+                const name = u.username || (u as any).Username || "Unknown User";
+                const first_name = u.first_name || (u as any).FirstName;
+                const last_name = u.last_name || (u as any).LastName;
+                const email = u.email || (u as any).EMail;
                 const avatarId = (u.avatar as any)?.id || (u.avatar as any)?.ID;
                 const roleNumeric =
                   typeof u.role === "number"
@@ -213,7 +215,16 @@ export default function Administration() {
                         />
                         <div>
                           <div className="font-medium flex items-center gap-2">
-                            {name}
+                            <span>
+                              {name}{" "}
+                              {(first_name || last_name) && (
+                                <span className="font-normal">
+                                  (
+                                  {`${first_name ?? ""} ${last_name ?? ""}`.trim()}
+                                  )
+                                </span>
+                              )}
+                            </span>
                             {deleted && (
                               <span className="rounded bg-red-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-400">
                                 Deleted
@@ -262,7 +273,7 @@ export default function Administration() {
                       <div className="flex gap-2 justify-end">
                         {!deleted && (
                           <Button
-                            color="red"
+                            color="rose"
                             disabled={busy}
                             onClick={() => deleteUser(u)}
                             title="Delete User"
@@ -321,7 +332,7 @@ export default function Administration() {
               />
             )}
             {showRegister && (
-              <RegisterUserModal
+              <RegisterUserModalOld
                 onClose={() => setShowRegister(false)}
                 onRegistered={(u) => {
                   setUsers((prev) => [...prev, u]);

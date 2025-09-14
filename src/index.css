@@ -18,6 +18,6 @@
   }
 
   a {
-    @apply font-semibold text-indigo-800 dark:text-indigo-200;
+    @apply font-medium text-indigo-800 dark:text-indigo-200;
   }
 }
