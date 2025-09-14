@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from "react-router";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
 import { AuthProvider } from "./context/AuthContext";
+import { AlertDialogProvider, GlobalAlertDialogBridge } from "./context/AlertDialogContext";
 import "./index.css";
 import DashboardLayout from "./layouts/DashboardLayout";
 import FullscreenLayout from "./layouts/FullscreenLayout";
@@ -19,8 +20,10 @@ import Settings from "./pages/Settings";
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
+      <AlertDialogProvider>
+        <GlobalAlertDialogBridge />
+        <BrowserRouter>
+          <Routes>
           <Route element={<FullscreenLayout />}>
             <Route index element={<Login />} />
             <Route path="register" element={<Register />} />
@@ -34,11 +37,12 @@ createRoot(document.getElementById("root")!).render(
             <Route path="admin" element={<Administration />} />
           </Route>
 
-          <Route element={<FullscreenLayout guarded={false} />}>
-            <Route path="*" element={<NotFound />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+            <Route element={<FullscreenLayout guarded={false} />}>
+              <Route path="*" element={<NotFound />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AlertDialogProvider>
     </AuthProvider>
   </StrictMode>,
 );

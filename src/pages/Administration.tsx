@@ -3,6 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useAdminUsers } from "@/hooks/useAdminUsers";
 import { useServerStatus } from "@/hooks/useServerStatus";
 import { PermissionRole, PermissionRoleLabel } from "@/types/api";
+import { useAlertDialog } from "@/context/AlertDialogContext";
 import {
   ArrowPathIcon,
   PencilSquareIcon,
@@ -47,9 +48,13 @@ export default function Administration() {
     updateUser,
     setUsers,
   } = useAdminUsers();
-  const { serverUrl } = useAuth();
-  const { info } = useServerStatus();
+  const { serverUrl, user: currentUser, authFetch } = useAuth();
+  const { showAlert } = useAlertDialog();
+  const { info, error: statusError, loading: statusLoading } = useServerStatus();
   const version = info?.version;
+  const connected = !!serverUrl && !!info && !statusLoading && !statusError;
+  const [reindexing, setReindexing] = useState(false);
+  const [reindexError, setReindexError] = useState<string | null>(null);
 
   // State: show deleted users toggle
   const [showDeleted, setShowDeleted] = useState(false);
@@ -83,12 +88,12 @@ export default function Administration() {
           <DescriptionList>
             <DescriptionTerm>Address</DescriptionTerm>
             <DescriptionDetails>
-              {serverUrl ? (
+              {connected ? (
                 <Link href={serverUrl} target="_blank">
                   {serverUrl}
                 </Link>
               ) : (
-                <span className="text-zinc-500">Not connnected</span>
+                <span className="text-zinc-500">Not connected</span>
               )}
             </DescriptionDetails>
             <DescriptionTerm>Version</DescriptionTerm>
@@ -115,24 +120,49 @@ export default function Administration() {
             </DescriptionDetails>
           </DescriptionList>
         </Card>
-        <Card className="grid md:grid-cols-2 gap-4" title="Actions">
-          <Button
-            color="indigo"
-            onClick={() => alert("Not yet implemented")}
-            title="Reindex Games"
-            className="items-center"
-          >
-            Backup & Restore Database
-          </Button>
-          <Button
-            color="indigo"
-            onClick={() => alert("Not yet implemented")}
-            title="Reindex Games"
-            className="items-center"
-          >
-            Reindex Games
-          </Button>
-        </Card>
+        {connected && (
+          <Card className="grid md:grid-cols-2 gap-4" title="Actions">
+            <Button
+              color="indigo"
+              onClick={() => alert("Not yet implemented")}
+              title="Backup & Restore Database"
+              className="items-center"
+            >
+              Backup & Restore Database
+            </Button>
+            <Button
+              color="indigo"
+              disabled={reindexing}
+              onClick={async () => {
+                if (reindexing) return;
+                try {
+                  setReindexError(null);
+                  setReindexing(true);
+                  const base = serverUrl.replace(/\/+$/, '');
+                  
+                  const res = await authFetch(`${base}/api/games/reindex`, { method: 'PUT' });
+                  if (!res.ok) {
+                    const txt = await res.text();
+                    throw new Error(txt || `Reindex failed (${res.status})`);
+                  }
+                } catch (e: any) {
+                  setReindexError(e.message || String(e));                 
+                } finally {
+                  setReindexing(false);
+                }
+              }}
+              title="Reindex Games"
+              className="items-center"
+            >
+              {reindexing ? 'Reindexing…' : 'Reindex Games'}
+            </Button>
+            {reindexError && (
+              <div className="col-span-full text-xs text-red-500 bg-red-500/10 rounded-md px-3 py-2">
+                {reindexError}
+              </div>
+            )}
+          </Card>
+        )}
         <Card title="Users">
           {error && (
             <div className="mb-4 rounded-md bg-red-500/10 p-3 text-sm text-red-500">
@@ -246,9 +276,25 @@ export default function Administration() {
                       <Listbox
                         name="role"
                         value={roleNumeric}
-                        onChange={(val: any) =>
-                          updateUserRole(u, Number(val) as PermissionRole)
-                        }
+                        onChange={async (val: any) => {
+                          const nextRole = Number(val) as PermissionRole;
+                          if (
+                            currentUser &&
+                            (currentUser.id ?? (currentUser as any).ID) ===
+                              (u.id ?? (u as any).ID) &&
+                            nextRole !== roleNumeric
+                          ) {
+                            const proceed = await showAlert({
+                              title: "Change your own role?",
+                              description:
+                                "You're about to change your own permission role. If you lower your permissions you may lose access to parts of the administration panel immediately.",
+                              affirmativeText: "Yes, change it",
+                              negativeText: "Cancel",
+                            });
+                            if (!proceed) return; // abort
+                          }
+                          updateUserRole(u, nextRole);
+                        }}
                         disabled={!!deleted || busy}
                       >
                         {roleValues.map((r) => (
