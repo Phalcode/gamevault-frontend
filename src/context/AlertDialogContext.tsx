@@ -1,6 +1,12 @@
-import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
-import { Alert, AlertTitle, AlertDescription, AlertActions } from '@tw/alert';
-import { Button } from '@tw/button';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+} from "react";
+import { Alert, AlertTitle, AlertDescription, AlertActions } from "@tw/alert";
+import { Button } from "@tw/button";
 
 // Shape of a queued alert request
 export interface AlertDialogRequest {
@@ -21,18 +27,25 @@ interface AlertDialogContextValue {
   }) => Promise<boolean>;
 }
 
-const AlertDialogContext = createContext<AlertDialogContextValue | undefined>(undefined);
+const AlertDialogContext = createContext<AlertDialogContextValue | undefined>(
+  undefined,
+);
 
 export const useAlertDialog = () => {
   const ctx = useContext(AlertDialogContext);
-  if (!ctx) throw new Error('useAlertDialog must be used within an AlertDialogProvider');
+  if (!ctx)
+    throw new Error(
+      "useAlertDialog must be used within an AlertDialogProvider",
+    );
   return ctx;
 };
 
 /**
  * Provider renders a single alert dialog at a time; subsequent calls are queued.
  */
-export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const queueRef = useRef<AlertDialogRequest[]>([]);
   const idRef = useRef(0);
   const [, forceRerender] = useState({});
@@ -45,20 +58,23 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({ c
     forceRerender({});
   };
 
-  const showAlert = useCallback<AlertDialogContextValue['showAlert']>(({ title, description, affirmativeText = 'Confirm', negativeText }) => {
-    return new Promise<boolean>((resolve) => {
-      const request: AlertDialogRequest = {
-        id: ++idRef.current,
-        title,
-        description,
-        affirmativeText,
-        negativeText,
-        resolve,
-      };
-      queueRef.current.push(request);
-      dequeue();
-    });
-  }, []);
+  const showAlert = useCallback<AlertDialogContextValue["showAlert"]>(
+    ({ title, description, affirmativeText = "Confirm", negativeText }) => {
+      return new Promise<boolean>((resolve) => {
+        const request: AlertDialogRequest = {
+          id: ++idRef.current,
+          title,
+          description,
+          affirmativeText,
+          negativeText,
+          resolve,
+        };
+        queueRef.current.push(request);
+        dequeue();
+      });
+    },
+    [],
+  );
 
   const handleClose = (result: boolean) => {
     if (activeRef.current) {
@@ -97,7 +113,7 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 </Button>
               )}
               <Button onClick={() => handleClose(true)} autoFocus>
-                {active.affirmativeText || 'Confirm'}
+                {active.affirmativeText || "Confirm"}
               </Button>
             </AlertActions>
           </>
@@ -110,7 +126,7 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({ c
 // Optional convenience imperative API attached to window for non-hook usage (e.g., outside React tree)
 declare global {
   interface Window {
-    showAlertDialog?: AlertDialogContextValue['showAlert'];
+    showAlertDialog?: AlertDialogContextValue["showAlert"];
   }
 }
 

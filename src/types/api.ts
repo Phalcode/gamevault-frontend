@@ -16,31 +16,31 @@ export enum PermissionRole {
 }
 
 export const PermissionRoleLabel: Record<PermissionRole, string> = {
-  [PermissionRole.GUEST]: 'GUEST',
-  [PermissionRole.USER]: 'USER',
-  [PermissionRole.EDITOR]: 'EDITOR',
-  [PermissionRole.ADMIN]: 'ADMIN',
+  [PermissionRole.GUEST]: "GUEST",
+  [PermissionRole.USER]: "USER",
+  [PermissionRole.EDITOR]: "EDITOR",
+  [PermissionRole.ADMIN]: "ADMIN",
 };
 
 export function normalizePermissionRole(value: any): PermissionRole | null {
   if (value === null || value === undefined) return null;
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     if (value in PermissionRole) return value as PermissionRole;
     return null;
   }
   const s = String(value).toUpperCase();
   switch (s) {
-    case '0':
-    case 'GUEST':
+    case "0":
+    case "GUEST":
       return PermissionRole.GUEST;
-    case '1':
-    case 'USER':
+    case "1":
+    case "USER":
       return PermissionRole.USER;
-    case '2':
-    case 'EDITOR':
+    case "2":
+    case "EDITOR":
       return PermissionRole.EDITOR;
-    case '3':
-    case 'ADMIN':
+    case "3":
+    case "ADMIN":
       return PermissionRole.ADMIN;
     default:
       return null;
@@ -66,8 +66,8 @@ export interface User {
   progresses?: Progress[] | null;
   Progresses?: Progress[] | null;
   role?: PermissionRole | number | null;
-  activated?: boolean | 'activated' | 'deactivated' | null;
-  Activated?: boolean | 'activated' | 'deactivated' | null;
+  activated?: boolean | "activated" | "deactivated" | null;
+  Activated?: boolean | "activated" | "deactivated" | null;
   deleted_at?: string | null;
   DeletedAt?: string | null;
   created_at?: string | Date | null;

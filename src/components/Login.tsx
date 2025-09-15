@@ -23,7 +23,7 @@ export function Login() {
       await loginBasic({ server, username, password });
       if (!remember) {
         // If user disabled remember, clear stored refresh token
-        localStorage.removeItem('app_refresh_token');
+        localStorage.removeItem("app_refresh_token");
       }
       navigate("/library", { replace: true });
     } catch {
@@ -32,7 +32,10 @@ export function Login() {
   };
 
   return (
-    <form onSubmit={onSubmit} className="grid w-full max-w-sm grid-cols-1 gap-8">
+    <form
+      onSubmit={onSubmit}
+      className="grid w-full max-w-sm grid-cols-1 gap-8"
+    >
       <Logo variant="text" className="w-full" height="h-full" />
       <Heading>Sign in to your account</Heading>
       <Field>
@@ -73,8 +76,9 @@ export function Login() {
             name="remember"
             checked={remember}
             onChange={(ev: any) => {
-              const checked = (ev?.target as HTMLInputElement | undefined)?.checked;
-              if (typeof checked === 'boolean') setRemember(checked);
+              const checked = (ev?.target as HTMLInputElement | undefined)
+                ?.checked;
+              if (typeof checked === "boolean") setRemember(checked);
             }}
           />
           <Label>Remember me</Label>

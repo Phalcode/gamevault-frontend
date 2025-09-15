@@ -37,6 +37,7 @@ The UI has been reconnected to the original authentication and user management l
 - Admin Users page (`src/pages/Administration.tsx`) fetches real users and supports activation toggling, role changes, deletion and recovery through `useAdminUsers` (`src/hooks/useAdminUsers.ts`).
 
 Persistence keys:
+
 - `app_refresh_token` (refresh token)
 - `app_server_url` (last used server base URL)
 

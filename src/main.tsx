@@ -4,7 +4,10 @@ import { BrowserRouter, Route, Routes } from "react-router";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
 import { AuthProvider } from "./context/AuthContext";
-import { AlertDialogProvider, GlobalAlertDialogBridge } from "./context/AlertDialogContext";
+import {
+  AlertDialogProvider,
+  GlobalAlertDialogBridge,
+} from "./context/AlertDialogContext";
 import "./index.css";
 import DashboardLayout from "./layouts/DashboardLayout";
 import FullscreenLayout from "./layouts/FullscreenLayout";
@@ -24,18 +27,18 @@ createRoot(document.getElementById("root")!).render(
         <GlobalAlertDialogBridge />
         <BrowserRouter>
           <Routes>
-          <Route element={<FullscreenLayout />}>
-            <Route index element={<Login />} />
-            <Route path="register" element={<Register />} />
-          </Route>
+            <Route element={<FullscreenLayout />}>
+              <Route index element={<Login />} />
+              <Route path="register" element={<Register />} />
+            </Route>
 
-          <Route element={<DashboardLayout />}>
-            <Route index path="library" element={<Library />} />
-            <Route path="downloads" element={<Downloads />} />
-            <Route path="community" element={<Community />} />
-            <Route path="settings" element={<Settings />} />
-            <Route path="admin" element={<Administration />} />
-          </Route>
+            <Route element={<DashboardLayout />}>
+              <Route index path="library" element={<Library />} />
+              <Route path="downloads" element={<Downloads />} />
+              <Route path="community" element={<Community />} />
+              <Route path="settings" element={<Settings />} />
+              <Route path="admin" element={<Administration />} />
+            </Route>
 
             <Route element={<FullscreenLayout guarded={false} />}>
               <Route path="*" element={<NotFound />} />

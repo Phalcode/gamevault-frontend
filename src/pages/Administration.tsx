@@ -1,9 +1,9 @@
 import { AuthMediaAvatar } from "@/components/AuthMediaAvatar";
+import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminUsers } from "@/hooks/useAdminUsers";
 import { useServerStatus } from "@/hooks/useServerStatus";
 import { PermissionRole, PermissionRoleLabel } from "@/types/api";
-import { useAlertDialog } from "@/context/AlertDialogContext";
 import {
   ArrowPathIcon,
   PencilSquareIcon,
@@ -51,7 +51,11 @@ export default function Administration() {
   } = useAdminUsers();
   const { serverUrl, user: currentUser, authFetch } = useAuth();
   const { showAlert } = useAlertDialog();
-  const { info, error: statusError, loading: statusLoading } = useServerStatus();
+  const {
+    info,
+    error: statusError,
+    loading: statusLoading,
+  } = useServerStatus();
   const version = info?.version;
   const connected = !!serverUrl && !!info && !statusLoading && !statusError;
   const [reindexing, setReindexing] = useState(false);
@@ -139,15 +143,17 @@ export default function Administration() {
                 try {
                   setReindexError(null);
                   setReindexing(true);
-                  const base = serverUrl.replace(/\/+$/, '');
-                  
-                  const res = await authFetch(`${base}/api/games/reindex`, { method: 'PUT' });
+                  const base = serverUrl.replace(/\/+$/, "");
+
+                  const res = await authFetch(`${base}/api/games/reindex`, {
+                    method: "PUT",
+                  });
                   if (!res.ok) {
                     const txt = await res.text();
                     throw new Error(txt || `Reindex failed (${res.status})`);
                   }
                 } catch (e: any) {
-                  setReindexError(e.message || String(e));                 
+                  setReindexError(e.message || String(e));
                 } finally {
                   setReindexing(false);
                 }
@@ -155,7 +161,7 @@ export default function Administration() {
               title="Reindex Games"
               className="items-center"
             >
-              {reindexing ? 'Reindexing…' : 'Reindex Games'}
+              {reindexing ? "Reindexing…" : "Reindex Games"}
             </Button>
             {reindexError && (
               <div className="col-span-full text-xs text-red-500 bg-red-500/10 rounded-md px-3 py-2">

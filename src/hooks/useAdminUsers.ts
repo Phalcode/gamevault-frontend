@@ -262,7 +262,6 @@ export function useAdminUsers(): UseAdminUsersResult {
     );
     setUserOpBusy(uid, true);
     try {
-
       // TODO: Handle Self-Degradation
 
       const res = await authFetch(`${safeBase}/api/users/${uid}`, {

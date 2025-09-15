@@ -10,6 +10,18 @@
 @theme {
   --font-sans: Inter, sans-serif;
   --font-sans--font-feature-settings: "cv11";
+
+  --color-rose-50: #fcf4f4;
+  --color-rose-100: #f9e7e7;
+  --color-rose-200: #f4d4d4;
+  --color-rose-300: #ecb5b5;
+  --color-rose-400: #df8a8a;
+  --color-rose-500: #cd5c5c;
+  --color-rose-600: #ba4848;
+  --color-rose-700: #9c3939;
+  --color-rose-800: #823232;
+  --color-rose-900: #6d2f2f;
+  --color-rose-950: #3a1515;
 }
 
 @layer base {

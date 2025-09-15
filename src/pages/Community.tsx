@@ -9,5 +9,4 @@ export default function Community() {
       <h1>Community is Coming Soon...</h1>
     </div>
   );
-  }
-  
+}
