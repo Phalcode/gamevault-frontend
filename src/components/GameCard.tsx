@@ -1,12 +1,12 @@
-import { AuthMediaAvatar } from '@/components/AuthMediaAvatar';
-import { getGameCoverMediaId, Game } from '@/hooks/useGames';
-import { Dropdown, DropdownButton, DropdownItem, DropdownLabel, DropdownMenu } from '@tw/dropdown';
-import { Button } from '@tw/button';
-import { ArrowDownTrayIcon } from '@heroicons/react/16/solid';
+import { Media } from '@/components/Media';
 import { useAuth } from '@/context/AuthContext';
-import { useCallback } from 'react';
 import { useDownloads } from '@/context/DownloadContext';
+import { Game, getGameCoverMediaId } from '@/hooks/useGames';
+import { ArrowDownTrayIcon } from '@heroicons/react/16/solid';
+import { Button } from '@tw/button';
+import { Dropdown, DropdownButton, DropdownItem, DropdownLabel, DropdownMenu } from '@tw/dropdown';
 import clsx from 'clsx';
+import { useCallback } from 'react';
 
 export function GameCard({ game, onClick }: { game: Game; onClick?: () => void }) {
   const coverId = getGameCoverMediaId(game);
@@ -74,10 +74,10 @@ export function GameCard({ game, onClick }: { game: Game; onClick?: () => void }
     >
       <div className="relative aspect-[3/4] w-full bg-bg-muted flex items-center justify-center overflow-hidden">
         {coverId ? (
-          <AuthMediaAvatar
+          <Media
             media={{ id: coverId } as any}
             size={300}
-            className="h-full w-full object-cover rounded-none"
+            className="h-full w-full object-contain rounded-none"
             square
             alt={game.title}
           />

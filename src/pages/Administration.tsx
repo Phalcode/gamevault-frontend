@@ -1,4 +1,4 @@
-import { AuthMediaAvatar } from "@/components/AuthMediaAvatar";
+import { Media } from "@/components/Media";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminUsers } from "@/hooks/useAdminUsers";
@@ -242,7 +242,7 @@ export default function Administration() {
                   <TableRow key={id} className={deleted ? "opacity-60" : ""}>
                     <TableCell>
                       <div className="flex items-center gap-4">
-                        <AuthMediaAvatar
+                        <Media
                           media={u.avatar as any}
                           size={48}
                           className="size-12"

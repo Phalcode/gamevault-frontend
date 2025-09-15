@@ -1,4 +1,4 @@
-import { AuthMediaAvatar } from "@/components/AuthMediaAvatar";
+import { Media } from "@/components/Media";
 import { useAuth } from "@/context/AuthContext";
 import { Logo } from "@components/Logo";
 import {
@@ -114,7 +114,7 @@ export function Sidebar() {
         <Dropdown>
           <DropdownButton as={SidebarItem}>
             <span className="flex min-w-0 items-center gap-3">
-              <AuthMediaAvatar
+              <Media
                 media={avatar}
                 size={40}
                 className="size-10"

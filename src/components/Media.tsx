@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { Media } from "@/types/api";
+import { Media as MediaType } from "@/types/api";
+import { useEffect, useRef, useState } from "react";
 
 interface Props {
-  media?: Media | null;
+  media?: MediaType | null;
   size?: number;
   className?: string;
   alt?: string;
@@ -11,7 +11,7 @@ interface Props {
   fallback?: React.ReactNode;
 }
 
-export function AuthMediaAvatar({
+export function Media({
   media,
   size = 40,
   className,
