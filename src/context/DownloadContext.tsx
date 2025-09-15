@@ -5,11 +5,11 @@ export interface ActiveDownload {
   gameId: number;
   filename: string;
   received: number;
-  total: number | null; // null when unknown
-  progress: number | null; // 0..1 or null
+  total: number | null;
+  progress: number | null;
   abortController: AbortController;
   startedAt: number;
-  speedBps?: number; // updated periodically
+  speedBps?: number;
   status: 'downloading' | 'completed' | 'error' | 'aborted';
   error?: string;
 }
@@ -18,23 +18,12 @@ interface DownloadContextValue {
   downloads: Record<number, ActiveDownload>;
   startDownload: (gameId: number, filename: string) => void;
   cancelDownload: (gameId: number) => void;
-  /**
-   * Configured download speed limit in KB/sec (decimal, 0 = unlimited).
-   * New canonical canonical unit: KB/s. For backward compatibility we still expose derived bytes value.
-   */
   speedLimitKB: number;
-  /** Alias (legacy semantic name). Represents same KB value. */
-  speedLimit: number;
-  /** Derived bytes/sec (legacy expectation). Do NOT persist with this. */
-  speedLimitBytes: number;
   setSpeedLimitKB: (v: number) => void;
-  /** Deprecated aliases */
-  setSpeedLimit: (v: number) => void;
-  setSpeedLimitBytes: (v: number) => void;
   formatBytes: (bytes: number) => string;
   formatSpeed: (bps?: number) => string;
-  formatKBps: (bps?: number) => string; // raw KB/s (decimal, no scaling beyond KB)
-  formatLimit: (kbPerSec: number) => string; // scale KB value to KB/MB/GB per second
+  formatKBps: (bps?: number) => string;
+  formatLimit: (kbPerSec: number) => string;
 }
 
 const DownloadContext = createContext<DownloadContextValue | null>(null);
@@ -43,29 +32,24 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const { serverUrl, authFetch } = useAuth();
   const [downloads, setDownloads] = useState<Record<number, ActiveDownload>>({});
   const [speedLimitKB, setSpeedLimitKBState] = useState<number>(() => {
-    // New key storing KB/s directly
     const NEW_KEY = 'download_speed_limit_kb';
     const existing = localStorage.getItem(NEW_KEY);
     if (existing) {
       const parsed = parseInt(existing, 10);
       return Number.isNaN(parsed) ? 0 : parsed;
     }
-    // Migration from legacy bytes/sec key
     const legacy = localStorage.getItem('download_speed_limit');
     if (legacy) {
       const legacyBytes = parseInt(legacy, 10);
       if (!Number.isNaN(legacyBytes) && legacyBytes > 0) {
         const converted = Math.max(1, Math.round(legacyBytes / 1000)); // decimal KB
         localStorage.setItem(NEW_KEY, String(converted));
-        // Optionally remove old key to avoid re-migration
-        // localStorage.removeItem('download_speed_limit');
         return converted;
       }
     }
     return 0;
   });
   const speedSamplesRef = useRef<Record<number, { t: number; bytes: number }[]>>({});
-  // Internal helpers for reuse
   const SPEED_WINDOW_MS = 5000;
   const UI_THROTTLE_MS = 200;
   const trimSamples = (samples: { t: number; bytes: number }[], now: number) => {
@@ -107,7 +91,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
   const startDownload = useCallback(async (gameId: number, filename: string) => {
     if (!serverUrl) return;
-    if (downloads[gameId]?.status === 'downloading') return; // already downloading
+    if (downloads[gameId]?.status === 'downloading') return;
     const base = serverUrl.replace(/\/$/, '');
     const url = `${base}/api/games/${gameId}/download`;
     const ac = new AbortController();
@@ -127,7 +111,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     try {
       const res = await authFetch(url, {
         method: 'GET',
-        // Header now expects KB/sec directly per updated semantics.
         headers: { 'X-Download-Speed-Limit': String(speedLimitKB) },
         signal: ac.signal
       });
@@ -181,18 +164,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     setSpeedLimitKBState(val);
     localStorage.setItem('download_speed_limit_kb', String(val));
   }, []);
-  // Backward compatible setters (deprecated semantics). These NOW expect KB values.
-  const setSpeedLimit = setSpeedLimitKB; // alias
-  const setSpeedLimitBytes = (v: number) => setSpeedLimitKB(Math.round(v / 1000));
 
-  // Sync with external changes (other tabs or manual localStorage edits)
   useEffect(() => {
     const handler = (e: StorageEvent) => {
       if (e.key === 'download_speed_limit_kb' && e.newValue !== null) {
         const parsed = parseInt(e.newValue, 10);
         if (!Number.isNaN(parsed)) setSpeedLimitKBState(parsed);
       } else if (e.key === 'download_speed_limit' && e.newValue !== null) {
-        // Legacy key changed externally -> migrate again
         const legacyBytes = parseInt(e.newValue, 10);
         if (!Number.isNaN(legacyBytes)) {
           const converted = Math.max(legacyBytes > 0 ? 1 : 0, Math.round(legacyBytes / 1000));
@@ -239,11 +217,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     startDownload,
     cancelDownload,
     speedLimitKB,
-    speedLimit: speedLimitKB,
-    speedLimitBytes: speedLimitKB * 1000,
     setSpeedLimitKB,
-    setSpeedLimit,
-    setSpeedLimitBytes,
     formatBytes,
     formatSpeed,
     formatKBps,
