@@ -93,13 +93,13 @@ export function Sidebar() {
             <LifebuoyIcon />
             <SidebarLabel>Documentation</SidebarLabel>
           </SidebarItem>
-          <SidebarItem>
+          <SidebarItem href="https://discord.gg/NEdNen2dSu" target="_blank">
             <ChatBubbleLeftRightIcon />
             <SidebarLabel>Discord</SidebarLabel>
           </SidebarItem>
-          <SidebarItem href="/news">
+          <SidebarItem href="/news" className="flex justify-between w-full">
             <NewspaperIcon />
-            <SidebarLabel>News</SidebarLabel>
+            News <Badge>Soon</Badge>
           </SidebarItem>
           <SidebarItem href="https://gamevau.lt/gamevault-plus" target="_blank">
             <RocketLaunchIcon />
