@@ -319,7 +319,8 @@ export default function Administration() {
                       <div className="flex gap-2 justify-end">
                         {!deleted && (
                           <Button
-                            color="rose"
+                            color="red"
+                            className="!bg-[indianred] !border-[indianred] hover:!bg-[indianred]/90 focus:!ring-[indianred]"
                             disabled={busy}
                             onClick={() => deleteUser(u)}
                             title="Delete User"
