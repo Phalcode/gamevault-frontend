@@ -185,7 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const headers = new Headers(init?.headers || {});
       if (token && !headers.has("Authorization"))
         headers.set("Authorization", "Bearer " + token);
-      if (!headers.has("Accept")) headers.set("Accept", "application/json");
+      headers.set("Accept", "*/*");
       return fetch(input, { ...(init || {}), headers });
     },
     [ensureFreshToken],
