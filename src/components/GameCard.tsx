@@ -11,7 +11,7 @@ import clsx from 'clsx';
 export function GameCard({ game, onClick }: { game: Game; onClick?: () => void }) {
   const coverId = getGameCoverMediaId(game);
   const { serverUrl } = useAuth();
-  const { downloads, startDownload, cancelDownload, formatSpeed } = useDownloads();
+  const { downloads, startDownload, cancelDownload, formatSpeed, speedLimitKB, formatLimit } = useDownloads() as any;
   const dl = downloads[game.id];
   const downloading = dl?.status === 'downloading';
   const progress = dl?.progress ?? null;
@@ -108,12 +108,20 @@ export function GameCard({ game, onClick }: { game: Game; onClick?: () => void }
               onClick={() => cancelDownload(game.id)}
               className="!px-2 !py-1 h-8 text-[11px] font-medium flex items-center gap-1 max-w-[70%] sm:max-w-none truncate"
               aria-label="Cancel download"
-              title={downloads[game.id]?.speedBps ? `Cancel Download (${formatSpeed(downloads[game.id]?.speedBps)})` : 'Cancel Download'}
+              title={(() => {
+                const s = downloads[game.id]?.speedBps;
+                if (!s) return 'Cancel Download';
+                const parts = [formatSpeed(s)];
+                if (speedLimitKB > 0) parts.push(`limit ${formatLimit(speedLimitKB)}`);
+                return `Cancel Download (${parts.join(' | ')})`;
+              })()}
             >
               <span className="truncate flex items-center gap-1">
                 <span>Cancel{progress !== null && progress >= 0 ? ` ${Math.floor(progress * 100)}%` : ''}</span>
                 {downloads[game.id]?.speedBps ? (
-                  <span className="hidden md:inline text-[10px] opacity-80 whitespace-nowrap">{formatSpeed(downloads[game.id]?.speedBps)}</span>
+                  <span className="hidden md:inline text-[10px] opacity-80 whitespace-nowrap">
+                    {formatSpeed(downloads[game.id]?.speedBps)}{speedLimitKB > 0 && <> of {formatLimit(speedLimitKB)}</>}
+                  </span>
                 ) : null}
               </span>
             </Button>

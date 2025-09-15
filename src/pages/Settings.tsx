@@ -4,9 +4,9 @@ import { Input } from "@tw/input";
 import { useDownloads } from "@/context/DownloadContext";
 
 export default function Settings() {
-  const { speedLimit, setSpeedLimit, formatSpeed, formatBytes } = useDownloads();
-  // speedLimit is stored internally as bytes/sec. We present KB/s to the user.
-  const kbValue = speedLimit > 0 ? Math.round(speedLimit / 1000) : 0; // decimal KB
+  const { speedLimitKB, setSpeedLimitKB, formatSpeed, formatLimit } = useDownloads() as any;
+  // speedLimitKB stored directly as KB/s (decimal). 0 = unlimited.
+  const kbValue = speedLimitKB;
 
   return (
     <div className="flex flex-col h-full overflow-auto pb-12">
@@ -26,18 +26,17 @@ export default function Settings() {
                   onChange={(e: any) => {
                     const raw = parseInt(e.target.value || '0', 10);
                     if (Number.isNaN(raw) || raw <= 0) {
-                      setSpeedLimit(0); // unlimited
+                      setSpeedLimitKB(0); // unlimited
                     } else {
-                      setSpeedLimit(raw * 1000); // store decimal KB as bytes/sec
+                      setSpeedLimitKB(raw); // store raw KB value
                     }
                   }}
                   placeholder="0 (unlimited)"
                   className="max-w-56"
                 />
-                {speedLimit > 0 && (
+                {speedLimitKB > 0 && (
                   <span className="text-[10px] text-fg-muted flex flex-col leading-3">
-                    <span>{kbValue} KB/s</span>
-                    <span className="opacity-70">≈ {formatSpeed(speedLimit)}</span>
+                    <span>{formatLimit(speedLimitKB)}</span>                   
                   </span>
                 )}
               </div>

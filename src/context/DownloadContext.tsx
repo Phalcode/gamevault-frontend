@@ -18,10 +18,23 @@ interface DownloadContextValue {
   downloads: Record<number, ActiveDownload>;
   startDownload: (gameId: number, filename: string) => void;
   cancelDownload: (gameId: number) => void;
-  speedLimit: number; // bytes/sec (0 = unlimited)
+  /**
+   * Configured download speed limit in KB/sec (decimal, 0 = unlimited).
+   * New canonical canonical unit: KB/s. For backward compatibility we still expose derived bytes value.
+   */
+  speedLimitKB: number;
+  /** Alias (legacy semantic name). Represents same KB value. */
+  speedLimit: number;
+  /** Derived bytes/sec (legacy expectation). Do NOT persist with this. */
+  speedLimitBytes: number;
+  setSpeedLimitKB: (v: number) => void;
+  /** Deprecated aliases */
   setSpeedLimit: (v: number) => void;
+  setSpeedLimitBytes: (v: number) => void;
   formatBytes: (bytes: number) => string;
   formatSpeed: (bps?: number) => string;
+  formatKBps: (bps?: number) => string; // raw KB/s (decimal, no scaling beyond KB)
+  formatLimit: (kbPerSec: number) => string; // scale KB value to KB/MB/GB per second
 }
 
 const DownloadContext = createContext<DownloadContextValue | null>(null);
@@ -29,12 +42,49 @@ const DownloadContext = createContext<DownloadContextValue | null>(null);
 export function DownloadProvider({ children }: { children: ReactNode }) {
   const { serverUrl, authFetch } = useAuth();
   const [downloads, setDownloads] = useState<Record<number, ActiveDownload>>({});
-  const [speedLimit, setSpeedLimitState] = useState<number>(() => {
-    const stored = localStorage.getItem('download_speed_limit');
-    const parsed = stored ? parseInt(stored, 10) : 0;
-    return Number.isNaN(parsed) ? 0 : parsed;
+  const [speedLimitKB, setSpeedLimitKBState] = useState<number>(() => {
+    // New key storing KB/s directly
+    const NEW_KEY = 'download_speed_limit_kb';
+    const existing = localStorage.getItem(NEW_KEY);
+    if (existing) {
+      const parsed = parseInt(existing, 10);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+    // Migration from legacy bytes/sec key
+    const legacy = localStorage.getItem('download_speed_limit');
+    if (legacy) {
+      const legacyBytes = parseInt(legacy, 10);
+      if (!Number.isNaN(legacyBytes) && legacyBytes > 0) {
+        const converted = Math.max(1, Math.round(legacyBytes / 1000)); // decimal KB
+        localStorage.setItem(NEW_KEY, String(converted));
+        // Optionally remove old key to avoid re-migration
+        // localStorage.removeItem('download_speed_limit');
+        return converted;
+      }
+    }
+    return 0;
   });
   const speedSamplesRef = useRef<Record<number, { t: number; bytes: number }[]>>({});
+  // Internal helpers for reuse
+  const SPEED_WINDOW_MS = 5000;
+  const UI_THROTTLE_MS = 200;
+  const trimSamples = (samples: { t: number; bytes: number }[], now: number) => {
+    while (samples.length && now - samples[0].t > SPEED_WINDOW_MS) samples.shift();
+  };
+  const computeSpeedBps = (samples: { t: number; bytes: number }[], received: number, now: number): number | undefined => {
+    if (!samples.length) return undefined;
+    const first = samples[0];
+    const elapsedSec = (now - first.t) / 1000;
+    if (elapsedSec <= 0) return undefined;
+    return (received - first.bytes) / elapsedSec;
+  };
+  const precision = (v: number) => (v < 10 ? 2 : v < 100 ? 1 : 0);
+  const trimZeros = (s: string) => (s.includes('.') ? s.replace(/\.?0+$/,'') : s);
+  const scaleDecimal = (value: number, base: number, units: string[]) => {
+    let v = value; let u = 0;
+    while (v >= base && u < units.length - 1) { v /= base; u++; }
+    return { value: v, unit: units[u] };
+  };
 
   const updateDownload = useCallback((gameId: number, patch: Partial<ActiveDownload>) => {
     setDownloads(prev => {
@@ -52,6 +102,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       return { ...prev, [gameId]: { ...d, status: 'aborted' } };
     });
   }, []);
+
+  const lastUpdateRef = useRef<Record<number, number>>({});
 
   const startDownload = useCallback(async (gameId: number, filename: string) => {
     if (!serverUrl) return;
@@ -75,7 +127,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     try {
       const res = await authFetch(url, {
         method: 'GET',
-        headers: { 'X-Download-Speed-Limit': String(speedLimit) },
+        // Header now expects KB/sec directly per updated semantics.
+        headers: { 'X-Download-Speed-Limit': String(speedLimitKB) },
         signal: ac.signal
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -95,13 +148,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           const now = performance.now();
           const samples = speedSamplesRef.current[gameId];
           samples.push({ t: now, bytes: received });
-          // keep last 5s of samples
-          while (samples.length && now - samples[0].t > 5000) samples.shift();
-          const first = samples[0];
-            const elapsed = (now - first.t) / 1000;
-          const deltaBytes = received - first.bytes;
-          const speedBps = elapsed > 0 ? deltaBytes / elapsed : undefined;
-          updateDownload(gameId, { received, progress, speedBps });
+          trimSamples(samples, now);
+          const speedBps = computeSpeedBps(samples, received, now);
+          const last = lastUpdateRef.current[gameId] || 0;
+          if (now - last > UI_THROTTLE_MS || progress === 1) {
+            lastUpdateRef.current[gameId] = now;
+            updateDownload(gameId, { received, progress, speedBps });
+          }
         }
       }
       const blob = new Blob(chunks as BlobPart[]);
@@ -121,20 +174,31 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         updateDownload(gameId, { status: 'error', error: String(err) });
       }
     }
-  }, [serverUrl, authFetch, downloads, updateDownload, speedLimit]);
+  }, [serverUrl, authFetch, downloads, updateDownload, speedLimitKB]);
 
-  const setSpeedLimit = useCallback((v: number) => {
+  const setSpeedLimitKB = useCallback((v: number) => {
     const val = Math.max(0, v || 0);
-    setSpeedLimitState(val);
-    localStorage.setItem('download_speed_limit', String(val));
+    setSpeedLimitKBState(val);
+    localStorage.setItem('download_speed_limit_kb', String(val));
   }, []);
+  // Backward compatible setters (deprecated semantics). These NOW expect KB values.
+  const setSpeedLimit = setSpeedLimitKB; // alias
+  const setSpeedLimitBytes = (v: number) => setSpeedLimitKB(Math.round(v / 1000));
 
   // Sync with external changes (other tabs or manual localStorage edits)
   useEffect(() => {
     const handler = (e: StorageEvent) => {
-      if (e.key === 'download_speed_limit' && e.newValue !== null) {
+      if (e.key === 'download_speed_limit_kb' && e.newValue !== null) {
         const parsed = parseInt(e.newValue, 10);
-        if (!Number.isNaN(parsed)) setSpeedLimitState(parsed);
+        if (!Number.isNaN(parsed)) setSpeedLimitKBState(parsed);
+      } else if (e.key === 'download_speed_limit' && e.newValue !== null) {
+        // Legacy key changed externally -> migrate again
+        const legacyBytes = parseInt(e.newValue, 10);
+        if (!Number.isNaN(legacyBytes)) {
+          const converted = Math.max(legacyBytes > 0 ? 1 : 0, Math.round(legacyBytes / 1000));
+          setSpeedLimitKBState(converted);
+          localStorage.setItem('download_speed_limit_kb', String(converted));
+        }
       }
     };
     window.addEventListener('storage', handler);
@@ -142,35 +206,48 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const formatBytes = useCallback((bytes: number) => {
-    if (!isFinite(bytes)) return '0 B';
+    if (!isFinite(bytes) || bytes <= 0) return '0 B';
     if (bytes < 1024) return `${bytes} B`;
     const units = ['KB','MB','GB','TB','PB'];
-    let v = bytes / 1024;
-    let u = 0;
+    let v = bytes / 1024; let u = 0;
     while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
-    const prec = v < 10 ? 2 : v < 100 ? 1 : 0;
-    return `${v.toFixed(prec)} ${units[u]}`;
+    return `${trimZeros(v.toFixed(precision(v)))} ${units[u]}`;
   }, []);
 
   const formatSpeed = useCallback((bps?: number) => {
     if (bps === undefined || bps === null || !isFinite(bps)) return '';
     if (bps < 1000) return `${bps.toFixed(0)} B/s`;
-    const units = ['KB','MB','GB','TB','PB'];
-    let v = bps / 1000;
-    let u = 0;
-    while (v >= 1000 && u < units.length - 1) { v /= 1000; u++; }
-    const prec = v < 10 ? 2 : v < 100 ? 1 : 0;
-    return `${v.toFixed(prec)} ${units[u]}/s`;
+    // decimal scaling
+    let { value: v, unit } = scaleDecimal(bps / 1000, 1000, ['KB','MB','GB','TB','PB']);
+    return `${trimZeros(v.toFixed(precision(v)))} ${unit}/s`;
+  }, []);
+
+  const formatKBps = useCallback((bps?: number) => {
+    if (bps === undefined || bps === null || !isFinite(bps) || bps <= 0) return '0 KB/s';
+    const kb = bps / 1000;
+    return `${trimZeros(kb.toFixed(precision(kb)))} KB/s`;
+  }, []);
+
+  const formatLimit = useCallback((kbPerSec: number) => {
+    if (!kbPerSec || kbPerSec <= 0) return 'Unlimited';
+    let { value: v, unit } = scaleDecimal(kbPerSec, 1000, ['KB/s','MB/s','GB/s','TB/s']);
+    return `${trimZeros(v.toFixed(precision(v)))} ${unit}`;
   }, []);
 
   const value: DownloadContextValue = {
     downloads,
     startDownload,
     cancelDownload,
-    speedLimit,
+    speedLimitKB,
+    speedLimit: speedLimitKB,
+    speedLimitBytes: speedLimitKB * 1000,
+    setSpeedLimitKB,
     setSpeedLimit,
+    setSpeedLimitBytes,
     formatBytes,
-    formatSpeed
+    formatSpeed,
+    formatKBps,
+    formatLimit
   };
   return <DownloadContext.Provider value={value}>{children}</DownloadContext.Provider>;
 }
