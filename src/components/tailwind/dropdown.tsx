@@ -14,7 +14,9 @@ export function DropdownButton<T extends React.ElementType = typeof Button>({
   as = Button,
   ...props
 }: { className?: string } & Omit<Headless.MenuButtonProps<T>, "className">) {
-  return <Headless.MenuButton as={as} {...props} />;
+  return (
+    <Headless.MenuButton as={as} {...props} className={"cursor-pointer"} />
+  );
 }
 
 export function DropdownMenu({
@@ -66,7 +68,7 @@ export function DropdownItem({
   let classes = clsx(
     className,
     // Base styles
-    "group cursor-default rounded-lg px-3.5 py-2.5 focus:outline-hidden sm:px-3 sm:py-1.5",
+    "group cursor-pointer rounded-lg px-3.5 py-2.5 focus:outline-hidden sm:px-3 sm:py-1.5",
     // Text styles
     "text-left text-base/6 text-zinc-950 sm:text-sm/6 dark:text-white forced-colors:text-[CanvasText]",
     // Focus

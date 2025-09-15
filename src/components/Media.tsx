@@ -1,6 +1,6 @@
 import { useAuth } from "@/context/AuthContext";
 import { Media as MediaType } from "@/types/api";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 interface Props {
   media?: MediaType | null;
@@ -9,6 +9,7 @@ interface Props {
   alt?: string;
   square?: boolean;
   fallback?: React.ReactNode;
+  onClick?: React.MouseEventHandler;
 }
 
 export function Media({
@@ -18,6 +19,7 @@ export function Media({
   alt = "",
   square = false,
   fallback,
+  onClick = () => {},
 }: Props) {
   const imageId = media?.ID ?? (media as any)?.id;
   const { authFetch, serverUrl } = useAuth();
@@ -111,6 +113,7 @@ export function Media({
           alt={alt}
           style={{ width: "100%", height: "100%", objectFit: "cover" }}
           draggable={false}
+          onClick={onClick}
         />
       )}
       {fallback && !blobUrl && !error && (
