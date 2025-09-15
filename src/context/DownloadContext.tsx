@@ -12,6 +12,7 @@ export interface ActiveDownload {
   speedBps?: number;
   status: 'downloading' | 'completed' | 'error' | 'aborted';
   error?: string;
+  fileWriter?: { close(): Promise<void>; abort(): Promise<void>; }; 
 }
 
 interface DownloadContextValue {
@@ -83,6 +84,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       const d = prev[gameId];
       if (!d) return prev;
       d.abortController.abort();
+      if (d.fileWriter) {       
+        d.fileWriter.abort().catch(() => {});
+      }
       return { ...prev, [gameId]: { ...d, status: 'aborted' } };
     });
   }, []);
@@ -109,6 +113,20 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     speedSamplesRef.current[gameId] = [{ t: performance.now(), bytes: 0 }];
 
     try {
+      let writer: { write(data: any): Promise<void>; close(): Promise<void>; abort(): Promise<void>; } | null = null;
+      if (typeof (window as any).showSaveFilePicker === 'function') {
+        try {
+          const handle = await (window as any).showSaveFilePicker({ suggestedName: filename });
+          writer = await handle.createWritable();
+          if (writer) updateDownload(gameId, { fileWriter: writer });
+        } catch (pickErr: any) {
+          if (pickErr?.name === 'AbortError') {
+            updateDownload(gameId, { status: 'aborted' });
+            return;
+          }
+          throw pickErr;
+        }
+      }
       const res = await authFetch(url, {
         method: 'GET',
         headers: { 'X-Download-Speed-Limit': String(speedLimitKB) },
@@ -119,13 +137,14 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       if (total > 0) updateDownload(gameId, { total });
       const reader = res.body?.getReader();
       if (!reader) throw new Error('Streaming not supported');
-      const chunks: (Uint8Array | ArrayBuffer)[] = [];
+      const chunks: (Uint8Array | ArrayBuffer)[] = writer ? [] : [];
       let received = 0;
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         if (value) {
-          chunks.push(value);
+          if (writer) await writer.write(value);
+          else chunks.push(value);
           received += value.length;
           const progress = total > 0 ? received / total : null;
           const now = performance.now();
@@ -140,15 +159,18 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           }
         }
       }
-      const blob = new Blob(chunks as BlobPart[]);
-      const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(objectUrl);
+      if (writer) await writer.close();
+      else {
+        const blob = new Blob(chunks as BlobPart[]);
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+      }
       updateDownload(gameId, { status: 'completed', progress: 1 });
     } catch (err: any) {
       if (err?.name === 'AbortError') {
