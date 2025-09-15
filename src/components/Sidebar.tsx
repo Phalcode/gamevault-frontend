@@ -57,10 +57,10 @@ export function Sidebar() {
       </SidebarHeader>
       <SidebarBody>
         <SidebarSection>
-          <SidebarItem href="/library" disabled={true}>
+          <SidebarItem href="/library">
             <Squares2X2Icon />
             <SidebarLabel className="flex justify-between w-full">
-              Library <Badge>Soon</Badge>
+              Library
             </SidebarLabel>
           </SidebarItem>
           <SidebarItem href="/downloads" disabled={true}>
@@ -75,10 +75,10 @@ export function Sidebar() {
               Community <Badge>Soon</Badge>
             </SidebarLabel>
           </SidebarItem>
-          <SidebarItem href="/settings" disabled={true}>
+          <SidebarItem href="/settings">
             <Cog6ToothIcon />
             <SidebarLabel className="flex justify-between w-full">
-              Settings <Badge>Soon</Badge>
+              Settings
             </SidebarLabel>
           </SidebarItem>
           <SidebarItem href="/admin">

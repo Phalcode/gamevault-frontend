@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from "react-router";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
 import { AuthProvider } from "./context/AuthContext";
+import { DownloadProvider } from "./context/DownloadContext";
 import {
   AlertDialogProvider,
   GlobalAlertDialogBridge,
@@ -23,6 +24,7 @@ import Settings from "./pages/Settings";
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <AuthProvider>
+      <DownloadProvider>
       <AlertDialogProvider>
         <GlobalAlertDialogBridge />
         <BrowserRouter>
@@ -46,6 +48,7 @@ createRoot(document.getElementById("root")!).render(
           </Routes>
         </BrowserRouter>
       </AlertDialogProvider>
+      </DownloadProvider>
     </AuthProvider>
   </StrictMode>,
 );
