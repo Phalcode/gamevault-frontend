@@ -2,7 +2,7 @@
 FROM guergeiro/pnpm:lts-latest-alpine AS build
 WORKDIR /build
 COPY . .
-RUN pnpm run build
+RUN pnpm i && pnpm build
 
 # Stage 2
 FROM nginx:stable-alpine AS run
