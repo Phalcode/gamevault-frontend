@@ -15,6 +15,6 @@ export default function RedirectIfAuth({
   }
 
   if (bootstrapping) return <div className="p-6 text-center">Loading…</div>;
-  if (auth) return <Navigate to="/admin" replace />;
+  if (auth) return <Navigate to="/" replace />;
   return children;
 }

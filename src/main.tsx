@@ -3,12 +3,12 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
-import { AuthProvider } from "./context/AuthContext";
-import { DownloadProvider } from "./context/DownloadContext";
 import {
   AlertDialogProvider,
   GlobalAlertDialogBridge,
 } from "./context/AlertDialogContext";
+import { AuthProvider } from "./context/AuthContext";
+import { DownloadProvider } from "./context/DownloadContext";
 import "./index.css";
 import DashboardLayout from "./layouts/DashboardLayout";
 import FullscreenLayout from "./layouts/FullscreenLayout";
@@ -25,29 +25,29 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <AuthProvider>
       <DownloadProvider>
-      <AlertDialogProvider>
-        <GlobalAlertDialogBridge />
-        <BrowserRouter>
-          <Routes>
-            <Route element={<FullscreenLayout />}>
-              <Route index element={<Login />} />
-              <Route path="register" element={<Register />} />
-            </Route>
+        <AlertDialogProvider>
+          <GlobalAlertDialogBridge />
+          <BrowserRouter>
+            <Routes>
+              <Route element={<FullscreenLayout />}>
+                <Route index element={<Login />} />
+                <Route path="register" element={<Register />} />
+              </Route>
 
-            <Route element={<DashboardLayout />}>
-              <Route index path="library" element={<Library />} />
-              <Route path="downloads" element={<Downloads />} />
-              <Route path="community" element={<Community />} />
-              <Route path="settings" element={<Settings />} />
-              <Route path="admin" element={<Administration />} />
-            </Route>
+              <Route element={<DashboardLayout />}>
+                <Route index path="library" element={<Library />} />
+                <Route path="downloads" element={<Downloads />} />
+                <Route path="community" element={<Community />} />
+                <Route path="settings" element={<Settings />} />
+                <Route path="admin" element={<Administration />} />
+              </Route>
 
-            <Route element={<FullscreenLayout guarded={false} />}>
-              <Route path="*" element={<NotFound />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
-      </AlertDialogProvider>
+              <Route element={<FullscreenLayout guarded={false} />}>
+                <Route path="*" element={<NotFound />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </AlertDialogProvider>
       </DownloadProvider>
     </AuthProvider>
   </StrictMode>,
