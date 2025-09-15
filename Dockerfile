@@ -1,8 +1,8 @@
 # Stage 1
-FROM node:lts-alpine AS build
+FROM guergeiro/pnpm:lts-latest-alpine AS build
 WORKDIR /build
 COPY . .
-RUN npm i -g pnpm && pnpm i && npm run build
+RUN pnpm run build
 
 # Stage 2
 FROM nginx:stable-alpine AS run
