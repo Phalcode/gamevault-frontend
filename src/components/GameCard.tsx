@@ -17,17 +17,7 @@ import { useCallback } from "react";
 export function GameCard({ game }: { game: Game }) {
   const coverId = getGameCoverMediaId(game);
   const { serverUrl } = useAuth();
-  const {
-    downloads,
-    startDownload,
-    cancelDownload,
-    formatSpeed,
-    speedLimitKB,
-    formatLimit,
-  } = useDownloads() as any;
-  const dl = downloads[game.id];
-  const downloading = dl?.status === "downloading";
-  const progress = dl?.progress ?? null;
+  const { startDownload } = useDownloads() as any;
 
   const filename = (() => {
     const p = game.path || (game as any).Path;
@@ -42,10 +32,7 @@ export function GameCard({ game }: { game: Game }) {
     }
   })();
 
-  // speed limit is managed globally in DownloadContext now
-
-  // Prefer lowercase size, fallback to legacy/alternative casing
-  const rawSize = (game as any).size ?? (game as any).Size;
+  const rawSize = (game as any).size;
 
   const formatBytes = useCallback((bytes?: number) => {
     if (bytes === undefined || bytes === null || isNaN(bytes)) return null;
@@ -68,10 +55,10 @@ export function GameCard({ game }: { game: Game }) {
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      if (!serverUrl || downloading) return;
+  if (!serverUrl) return;
       startDownload(game.id, filename);
     },
-    [serverUrl, downloading, startDownload, game.id, filename],
+  [serverUrl, startDownload, game.id, filename],
   );
 
   const handleClientDownload = useCallback(
@@ -117,75 +104,27 @@ export function GameCard({ game }: { game: Game }) {
             No Cover
           </div>
         )}
-        {/* Prominent top bar with download button (better discoverability) */}
+        {/* Top overlay with download actions */}
         <div className="absolute inset-x-0 top-0 flex justify-end p-1 gap-1 bg-gradient-to-b from-black/60 via-black/30 to-transparent z-10">
-          {!downloading && (
-            <Dropdown>
-              <DropdownButton
-                as={Button}
-                color="indigo"
-                className="!px-2 !py-1 h-8 text-xs font-medium flex items-center gap-1"
-              >
-                <ArrowDownTrayIcon className="size-4" />
-                <span className="hidden xs:inline">Download</span>
-              </DropdownButton>
-              <DropdownMenu className="min-w-48" anchor="bottom end">
-                <DropdownItem onClick={handleDirectDownload}>
-                  <DropdownLabel>Direct Download</DropdownLabel>
-                </DropdownItem>
-                <DropdownItem onClick={handleClientDownload}>
-                  <DropdownLabel>Download via GameVault Client</DropdownLabel>
-                </DropdownItem>
-              </DropdownMenu>
-            </Dropdown>
-          )}
-          {downloading && (
-            <Button
-              color="rose"
-              onClick={() => cancelDownload(game.id)}
-              className="!px-2 !py-1 h-8 text-[11px] font-medium flex items-center gap-1 max-w-[70%] sm:max-w-none truncate"
-              aria-label="Cancel download"
-              title={(() => {
-                const s = downloads[game.id]?.speedBps;
-                if (!s) return "Cancel Download";
-                const parts = [formatSpeed(s)];
-                if (speedLimitKB > 0)
-                  parts.push(`limit ${formatLimit(speedLimitKB)}`);
-                return `Cancel Download (${parts.join(" | ")})`;
-              })()}
+          <Dropdown>
+            <DropdownButton
+              as={Button}
+              color="indigo"
+              className="!px-2 !py-1 h-8 text-xs font-medium flex items-center gap-1"
             >
-              <span className="truncate flex items-center gap-1">
-                <span>
-                  Cancel
-                  {progress !== null && progress >= 0
-                    ? ` ${Math.floor(progress * 100)}%`
-                    : ""}
-                </span>
-                {downloads[game.id]?.speedBps ? (
-                  <span className="hidden md:inline text-[10px] opacity-80 whitespace-nowrap">
-                    {formatSpeed(downloads[game.id]?.speedBps)}
-                    {speedLimitKB > 0 && <> of {formatLimit(speedLimitKB)}</>}
-                  </span>
-                ) : null}
-              </span>
-            </Button>
-          )}
+              <ArrowDownTrayIcon className="size-4" />
+              <span className="hidden xs:inline">Download</span>
+            </DropdownButton>
+            <DropdownMenu className="min-w-48" anchor="bottom end">
+              <DropdownItem onClick={handleDirectDownload}>
+                <DropdownLabel>Direct Download</DropdownLabel>
+              </DropdownItem>
+              <DropdownItem onClick={handleClientDownload}>
+                <DropdownLabel>Download via GameVault Client</DropdownLabel>
+              </DropdownItem>
+            </DropdownMenu>
+          </Dropdown>
         </div>
-        {downloading && (
-          <div className="absolute bottom-0 inset-x-0 h-1 bg-black/30 dark:bg-white/20 overflow-hidden">
-            <div
-              className={clsx(
-                "h-full bg-indigo-500 transition-all",
-                progress === null && "animate-pulse",
-              )}
-              style={
-                progress !== null
-                  ? { width: `${Math.max(2, progress * 100)}%` }
-                  : { width: "40%" }
-              }
-            />
-          </div>
-        )}
       </div>
       <div className="p-2 pt-2">
         <h3 className="text-xs font-medium truncate" title={game.title}>
