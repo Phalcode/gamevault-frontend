@@ -32,7 +32,7 @@ import {
 import { useMemo, useState } from "react";
 import Card from "../components/Card";
 // Legacy modals (inline styles) brought back from old-src for now
-import { RegisterUserModalOld } from "@/components/admin/RegisterUserModalOld";
+import { RegisterUserModal } from "@/components/admin/RegisterUserModal";
 import { UserEditorModalOld } from "@/components/admin/UserEditorModalOld";
 import { Label } from "../components/tailwind/fieldset";
 
@@ -384,7 +384,7 @@ export default function Administration() {
               />
             )}
             {showRegister && (
-              <RegisterUserModalOld
+              <RegisterUserModal
                 onClose={() => setShowRegister(false)}
                 onRegistered={(u) => {
                   setUsers((prev) => [...prev, u]);
