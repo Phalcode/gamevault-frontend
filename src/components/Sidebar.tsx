@@ -35,11 +35,14 @@ import {
   Sidebar as TailwindSidebar,
 } from "@tw/sidebar";
 import { useNavigate } from "react-router";
+import { useState } from "react";
+import { NewsDialog } from "./news/NewsDialog";
 import ThemeSwitch from "./ThemeSwitch";
 
 export function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [showNews, setShowNews] = useState(false);
   const username = user?.username || (user as any)?.Username || "Unknown";
   const email = user?.email || (user as any)?.EMail || "";
   const avatar = user?.avatar;
@@ -51,6 +54,7 @@ export function Sidebar() {
   };
 
   return (
+    <>
     <TailwindSidebar>
       <SidebarHeader>
         <Logo variant="sidebar" height="h-4" />
@@ -63,7 +67,7 @@ export function Sidebar() {
               Library
             </SidebarLabel>
           </SidebarItem>
-          <SidebarItem href="/downloads" disabled={true}>
+          <SidebarItem href="/downloads" disabled={true} className="hidden">
             <ArrowDownTrayIcon />
             <SidebarLabel className="flex justify-between w-full">
               Downloads <Badge>Soon</Badge>
@@ -97,9 +101,9 @@ export function Sidebar() {
             <ChatBubbleLeftRightIcon />
             <SidebarLabel>Discord</SidebarLabel>
           </SidebarItem>
-          <SidebarItem href="/news" className="flex justify-between w-full">
+          <SidebarItem onClick={(e:any)=>{e.preventDefault(); setShowNews(true);}}>
             <NewspaperIcon />
-            News <Badge>Soon</Badge>
+            <SidebarLabel>News</SidebarLabel>
           </SidebarItem>
           <SidebarItem href="https://gamevau.lt/gamevault-plus" target="_blank">
             <RocketLaunchIcon />
@@ -148,5 +152,7 @@ export function Sidebar() {
         </Dropdown>
       </SidebarFooter>
     </TailwindSidebar>
+    {showNews && (<NewsDialog onClose={()=>setShowNews(false)} />)}
+    </>
   );
 }
