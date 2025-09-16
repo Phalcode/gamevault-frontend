@@ -1,11 +1,11 @@
-import React, {
+import {
+  ReactNode,
   createContext,
-  useContext,
   useCallback,
+  useContext,
+  useEffect,
   useRef,
   useState,
-  useEffect,
-  ReactNode,
 } from "react";
 import { useAuth } from "./AuthContext";
 
@@ -149,30 +149,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               method: "GET",
               signal: ac.signal,
             });
-            if (response.ok) {
-
-for (let [key, value] of response.headers.entries()) {
-  console.log(key, value);
-}
-
-              const headers = Object.fromEntries(response.headers.entries());
-              const contentDisposition = response.headers.get(
-                "Content-Disposition",
-              );
-              const fetchedFilename = contentDisposition
-                ? contentDisposition.split("filename=")[1]
-                : filename;
-
-              const blob = await response.blob();
-              const url = window.URL.createObjectURL(blob);
-
+            const otp = response.headers.get("X-Otp");
+            if (response.ok && otp) {
               const a = document.createElement("a");
-              a.href = url;
-              a.download = fetchedFilename.replace(/"/g, ""); // Falls Anführungszeichen im Dateinamen sind
+              a.href = `${base}/api/otp/game?otp=${otp}`;
               document.body.appendChild(a);
               a.click();
               a.remove();
-              window.URL.revokeObjectURL(url);
               updateDownload(gameId, {
                 status: "completed",
                 progress: 1,
@@ -182,7 +165,6 @@ for (let [key, value] of response.headers.entries()) {
               return;
             }
           } catch (_) {
-            // If HEAD fails we'll proceed with streaming fallback below.
           }
         }
         let writer: {
