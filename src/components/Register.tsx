@@ -6,6 +6,7 @@ import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
 import { useAuth } from "@/context/AuthContext";
+import { useRegistrationRequirements } from "@/hooks/useRegistrationRequirements";
 
 interface FormState {
   username: string;
@@ -19,6 +20,7 @@ interface FormState {
 
 export function Register() {
   const { serverUrl } = useAuth();
+  const [serverInput, setServerInput] = useState("");
   const [form, setForm] = useState<FormState>({
     username: "",
     first_name: "",
@@ -32,6 +34,14 @@ export function Register() {
   const [msg, setMsg] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const normalizedServerInput = (() => {
+    const raw = serverInput.trim();
+    if (!raw) return "";
+    // Add protocol if missing for display fetch usage; do not mutate user visible value.
+    if (!/^https?:\/\//i.test(raw)) return `https://${raw}`;
+    return raw;
+  })();
+  const { loading: reqLoading, error: reqError, required, registrationEnabled } = useRegistrationRequirements(serverInput.trim() ? serverInput.trim() : undefined);
 
   const onInput: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     const { name, value } = e.target;
@@ -39,11 +49,21 @@ export function Register() {
     setTouched(t => ({ ...t, [name]: true }));
     setMsg(null);
   };
+  const onServerInput: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    setServerInput(e.target.value);
+    setMsg(null);
+  };
 
   const canSubmit = () => {
-    const required = ["username", "first_name", "last_name", "email", "password", "repeat_password"]; // birth_date optional
-    for (const r of required) {
-      if (!(form as any)[r] || !(form as any)[r].toString().trim()) return false;
+    if (!serverInput.trim()) return false; // need server first
+    if (reqLoading) return false; // must wait
+    if (reqError) return false; // do not allow defaults when fetch failed
+    if (registrationEnabled === false) return false; // disabled by server
+    const mandatory = Array.from(required);
+    if (mandatory.includes('password') && !mandatory.includes('repeat_password')) mandatory.push('repeat_password');
+    for (const f of mandatory) {
+      const val = (form as any)[f];
+      if (!val || !val.toString().trim()) return false;
     }
     if (form.password !== form.repeat_password) return false;
     return true;
@@ -52,7 +72,8 @@ export function Register() {
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit() || submitting) return;
-    if (!serverUrl) {
+    const chosenServer = serverInput.trim() || serverUrl;
+    if (!chosenServer) {
       setMsg("Missing server URL");
       return;
     }
@@ -60,7 +81,8 @@ export function Register() {
     setMsg(null);
     setSuccess(false);
     try {
-      const base = serverUrl.replace(/\/+$/, "");
+  let base = chosenServer.replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
       const payload: any = {
         Username: form.username.trim(),
         Password: form.password,
@@ -96,11 +118,12 @@ export function Register() {
     } finally {
       setSubmitting(false);
     }
-  }, [form, serverUrl, submitting]);
+  }, [form, serverInput, serverUrl, submitting]);
 
-  const requiredFields = ["username","first_name","last_name","email","password","repeat_password"]; // birth_date optional
   const isInvalid = (field: string) => {
-    if (!requiredFields.includes(field)) return false;
+    if (reqError || reqLoading || !serverInput.trim()) return false; // don't validate until requirements loaded
+    const isReq = field === 'repeat_password' ? required.has('password') : required.has(field);
+    if (!isReq) return false;
     return touched[field] && !(form as any)[field]?.toString().trim();
   };
 
@@ -109,47 +132,72 @@ export function Register() {
       <Logo variant="text" className="w-full" height="h-full" />
       <Heading>Create your account</Heading>
       <Field>
-        <Label>Username <span className="text-rose-400" aria-hidden>*</span></Label>
-        <Input aria-required name="username" autoComplete="username" value={form.username} onChange={onInput} className={isInvalid('username') ? 'ring-1 ring-rose-500' : undefined} />
-      </Field>
-      <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 sm:gap-4">
-        <Field>
-          <Label>First name <span className="text-rose-400" aria-hidden>*</span></Label>
-          <Input aria-required name="first_name" autoComplete="given-name" value={form.first_name} onChange={onInput} className={isInvalid('first_name') ? 'ring-1 ring-rose-500' : undefined} />
-        </Field>
-        <Field>
-          <Label>Last name <span className="text-rose-400" aria-hidden>*</span></Label>
-          <Input aria-required name="last_name" autoComplete="family-name" value={form.last_name} onChange={onInput} className={isInvalid('last_name') ? 'ring-1 ring-rose-500' : undefined} />
-        </Field>
-      </div>
-      <Field>
-        <Label>Email <span className="text-rose-400" aria-hidden>*</span></Label>
-        <Input aria-required type="email" name="email" autoComplete="email" value={form.email} onChange={onInput} className={isInvalid('email') ? 'ring-1 ring-rose-500' : undefined} />
-      </Field>
-      <Field>
-        <Label>Birth date</Label>
-        <Input type="date" name="birth_date" value={form.birth_date} onChange={onInput} />
-      </Field>
-      <Field>
-        <Label>Password <span className="text-rose-400" aria-hidden>*</span></Label>
-        <Input aria-required type="password" name="password" autoComplete="new-password" value={form.password} onChange={onInput} className={isInvalid('password') ? 'ring-1 ring-rose-500' : undefined} />
-      </Field>
-      <Field>
-        <Label>Repeat password <span className="text-rose-400" aria-hidden>*</span></Label>
-        <Input aria-required type="password" name="repeat_password" autoComplete="new-password" value={form.repeat_password} onChange={onInput} className={isInvalid('repeat_password') || (touched.repeat_password && form.password && form.repeat_password && form.password !== form.repeat_password) ? 'ring-1 ring-rose-500' : undefined} />
-      </Field>
-      {form.password && form.repeat_password && form.password !== form.repeat_password && (
-        <Text className="text-xs text-rose-400 -mt-6">Passwords do not match</Text>
+        <Label>Server URL <span className="text-rose-400" aria-hidden>*</span></Label>
+        <Input
+          name="server"
+          placeholder="example.com or https://example.com"
+          value={serverInput}
+          onChange={onServerInput}
+          className={!serverInput.trim() && touched['server'] ? 'ring-1 ring-rose-500' : undefined}
+        />
+      </Field>     
+      {(!serverInput.trim()) && (
+        <Text className="text-xs text-fg-muted -mt-4">Enter a server URL to continue with registration.</Text>
       )}
-      {msg && (
-        <Text className={`text-xs ${success ? 'text-emerald-400' : 'text-rose-400'} -mt-4`}>{msg}</Text>
+      {serverInput.trim() && registrationEnabled === false && (
+        <Text className="text-xs text-rose-400 -mt-4">Registration is currently disabled on this server.</Text>
       )}
-      {!msg && !canSubmit() && (
-        <Text className="text-xs text-fg-muted -mt-4">Fill required fields and matching passwords.</Text>
+      {serverInput.trim() && reqError && !reqLoading && (
+        <Text className="text-xs text-rose-400 -mt-4">Failed to load registration requirements. Cannot proceed.</Text>
       )}
-      <Button type="submit" className="w-full" disabled={!canSubmit() || submitting}>
-        {submitting ? 'Creating account…' : 'Create account'}
-      </Button>
+      {serverInput.trim() && registrationEnabled !== false && !reqError && (
+        <>
+          <Field>
+            <Label>
+              Username { (!reqLoading && required.has('username')) && <span className="text-rose-400" aria-hidden>*</span> }
+            </Label>
+            <Input aria-required name="username" autoComplete="username" value={form.username} onChange={onInput} className={isInvalid('username') ? 'ring-1 ring-rose-500' : undefined} />
+          </Field>
+          <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 sm:gap-4">
+            <Field>
+              <Label>First name { (!reqLoading && required.has('first_name')) && <span className="text-rose-400" aria-hidden>*</span>}</Label>
+              <Input aria-required name="first_name" autoComplete="given-name" value={form.first_name} onChange={onInput} className={isInvalid('first_name') ? 'ring-1 ring-rose-500' : undefined} />
+            </Field>
+            <Field>
+              <Label>Last name { (!reqLoading && required.has('last_name')) && <span className="text-rose-400" aria-hidden>*</span>}</Label>
+              <Input aria-required name="last_name" autoComplete="family-name" value={form.last_name} onChange={onInput} className={isInvalid('last_name') ? 'ring-1 ring-rose-500' : undefined} />
+            </Field>
+          </div>
+          <Field>
+            <Label>Email { (!reqLoading && required.has('email')) && <span className="text-rose-400" aria-hidden>*</span>}</Label>
+            <Input aria-required type="email" name="email" autoComplete="email" value={form.email} onChange={onInput} className={isInvalid('email') ? 'ring-1 ring-rose-500' : undefined} />
+          </Field>
+          <Field>
+            <Label>Birth date</Label>
+            <Input type="date" name="birth_date" value={form.birth_date} onChange={onInput} />
+          </Field>
+          <Field>
+            <Label>Password {(!reqLoading && required.has('password')) && <span className="text-rose-400" aria-hidden>*</span>}</Label>
+            <Input aria-required type="password" name="password" autoComplete="new-password" value={form.password} onChange={onInput} className={isInvalid('password') ? 'ring-1 ring-rose-500' : undefined} />
+          </Field>
+          <Field>
+            <Label>Repeat password {(!reqLoading && required.has('password')) && <span className="text-rose-400" aria-hidden>*</span>}</Label>
+            <Input aria-required type="password" name="repeat_password" autoComplete="new-password" value={form.repeat_password} onChange={onInput} className={isInvalid('repeat_password') || (touched.repeat_password && form.password && form.repeat_password && form.password !== form.repeat_password) ? 'ring-1 ring-rose-500' : undefined} />
+          </Field>
+          {serverInput.trim() && reqLoading && (
+            <Text className="text-xs text-fg-muted -mt-6">Loading registration requirements…</Text>
+          )}
+          {form.password && form.repeat_password && form.password !== form.repeat_password && (
+            <Text className="text-xs text-rose-400 -mt-6">Passwords do not match</Text>
+          )}
+          {msg && (
+            <Text className={`text-xs ${success ? 'text-emerald-400' : 'text-rose-400'} -mt-4`}>{msg}</Text>
+          )}
+          <Button type="submit" className="w-full" disabled={!canSubmit() || submitting}>
+            {submitting ? 'Creating account…' : 'Create account'}
+          </Button>
+        </>
+      )}
       <Text>
         Already have an account? {""}
         <TextLink href="/">

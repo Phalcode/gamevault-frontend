@@ -1,6 +1,7 @@
 import { useAuth } from "@/context/AuthContext";
 import { User } from "@/types/api";
 import { useState } from "react";
+import { useRegistrationRequirements } from "@/hooks/useRegistrationRequirements";
 
 interface Props {
   onClose: () => void;
@@ -14,6 +15,7 @@ export function RegisterUserModalOld({
   requiredFields,
 }: Props) {
   const { serverUrl, authFetch } = useAuth();
+  const { loading: reqLoading, error: reqError, required } = useRegistrationRequirements();
   const [form, setForm] = useState({
     username: "",
     birth_date: "",
@@ -33,9 +35,11 @@ export function RegisterUserModalOld({
   };
 
   const isRequired = (field: string) => {
-    if (field === "username") return true;
-    if (field === "password" || field === "repeat_password") return true;
-    return requiredFields?.has(field) ?? false;
+    if (field === "username") return true; // always mandatory
+    if (field === "password" || field === "repeat_password") return true; // password repeat always required
+    // Prefer explicit prop if provided; else use dynamically loaded requirements (which already include username/password)
+    const source = requiredFields ?? required;
+    return source.has(field);
   };
 
   const canSubmit = () => {
@@ -180,6 +184,16 @@ export function RegisterUserModalOld({
           ))}
           <div style={styles.formFooterRow}>
             <div style={{ flex: 1 }}>
+              {reqLoading && (
+                <div style={{ fontSize: ".6rem", color: "#c7c6d8" }}>
+                  Loading requirements…
+                </div>
+              )}
+              {reqError && !reqLoading && (
+                <div style={{ fontSize: ".6rem", color: "#ffb3b3" }}>
+                  Failed to load requirements, using defaults.
+                </div>
+              )}
               {msg && (
                 <div
                   style={{
@@ -215,7 +229,7 @@ export function RegisterUserModalOld({
             </div>
             <button
               type="submit"
-              disabled={!canSubmit() || submitting}
+              disabled={!canSubmit() || submitting || reqLoading}
               style={saveButtonStyle(!canSubmit() || submitting)}
             >
               {submitting ? "Registering…" : "Register"}
