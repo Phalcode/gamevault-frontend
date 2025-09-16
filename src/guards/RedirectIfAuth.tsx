@@ -15,6 +15,7 @@ export default function RedirectIfAuth({
   }
 
   if (bootstrapping) return <div className="p-6 text-center">Loading…</div>;
-  if (auth) return <Navigate to="/" replace />;
+  // If already authenticated, redirect to primary app entry (library)
+  if (auth) return <Navigate to="/library" replace />;
   return children;
 }
