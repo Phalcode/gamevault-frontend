@@ -27,6 +27,9 @@ type DateType = (typeof dateTypes)[number];
 export const Input = forwardRef(function Input(
   {
     className,
+    clearable,
+    onClear,
+    value,
     ...props
   }: {
     className?: string;
@@ -39,6 +42,9 @@ export const Input = forwardRef(function Input(
       | "text"
       | "url"
       | DateType;
+    clearable?: boolean;
+    onClear?: () => void;
+    value?: any;
   } & Omit<Headless.InputProps, "as" | "className">,
   ref: React.ForwardedRef<HTMLInputElement>,
 ) {
@@ -62,6 +68,7 @@ export const Input = forwardRef(function Input(
       <Headless.Input
         ref={ref}
         {...props}
+        value={value}
         className={clsx([
           // Date classes
           props.type &&
@@ -97,6 +104,32 @@ export const Input = forwardRef(function Input(
           "dark:scheme-dark",
         ])}
       />
+      {clearable && value && String(value).length > 0 && (
+        <button
+          type="button"
+          onClick={onClear}
+          className={clsx([
+            "absolute inset-y-0 right-0 flex items-center pr-2",
+            "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
+            "focus:outline-hidden"
+          ])}
+          aria-label="Clear input"
+          tabIndex={-1}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className="size-4"
+          >
+            <path
+              fillRule="evenodd"
+              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
+      )}
     </span>
   );
 });

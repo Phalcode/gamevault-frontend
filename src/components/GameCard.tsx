@@ -104,18 +104,18 @@ export function GameCard({ game }: { game: Game }) {
             No Cover
           </div>
         )}
-        {/* Top overlay with download actions */}
-        <div className="absolute inset-x-0 top-0 flex justify-end p-1 gap-1 bg-gradient-to-b from-black/60 via-black/30 to-transparent z-10">
+        {/* Bottom-right download actions */}
+        <div className="absolute bottom-0 right-0 p-1 z-10 flex justify-end">
           <Dropdown>
             <DropdownButton
               as={Button}
               color="indigo"
-              className="!px-2 !py-1 h-8 text-xs font-medium flex items-center gap-1"
+              className="!px-2 !py-1 h-7 text-[11px] font-medium flex items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm bg-indigo-600/90 hover:bg-indigo-500/90"
             >
               <ArrowDownTrayIcon className="size-4" />
               <span className="hidden xs:inline">Download</span>
             </DropdownButton>
-            <DropdownMenu className="min-w-48" anchor="bottom end">
+            <DropdownMenu className="min-w-48" anchor="top end">
               <DropdownItem onClick={handleDirectDownload}>
                 <DropdownLabel>Direct Download</DropdownLabel>
               </DropdownItem>

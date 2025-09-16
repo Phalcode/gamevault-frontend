@@ -68,6 +68,8 @@ export default function Library() {
             name="search"
             value={search}
             onChange={(e: any) => setSearch(e.target.value)}
+            clearable
+            onClear={() => setSearch("")}
             placeholder="Search games..."
             disabled={!serverUrl}
           />
