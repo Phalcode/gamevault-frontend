@@ -42,9 +42,7 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="admin" element={<Administration />} />
               </Route>
 
-              <Route element={<FullscreenLayout guarded={false} />}>
-                <Route path="*" element={<NotFound />} />
-              </Route>
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
         </AlertDialogProvider>

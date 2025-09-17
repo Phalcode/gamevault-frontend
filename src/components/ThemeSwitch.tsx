@@ -4,8 +4,13 @@ import { Switch, SwitchField, SwitchGroup } from "@tw/switch";
 import useDarkMode from "use-dark-mode";
 
 export default function ThemeSwitch({ className }: { className?: string }) {
-  const darkMode = useDarkMode();
-
+  const darkMode = useDarkMode(false, {
+    classNameDark: "dark",
+    classNameLight: "light",
+    element:
+      typeof document !== "undefined" ? document.documentElement : undefined,
+  });
+  
   return (
     <SwitchGroup className={className}>
       <SwitchField>

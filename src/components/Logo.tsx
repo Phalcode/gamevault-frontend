@@ -20,13 +20,7 @@ export function Logo({
   height = "h-8",
   gap = "gap-2",
 }: LogoProps) {
-  // keep Tailwind's .dark class in sync with the hook
-  const darkMode = useDarkMode(false, {
-    classNameDark: "dark",
-    classNameLight: "light",
-    element:
-      typeof document !== "undefined" ? document.documentElement : undefined,
-  });
+  const darkMode = useDarkMode();
 
   const srcText = `/logo-text-${darkMode.value ? "dark" : "light"}.svg`;
 

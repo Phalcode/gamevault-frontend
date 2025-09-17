@@ -8,6 +8,7 @@ import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router";
+import ThemeSwitch from "./ThemeSwitch";
 
 export function Login() {
   const { loginBasic, loading, error } = useAuth();
@@ -98,6 +99,7 @@ export function Login() {
           <Strong>Sign up</Strong>
         </TextLink>
       </Text>
+      <ThemeSwitch />
     </form>
   );
 }
