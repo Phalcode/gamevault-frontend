@@ -29,7 +29,6 @@ export const Input = forwardRef(function Input(
     className,
     clearable,
     onClear,
-    value,
     ...props
   }: {
     className?: string;
@@ -44,10 +43,10 @@ export const Input = forwardRef(function Input(
       | DateType;
     clearable?: boolean;
     onClear?: () => void;
-    value?: any;
   } & Omit<Headless.InputProps, "as" | "className">,
   ref: React.ForwardedRef<HTMLInputElement>,
 ) {
+  const currentValue = (props as any)?.value;
   return (
     <span
       data-slot="control"
@@ -68,7 +67,6 @@ export const Input = forwardRef(function Input(
       <Headless.Input
         ref={ref}
         {...props}
-        value={value}
         className={clsx([
           // Date classes
           props.type &&
@@ -104,7 +102,7 @@ export const Input = forwardRef(function Input(
           "dark:scheme-dark",
         ])}
       />
-      {clearable && value && String(value).length > 0 && (
+      {clearable && currentValue != null && String(currentValue).length > 0 && (
         <button
           type="button"
           onClick={onClear}

@@ -5,6 +5,8 @@ import React, { useEffect, useRef, useState } from "react";
 interface Props {
   media?: MediaType | null;
   size?: number;
+  width?: number;
+  height?: number;
   className?: string;
   alt?: string;
   square?: boolean;
@@ -15,6 +17,8 @@ interface Props {
 export function Media({
   media,
   size = 40,
+  width,
+  height,
   className,
   alt = "",
   square = false,
@@ -63,14 +67,15 @@ export function Media({
     };
   }, [imageId, serverUrl, authFetch]);
 
-  const dim = size + "px";
+  const dimW = (width ?? size) + "px";
+  const dimH = (height ?? size) + "px";
   return (
     <div
       className={className}
       style={{
         position: "relative",
-        width: dim,
-        height: dim,
+        width: dimW,
+        height: dimH,
         borderRadius: square ? 12 : "50%",
         overflow: "hidden",
         background:

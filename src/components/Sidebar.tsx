@@ -85,10 +85,10 @@ export function Sidebar() {
                 Downloads <Badge>Soon</Badge>
               </SidebarLabel>
             </SidebarItem>
-            <SidebarItem href="/community" disabled={true}>
+            <SidebarItem href="/community">
               <UserGroupIcon />
               <SidebarLabel className="flex justify-between w-full">
-                Community <Badge>Soon</Badge>
+                Community
               </SidebarLabel>
             </SidebarItem>
             <SidebarItem href="/settings">
