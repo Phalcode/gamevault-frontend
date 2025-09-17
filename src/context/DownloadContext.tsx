@@ -49,11 +49,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       const parsed = parseInt(existing, 10);
       return Number.isNaN(parsed) ? 0 : parsed;
     }
-    const legacy = localStorage.getItem("download_speed_limit");
-    if (legacy) {
-      const legacyBytes = parseInt(legacy, 10);
-      if (!Number.isNaN(legacyBytes) && legacyBytes > 0) {
-        const converted = Math.max(1, Math.round(legacyBytes / 1000)); // decimal KB
+    const downloadSpeed = localStorage.getItem("download_speed_limit");
+    if (downloadSpeed) {
+      const downloadSpeedBytes = parseInt(downloadSpeed, 10);
+      if (!Number.isNaN(downloadSpeedBytes) && downloadSpeedBytes > 0) {
+        const converted = Math.max(1, Math.round(downloadSpeedBytes / 1000)); // decimal KB
         localStorage.setItem(NEW_KEY, String(converted));
         return converted;
       }
@@ -145,9 +145,12 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       try {
         if (!isDesktop) {
           try {
+            const downloadSpeed = localStorage.getItem("download_speed_limit_kb");
+            const downloadSpeedBytes = parseInt(downloadSpeed||"0", 10);   
             const response = await authFetch(url, {
               method: "GET",
               signal: ac.signal,
+              headers: { "X-Download-Speed-Limit": String(downloadSpeedBytes) },
             });
             const otp = response.headers.get("X-Otp");
             if (response.ok && otp) {
