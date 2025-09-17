@@ -1,5 +1,4 @@
-import { useState, FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { useAuth } from "@/context/AuthContext";
 import { Logo } from "@components/Logo";
 import { Button } from "@tw/button";
 import { Checkbox, CheckboxField } from "@tw/checkbox";
@@ -7,7 +6,8 @@ import { Field, Label } from "@tw/fieldset";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
-import { useAuth } from "@/context/AuthContext";
+import { FormEvent, useState } from "react";
+import { useNavigate } from "react-router";
 
 export function Login() {
   const { loginBasic, loading, error } = useAuth();

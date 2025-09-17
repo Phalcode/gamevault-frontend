@@ -58,7 +58,7 @@ export function Sidebar() {
   const handleLogout = (e: React.MouseEvent) => {
     e.preventDefault();
     logout();
-    navigate("/", { replace: true });
+    navigate("/library", { replace: true });
   };
   const handleCloseNewsDialog = () => {
     setShowNews(false);
