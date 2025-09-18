@@ -1,11 +1,12 @@
-import { useState, useDeferredValue, useEffect, useRef } from "react";
+import GameCard from "@/components/GameCard";
+import { useAuth } from "@/context/AuthContext";
+import { useGames } from "@/hooks/useGames";
 import { Divider } from "@tw/divider";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
-import GameCard from "@/components/GameCard";
-import { useGames } from "@/hooks/useGames";
-import { useAuth } from "@/context/AuthContext";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { Badge } from "../components/tailwind/badge";
 
 const SORT_BY: { label: string; value: string }[] = [
   { label: "Title", value: "sort_title" },
@@ -29,35 +30,44 @@ export default function Library() {
   const [order, setOrder] = useState<"ASC" | "DESC">("ASC");
   // Defer search to avoid spamming requests while user types quickly
   const deferredSearch = useDeferredValue(search);
-  const { games, loading, error, loadMore, hasMore, refetch } = useGames({
-    search: deferredSearch,
-    sortBy,
-    order,
-    limit: 50,
-  });
+  const { count, games, loading, error, loadMore, hasMore, refetch } = useGames(
+    {
+      search: deferredSearch,
+      sortBy,
+      order,
+      limit: 50,
+    },
+  );
 
   // Reset to first page when filters change (search, sortBy, order)
-  useEffect(() => { refetch(); }, [deferredSearch, sortBy, order, refetch]);
+  useEffect(() => {
+    refetch();
+  }, [deferredSearch, sortBy, order, refetch]);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!hasMore) return;
     const el = sentinelRef.current;
     if (!el) return;
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          loadMore();
-        }
-      });
-    }, { root: null, rootMargin: '200px', threshold: 0 });
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            loadMore();
+          }
+        });
+      },
+      { root: null, rootMargin: "200px", threshold: 0 },
+    );
     io.observe(el);
     return () => io.disconnect();
   }, [hasMore, loadMore, games.length]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <Heading>Library</Heading>
+      <Heading className="flex items-center">
+        Library {count && <Badge className="ml-2">{count}</Badge>}
+      </Heading>
       <Divider />
       <div className="pb-4 flex flex-col gap-4 md:flex-row md:items-end">
         <div className="flex-1 min-w-[220px]">
@@ -129,11 +139,11 @@ export default function Library() {
             <GameCard key={g.id} game={g} />
           ))}
         </div>
-        {hasMore && (
-          <div ref={sentinelRef} className="h-10 -mt-10" />
-        )}
+        {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
         {loading && games.length > 0 && (
-          <div className="p-4 text-center text-xs text-fg-muted">Loading more…</div>
+          <div className="p-4 text-center text-xs text-fg-muted">
+            Loading more…
+          </div>
         )}
       </div>
     </div>

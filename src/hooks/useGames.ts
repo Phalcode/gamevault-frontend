@@ -23,7 +23,7 @@ export interface Game {
 
 interface PaginatedData<T> {
   data: T[];
-  meta: any;
+  meta: { totalItems: number };
   links: { next?: string | null };
 }
 
@@ -41,6 +41,7 @@ export function useGames({
   limit = 50,
 }: UseGamesOptions) {
   const { serverUrl, authFetch } = useAuth();
+  const [count, setCount] = useState(0);
   const [games, setGames] = useState<Game[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,6 +65,7 @@ export function useGames({
       const res = await authFetch(url, { method: "GET", signal: ac.signal });
       if (!res.ok) throw new Error(`Games fetch failed (${res.status})`);
       const json: PaginatedData<Game> = await res.json();
+      setCount(json.meta.totalItems);
       setGames(json.data || []);
       setNext(json.links?.next || null);
     } catch (e: any) {
@@ -106,6 +108,7 @@ export function useGames({
   }, [fetchGames]);
 
   return {
+    count,
     games,
     loading,
     error,
