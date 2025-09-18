@@ -34,15 +34,18 @@ import {
   Sidebar as TailwindSidebar,
 } from "@tw/sidebar";
 import { useEffect, useState } from "react";
+import { PermissionRole, normalizePermissionRole } from "@/types/api";
 import { useNavigate } from "react-router";
 import { useNews } from "../hooks/useNews";
 import ThemeSwitch from "./ThemeSwitch";
 import { NewsDialog } from "./news/NewsDialog";
+import { UserEditorModal } from "./admin/UserEditorModal";
 
 export function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [showNews, setShowNews] = useState(false);
+  const [showEditProfile, setShowEditProfile] = useState(false);
   const username = user?.username || (user as any)?.Username || "Unknown";
   const email = user?.email || (user as any)?.EMail || "";
   const avatar = user?.avatar;
@@ -63,6 +66,9 @@ export function Sidebar() {
     setShowNews(false);
     setBadgeVisible(false);
   };
+
+  const roleVal = normalizePermissionRole((user as any)?.role);
+  const isAdmin = roleVal === PermissionRole.ADMIN;
 
   return (
     <>
@@ -90,10 +96,21 @@ export function Sidebar() {
                 Settings
               </SidebarLabel>
             </SidebarItem>
-            <SidebarItem href="/admin">
-              <ShieldExclamationIcon />
-              <SidebarLabel>Administration</SidebarLabel>
-            </SidebarItem>
+            {isAdmin ? (
+              <SidebarItem href="/admin">
+                <ShieldExclamationIcon />
+                <SidebarLabel>Administration</SidebarLabel>
+              </SidebarItem>
+            ) : (
+              <SidebarItem
+                href="#"
+                onClick={(e) => e.preventDefault()}
+                className="hidden cursor-not-allowed"
+              >
+                <ShieldExclamationIcon />
+                <SidebarLabel>Administration</SidebarLabel>
+              </SidebarItem>
+            )}
           </SidebarSection>
 
           <SidebarSpacer />
@@ -159,6 +176,17 @@ export function Sidebar() {
               <ChevronUpIcon />
             </DropdownButton>
             <DropdownMenu className="min-w-64" anchor="top start">
+              <DropdownItem
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setShowEditProfile(true);
+                }}
+              >
+                <UserIcon />
+                <DropdownLabel>Edit profile</DropdownLabel>
+              </DropdownItem>
+              <DropdownDivider />
               <DropdownItem href="/community">
                 <UserIcon />
                 <DropdownLabel>My profile</DropdownLabel>
@@ -173,6 +201,13 @@ export function Sidebar() {
         </SidebarFooter>
       </TailwindSidebar>
       {showNews && <NewsDialog onClose={handleCloseNewsDialog} />}
+      {showEditProfile && user && (
+        <UserEditorModal
+          self
+          user={user as any}
+          onClose={() => setShowEditProfile(false)}
+        />
+      )}
     </>
   );
 }

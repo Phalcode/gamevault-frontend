@@ -13,6 +13,8 @@ import "./index.css";
 import DashboardLayout from "./layouts/DashboardLayout";
 import FullscreenLayout from "./layouts/FullscreenLayout";
 import Administration from "./pages/Administration";
+import { PermissionRole } from "@/types/api";
+import ProtectedRoute from "./guards/ProtectedRoute";
 import Community from "./pages/Community";
 import Library from "./pages/Library";
 import NotFound from "./pages/NotFound";
@@ -37,7 +39,14 @@ createRoot(document.getElementById("root")!).render(
                 <Route index path="library" element={<Library />} />
                 <Route path="community" element={<Community />} />
                 <Route path="settings" element={<Settings />} />
-                <Route path="admin" element={<Administration />} />
+                <Route
+                  path="admin"
+                  element={
+                    <ProtectedRoute guarded requiredRole={PermissionRole.ADMIN}>
+                      <Administration />
+                    </ProtectedRoute>
+                  }
+                />
               </Route>
 
               <Route path="*" element={<NotFound />} />

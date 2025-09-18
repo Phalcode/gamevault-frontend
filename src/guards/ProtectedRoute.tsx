@@ -1,14 +1,17 @@
 import { Navigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
+import { PermissionRole, normalizePermissionRole } from "@/types/api";
 
 export default function ProtectedRoute({
   children,
   guarded,
+  requiredRole,
 }: {
   children: React.ReactElement;
   guarded: boolean;
+  requiredRole?: PermissionRole;
 }) {
-  const { auth, bootstrapping } = useAuth();
+  const { auth, bootstrapping, user } = useAuth();
 
   if (!guarded) {
     // If guarding is disabled, just render children directly
@@ -17,5 +20,12 @@ export default function ProtectedRoute({
 
   if (bootstrapping) return <div className="p-6 text-center">Loading…</div>;
   if (!auth) return <Navigate to="/" replace />;
+
+  if (requiredRole !== undefined) {
+    const roleVal = normalizePermissionRole((user as any)?.role);
+    if (roleVal == null || roleVal < requiredRole) {
+      return <Navigate to="/library" replace />;
+    }
+  }
   return children;
 }

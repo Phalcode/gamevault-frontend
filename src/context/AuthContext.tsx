@@ -25,6 +25,7 @@ interface AuthContextValue {
   loginBasic: (args: LoginArgs) => Promise<{ auth: AuthTokens; user: User }>;
   logout: () => void;
   authFetch: (input: string, init?: RequestInit) => Promise<Response>;
+  refreshCurrentUser: () => Promise<User | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -271,6 +272,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(REFRESH_KEY);
   }, []);
 
+  const refreshCurrentUser = useCallback(async () => {
+    try {
+      const me = await fetchCurrentUser();
+      setUser(me);
+      return me;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const value: AuthContextValue = {
     serverUrl,
     auth,
@@ -281,6 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loginBasic,
     logout,
     authFetch,
+    refreshCurrentUser,
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

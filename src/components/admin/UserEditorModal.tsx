@@ -10,7 +10,8 @@ import { Text } from "@/components/tailwind/text";
 interface Props {
   user: User;
   onClose: () => void;
-  onSave: (payload: {
+  /** Optional custom save handler. If omitted, a default PUT is performed. */
+  onSave?: (payload: {
     username: string;
     email: string;
     first_name: string;
@@ -19,6 +20,8 @@ interface Props {
     birth_date: string | null;
   }) => Promise<{ ok: boolean; message?: string }>;
   onUserUpdated?: (u: User) => void;
+  /** If true, treat this editor as editing the current logged-in user (affects endpoints) */
+  self?: boolean;
 }
 
 type TabKey = 'images' | 'details';
@@ -32,8 +35,8 @@ interface ImageState {
   loadedId?: number | null;
 }
 
-export function UserEditorModal({ user, onClose, onSave, onUserUpdated }: Props) {
-  const { serverUrl, authFetch } = useAuth();
+export function UserEditorModal({ user, onClose, onSave, onUserUpdated, self = false }: Props) {
+  const { serverUrl, authFetch, refreshCurrentUser } = useAuth() as any;
   const [activeTab, setActiveTab] = useState<TabKey>('images');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -72,6 +75,33 @@ export function UserEditorModal({ user, onClose, onSave, onUserUpdated }: Props)
     setSaveMsg(null);
   };
 
+  const defaultSave = async (payload: any): Promise<{ ok: boolean; message?: string }> => {
+    try {
+      const base = serverUrl?.replace(/\/+$/, '');
+      if (!base) return { ok: false, message: 'No server URL' };
+      const uid = (user as any).id ?? (user as any).ID;
+      const endpoint = self ? `${base}/api/users/me` : `${base}/api/users/${uid}`;
+      const res = await authFetch(endpoint, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        return { ok: false, message: txt || res.statusText };
+      }
+      const updated = await res.json();
+      onUserUpdated?.(updated);
+      if (self) {
+        // Ensure global auth user reflects latest changes
+        refreshCurrentUser?.();
+      }
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, message: e?.message || 'Failed to save' };
+    }
+  };
+
   const handleSubmit = async () => {
     if (!hasChanges || saving) return;
     setSaving(true);
@@ -84,7 +114,7 @@ export function UserEditorModal({ user, onClose, onSave, onUserUpdated }: Props)
       birth_date: form.birth_date || null,
       password: form.password.trim() || undefined,
     };
-    const res = await onSave(payload);
+    const res = await (onSave ? onSave(payload) : defaultSave(payload));
     if (res.ok) {
       setForm(f => ({ ...f, password: '' }));
       setSaveMsg('Successfully saved User details');
@@ -194,16 +224,19 @@ export function UserEditorModal({ user, onClose, onSave, onUserUpdated }: Props)
       if (newAvatar) { const file = await obtainFileForState(avatarImg, 'avatar'); if (!file) throw new Error('Invalid avatar image'); avatarId = await uploadImage(file); }
       if (newBg) { const file = await obtainFileForState(bgImg, 'background'); if (!file) throw new Error('Invalid background image'); backgroundId = await uploadImage(file); }
       if (avatarId || backgroundId) {
-        const uid = (user as any).id ?? (user as any).ID; if (!uid) throw new Error('User has no ID');
         const base = serverUrl?.replace(/\/+$/, '');
+        if (!base) throw new Error('Missing server URL');
+        const uid = (user as any).id ?? (user as any).ID;
+        const endpoint = self ? `${base}/api/users/me` : `${base}/api/users/${uid}`;
         const payload: any = { ...user };
         if (avatarId) payload.avatar_id = avatarId;
         if (backgroundId) payload.background_id = backgroundId;
         delete (payload as any).avatar; delete (payload as any).background;
-        const res = await authFetch(`${base}/api/users/${uid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(payload) });
+        const res = await authFetch(endpoint, { method: 'PUT', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(payload) });
         if (!res.ok) { const txt = await res.text(); throw new Error(`User update failed (${res.status}): ${txt || res.statusText}`); }
         const updatedUser = await res.json();
         onUserUpdated?.(updatedUser);
+        if (self) refreshCurrentUser?.();
       }
       setImagesMsg('Images saved successfully');
       if (newAvatar) setAvatarImg(s => ({ ...s, original: s.preview, via: 'none', file: null, urlInput: '', loadedId: avatarId ?? s.loadedId }));
