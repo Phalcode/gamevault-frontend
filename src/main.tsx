@@ -14,7 +14,6 @@ import DashboardLayout from "./layouts/DashboardLayout";
 import FullscreenLayout from "./layouts/FullscreenLayout";
 import Administration from "./pages/Administration";
 import Community from "./pages/Community";
-import Downloads from "./pages/Downloads";
 import Library from "./pages/Library";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
@@ -36,7 +35,6 @@ createRoot(document.getElementById("root")!).render(
 
               <Route element={<DashboardLayout />}>
                 <Route index path="library" element={<Library />} />
-                <Route path="downloads" element={<Downloads />} />
                 <Route path="community" element={<Community />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="admin" element={<Administration />} />

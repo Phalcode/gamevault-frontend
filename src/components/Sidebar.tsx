@@ -2,7 +2,6 @@ import { Media } from "@/components/Media";
 import { useAuth } from "@/context/AuthContext";
 import { Logo } from "@components/Logo";
 import {
-  ArrowDownTrayIcon,
   ArrowRightStartOnRectangleIcon,
   ChatBubbleLeftRightIcon,
   ChevronUpIcon,
@@ -77,12 +76,6 @@ export function Sidebar() {
               <Squares2X2Icon />
               <SidebarLabel className="flex justify-between w-full">
                 Library
-              </SidebarLabel>
-            </SidebarItem>
-            <SidebarItem href="/downloads" disabled={true} className="hidden">
-              <ArrowDownTrayIcon />
-              <SidebarLabel className="flex justify-between w-full">
-                Downloads <Badge>Soon</Badge>
               </SidebarLabel>
             </SidebarItem>
             <SidebarItem href="/community">
@@ -166,7 +159,7 @@ export function Sidebar() {
               <ChevronUpIcon />
             </DropdownButton>
             <DropdownMenu className="min-w-64" anchor="top start">
-              <DropdownItem href="/profile">
+              <DropdownItem href="/community">
                 <UserIcon />
                 <DropdownLabel>My profile</DropdownLabel>
               </DropdownItem>

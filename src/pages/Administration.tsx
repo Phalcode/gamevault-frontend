@@ -34,6 +34,7 @@ import Card from "../components/Card";
 // Legacy modals (inline styles) brought back from old-src for now
 import { RegisterUserModal } from "@/components/admin/RegisterUserModal";
 import { UserEditorModal } from "@/components/admin/UserEditorModal";
+import BackupRestoreDialog from "../components/admin/BackupRestoreDialog";
 import { Label } from "../components/tailwind/fieldset";
 
 export default function Administration() {
@@ -50,6 +51,8 @@ export default function Administration() {
     setUsers,
   } = useAdminUsers();
   const { serverUrl, user: currentUser, authFetch } = useAuth();
+  const [showBackupRestoreDialog, setShowBackupRestoreDialog] = useState(false);
+
   const { showAlert } = useAlertDialog();
   const {
     info,
@@ -129,7 +132,7 @@ export default function Administration() {
           <Card className="grid md:grid-cols-2 gap-4" title="Actions">
             <Button
               color="indigo"
-              onClick={() => alert("Not yet implemented")}
+              onClick={() => setShowBackupRestoreDialog(true)}
               title="Backup & Restore Database"
               className="items-center"
             >
@@ -393,6 +396,11 @@ export default function Administration() {
             )}
           </div>
         </Card>
+        {showBackupRestoreDialog && (
+          <BackupRestoreDialog
+            onClose={() => setShowBackupRestoreDialog(false)}
+          />
+        )}
       </div>
     );
   } catch (e: any) {

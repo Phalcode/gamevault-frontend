@@ -6,6 +6,7 @@ export interface GameMediaRef {
 }
 export interface GameMetadata {
   cover?: GameMediaRef | { ID?: number | string };
+  title?: string;
 }
 export interface Game {
   id: number;

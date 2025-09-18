@@ -2,7 +2,7 @@ import { Media } from "@/components/Media";
 import { useAuth } from "@/context/AuthContext";
 import { useDownloads } from "@/context/DownloadContext";
 import { Game, getGameCoverMediaId } from "@/hooks/useGames";
-import { ArrowDownTrayIcon } from "@heroicons/react/16/solid";
+import { CloudArrowDownIcon } from "@heroicons/react/16/solid";
 import { Button } from "@tw/button";
 import {
   Dropdown,
@@ -55,10 +55,10 @@ export function GameCard({ game }: { game: Game }) {
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-  if (!serverUrl) return;
+      if (!serverUrl) return;
       startDownload(game.id, filename);
     },
-  [serverUrl, startDownload, game.id, filename],
+    [serverUrl, startDownload, game.id, filename],
   );
 
   const handleClientDownload = useCallback(
@@ -105,15 +105,15 @@ export function GameCard({ game }: { game: Game }) {
           </div>
         )}
         {/* Bottom-right download actions */}
-        <div className="absolute bottom-0 right-0 p-1 z-10 flex justify-end">
+        <div className="absolute bottom-0 right-0 p-1 z-10 flex justify-end opacity-85">
           <Dropdown>
             <DropdownButton
               as={Button}
-              color="indigo"
-              className="!px-2 !py-1 h-7 text-[11px] font-medium flex items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm bg-indigo-600/90 hover:bg-indigo-500/90"
+              color="zinc"
+              aria-label="Download"
+              className="flex justify-center h-8 text-md font-medium items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm"
             >
-              <ArrowDownTrayIcon className="size-4" />
-              <span className="hidden xs:inline">Download</span>
+              <CloudArrowDownIcon className="w-6 h-6 fill-white" />
             </DropdownButton>
             <DropdownMenu className="min-w-48" anchor="top end">
               <DropdownItem onClick={handleDirectDownload}>
@@ -127,19 +127,19 @@ export function GameCard({ game }: { game: Game }) {
         </div>
       </div>
       <div className="p-2 pt-2">
-        <h3 className="text-xs font-medium truncate" title={game.title}>
-          {game.title}
+        <h3 className="text-sm font-medium truncate" title={game.title}>
+          {game.metadata?.title || game.title}
         </h3>
         {game.sort_title && game.sort_title !== game.title && (
           <p
-            className="mt-0.5 text-[10px] text-fg-muted truncate"
-            title={game.sort_title}
+            className="mt-0.5 text-xs text-fg-muted truncate"
+            title={game.title}
           >
-            {game.sort_title}
+            {game.title}
           </p>
         )}
         {formattedSize && (
-          <p className="mt-0.5 text-[10px] text-fg-muted" title={formattedSize}>
+          <p className="mt-0.5 text-xs text-fg-muted" title={formattedSize}>
             {formattedSize}
           </p>
         )}

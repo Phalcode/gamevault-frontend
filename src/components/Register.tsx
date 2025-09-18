@@ -359,7 +359,7 @@ export function Register() {
         )}
       <Text>
         Already have an account? {""}
-        <TextLink href="/sfsf">
+        <TextLink href="/">
           <Strong>Sign in</Strong>
         </TextLink>
       </Text>

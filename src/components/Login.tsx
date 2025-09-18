@@ -71,7 +71,7 @@ export function Login() {
           onChange={(e) => setPassword(e.target.value)}
         />
       </Field>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between hidden">
         <CheckboxField>
           <Checkbox
             name="remember"

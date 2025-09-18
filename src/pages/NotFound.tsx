@@ -57,7 +57,7 @@ export default function NotFound() {
         <audio ref={audioRef} src="/wellerman.m4a" preload="none" />
         <h1 className="text-xl">404 - Page Not Found</h1>
         <h2 className="text-4xl mb-4 font-bold">
-          „Arr... ye've taken a wrong turn at the seven seas!“{" "}
+          „Arr... ye've taken a wrong turn at the seven seas!“
         </h2>
         <Button href="/">Sail Back Home</Button>
         <ThemeSwitch className="mt-4" />
