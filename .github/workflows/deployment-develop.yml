@@ -1,0 +1,51 @@
+name: Build and Deploy for Develop (Unstable Release)
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Zip dist folder
+        run: |
+          zip -r gamevault-frontend.zip dist/*
+
+      - name: Upload gamevault-frontend.zip to unstable release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: gamevault-frontend.zip
+          asset_name: gamevault-frontend.zip
+          tag: unstable
+          overwrite: true
+          prerelease: true
+#  sonarcloud:
+#    name: SonarCloud
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v3
+#        with:
+#          fetch-depth: 0
+#
+#      - name: SonarCloud Scan
+#        uses: SonarSource/sonarcloud-github-action@master
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

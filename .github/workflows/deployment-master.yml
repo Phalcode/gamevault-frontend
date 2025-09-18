@@ -1,0 +1,63 @@
+name: Build and Deploy for Master
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Fetch Current Package Version
+        id: package-version
+        uses: martinbeentjes/npm-get-version-action@v1.3.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Zip dist folder
+        run: |
+          zip -r gamevault-frontend.zip dist
+
+      - name: Create Github Tag & Release
+        id: release
+        uses: CupOfTea696/gh-action-auto-release@v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag: "$semver.0"
+
+      - name: Upload Release Artifact
+        id: upload
+        uses: actions/upload-release-asset@v1
+        with:
+          asset_path: gamevault-frontend.zip
+          asset_name: gamevault-frontend.zip
+          asset_content_type: application/zip
+          upload_url: ${{steps.release.outputs.upload_url}}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify_discord:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord Notification
+        id: discord
+        uses: Ilshidur/action-discord@master
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_RELEASE_BOT_WEBHOOK }}
+        with:
+          args: "<@&1128857090090340382> New Release: ${{ github.event.repository.full_name }} v${{ needs.deploy.outputs.version }}.0 has been deployed. Here are the changes: https://github.com/${{ github.event.repository.full_name }}/releases/tag/${{ needs.deploy.outputs.version }}.0"

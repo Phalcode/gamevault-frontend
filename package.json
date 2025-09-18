@@ -1,0 +1,46 @@
+{
+  "name": "gamevault-frontend",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "start": "vite --clearScreen false",
+    "dev": "vite",
+    "debug": "vite dev server",
+    "tauridev": "tauri dev",
+    "build": "vite build",
+    "lint": "prettier --write . && eslint .",
+    "postinstall": "rimraf ./src/api && openapi-generator-cli generate -g typescript-fetch -i https://gamevault.alfagun74.de/api/docs-yaml -o ./src/api --global-property models"
+  },
+  "dependencies": {
+    "@headlessui/react": "^2.2.8",
+    "@heroicons/react": "^2.2.0",
+    "@tailwindcss/vite": "^4.1.13",
+    "clsx": "^2.1.1",
+    "motion": "^12.23.12",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "react-router": "^7.9.1",
+    "tailwindcss": "^4.1.13",
+    "use-dark-mode": "^2.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@openapitools/openapi-generator-cli": "^2.23.4",
+    "@tauri-apps/cli": "2.8.4",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "eslint": "^9.35.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.4.0",
+    "prettier": "3.6.2",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5",
+    "vite-tsconfig-paths": "^5.1.4"
+  }
+}
