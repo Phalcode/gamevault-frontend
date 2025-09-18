@@ -13,7 +13,7 @@ import ThemeSwitch from "./ThemeSwitch";
 export function Login() {
   const { loginBasic, loading, error } = useAuth();
   const navigate = useNavigate();
-  const [server, setServer] = useState("https://gamevault.alfagun74.de");
+  const [server, setServer] = useState(window.location.origin);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
