@@ -1,6 +1,6 @@
 # GameVault Frontend Changelog
 
-## 1.0.0
+## 16.0.0
 
 ### Changes
 
