@@ -21,7 +21,7 @@ interface FormState {
 
 export function Register() {
   const { serverUrl } = useAuth();
-  const [serverInput, setServerInput] = useState("");
+  const [serverInput, setServerInput] = useState(window.location.origin);
   const [form, setForm] = useState<FormState>({});
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
