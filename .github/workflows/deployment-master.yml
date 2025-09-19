@@ -44,7 +44,7 @@ jobs:
           asset_path: gamevault-frontend.zip
           asset_name: gamevault-frontend.zip
           asset_content_type: application/zip
-          upload_url: ${{steps.release.outputs.upload_url}}
+          upload_url: ${{ steps.release.outputs.upload_url }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -58,4 +58,4 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_RELEASE_BOT_WEBHOOK }}
         with:
-          args: "<@&1128857090090340382> New Release: ${{ github.event.repository.full_name }} v${{ steps.package-version.outputs.current-version }} has been deployed. Here are the changes: https://github.com/${{ github.event.repository.full_name }}/releases/tag/${{steps.package-version.outputs.current-version}}'"
+          args: "<@&1128857090090340382> New Release: ${{ github.event.repository.full_name }} v${{ steps.package-version.outputs.current-version }} has been deployed. Here are the changes: https://github.com/${{ github.event.repository.full_name }}/releases/tag/${{ steps.package-version.outputs.current-version }}'"
