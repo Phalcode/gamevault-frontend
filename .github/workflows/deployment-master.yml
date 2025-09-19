@@ -36,8 +36,6 @@ jobs:
         uses: CupOfTea696/gh-action-auto-release@v1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag: "$semver.0"
 
       - name: Upload Release Artifact
         id: upload
@@ -60,4 +58,4 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_RELEASE_BOT_WEBHOOK }}
         with:
-          args: "<@&1128857090090340382> New Release: ${{ github.event.repository.full_name }} v${{ needs.deploy.outputs.version }}.0 has been deployed. Here are the changes: https://github.com/${{ github.event.repository.full_name }}/releases/tag/${{ needs.deploy.outputs.version }}.0"
+          args: "<@&1128857090090340382> New Release: ${{ github.event.repository.full_name }} v${{ steps.package-version.outputs.current-version }} has been deployed. Here are the changes: https://github.com/${{ github.event.repository.full_name }}/releases/tag/${{steps.package-version.outputs.current-version}}'"
