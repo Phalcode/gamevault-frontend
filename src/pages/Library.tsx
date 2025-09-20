@@ -23,11 +23,39 @@ const ORDER_BY: { label: string; value: "ASC" | "DESC" }[] = [
   { label: "Ascending", value: "ASC" },
 ];
 
+const RETAIN_KEY = 'app_retain_library_prefs';
+const LIB_SORT_KEY = 'app_library_sort';
+const LIB_ORDER_KEY = 'app_library_order';
+
 export default function Library() {
   const { serverUrl } = useAuth();
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("sort_title");
-  const [order, setOrder] = useState<"ASC" | "DESC">("ASC");
+  const [sortBy, setSortBy] = useState(() => {
+    try {
+      if (localStorage.getItem(RETAIN_KEY) === '1') {
+        return localStorage.getItem(LIB_SORT_KEY) || 'sort_title';
+      }
+    } catch {}
+    return 'sort_title';
+  });
+  const [order, setOrder] = useState<"ASC" | "DESC">(() => {
+    try {
+      if (localStorage.getItem(RETAIN_KEY) === '1') {
+        const v = localStorage.getItem(LIB_ORDER_KEY) as 'ASC' | 'DESC' | null;
+        if (v === 'ASC' || v === 'DESC') return v;
+      }
+    } catch {}
+    return 'ASC';
+  });
+  // Persist when changed if retention enabled
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(RETAIN_KEY) === '1') {
+        localStorage.setItem(LIB_SORT_KEY, sortBy);
+        localStorage.setItem(LIB_ORDER_KEY, order);
+      }
+    } catch {}
+  }, [sortBy, order]);
   // Defer search to avoid spamming requests while user types quickly
   const deferredSearch = useDeferredValue(search);
   const { count, games, loading, error, loadMore, hasMore, refetch } = useGames(
