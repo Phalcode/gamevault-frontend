@@ -1,25 +1,7 @@
+import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export interface GameMediaRef {
-  id: number | string;
-}
-export interface GameMetadata {
-  cover?: GameMediaRef | { ID?: number | string };
-  title?: string;
-}
-export interface Game {
-  id: number;
-  title: string;
-  sort_title?: string;
-  metadata?: GameMetadata | null;
-  // Optional file system path provided by backend (used for deriving download filename)
-  path?: string;
-  Path?: string; // legacy / PascalCase variant just in case
-  // Size of the game in bytes (optional, provided by backend if available)
-  size?: number;
-  Size?: number; // legacy / alternate casing safeguard
-}
 
 interface PaginatedData<T> {
   data: T[];
@@ -42,7 +24,7 @@ export function useGames({
 }: UseGamesOptions) {
   const { serverUrl, authFetch } = useAuth();
   const [count, setCount] = useState(0);
-  const [games, setGames] = useState<Game[]>([]);
+  const [games, setGames] = useState<GamevaultGame[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +46,7 @@ export function useGames({
       const url = `${base}/api/games?${params.toString()}`;
       const res = await authFetch(url, { method: "GET", signal: ac.signal });
       if (!res.ok) throw new Error(`Games fetch failed (${res.status})`);
-      const json: PaginatedData<Game> = await res.json();
+      const json: PaginatedData<GamevaultGame> = await res.json();
       setCount(json.meta.totalItems);
       setGames(json.data || []);
       setNext(json.links?.next || null);
@@ -92,7 +74,7 @@ export function useGames({
       }
       const res = await authFetch(url, { method: "GET" });
       if (!res.ok) throw new Error(`Games fetch failed (${res.status})`);
-      const json: PaginatedData<Game> = await res.json();
+      const json: PaginatedData<GamevaultGame> = await res.json();
       setGames((prev) => [...prev, ...(json.data || [])]);
       setNext(json.links?.next || null);
     } catch (e: any) {
@@ -118,7 +100,7 @@ export function useGames({
   };
 }
 
-export function getGameCoverMediaId(game: Game): number | string | null {
+export function getGameCoverMediaId(game: GamevaultGame): number | string | null {
   const id =
     (game.metadata as any)?.cover?.id ?? (game.metadata as any)?.cover?.ID;
   return id ?? null;

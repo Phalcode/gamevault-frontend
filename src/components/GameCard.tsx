@@ -1,7 +1,8 @@
+import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { Media } from "@/components/Media";
 import { useAuth } from "@/context/AuthContext";
 import { useDownloads } from "@/context/DownloadContext";
-import { Game, getGameCoverMediaId } from "@/hooks/useGames";
+import { getGameCoverMediaId } from "@/hooks/useGames";
 import { CloudArrowDownIcon } from "@heroicons/react/16/solid";
 import { Button } from "@tw/button";
 import {
@@ -13,23 +14,15 @@ import {
 } from "@tw/dropdown";
 import clsx from "clsx";
 import { useCallback } from "react";
+import { useNavigate } from "react-router";
 
-export function GameCard({ game }: { game: Game }) {
+export function GameCard({ game }: { game: GamevaultGame }) {
   const coverId = getGameCoverMediaId(game);
   const { serverUrl } = useAuth();
   const { startDownload } = useDownloads() as any;
 
-  const filename = (() => {
-    const p = game.path || (game as any).Path;
-    if (!p) return `${game.title}.zip`;
-    // Derive filename similar to Path.GetFileName
-    try {
-      const parts = p.split(/\\|\//);
-      const last = parts[parts.length - 1];
-      return last || `${game.title}.zip`;
-    } catch {
-      return `${game.title}.zip`;
-    }
+  const filename = (() => { 
+  return `${game.title}.zip`;  
   })();
 
   const rawSize = (game as any).size;
@@ -71,14 +64,15 @@ export function GameCard({ game }: { game: Game }) {
     [game.id],
   );
 
-  const handleClientOpen = useCallback(
+  const navigate = useNavigate();
+
+  const handleOpenGameView = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      const url = `gamevault://show?gameid=${game.id}`;
-      window.location.href = url;
+      navigate(`/library/${game.id}`);
     },
-    [game.id],
+    [navigate, game.id],
   );
 
   return (
@@ -97,10 +91,10 @@ export function GameCard({ game }: { game: Game }) {
             className="h-full w-full object-contain rounded-none"
             square
             alt={game.title}
-            onClick={handleClientOpen}
+            onClick={handleOpenGameView}
           />
         ) : (
-          <div onClick={handleClientOpen} className="text-xs text-fg-muted">
+          <div onClick={handleOpenGameView} className="text-xs text-fg-muted">
             No Cover
           </div>
         )}
@@ -130,7 +124,7 @@ export function GameCard({ game }: { game: Game }) {
         <h3 className="text-sm font-medium truncate" title={game.title}>
           {game.metadata?.title || game.title}
         </h3>
-        {game.sort_title && game.sort_title !== game.title && (
+        {game.sortTitle && game.sortTitle !== game.title && (
           <p
             className="mt-0.5 text-xs text-fg-muted truncate"
             title={game.title}
