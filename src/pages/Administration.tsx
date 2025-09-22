@@ -3,7 +3,6 @@ import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminUsers } from "@/hooks/useAdminUsers";
 import { useServerStatus } from "@/hooks/useServerStatus";
-import { PermissionRole, PermissionRoleLabel } from "@/types/api";
 import {
   ArrowPathIcon,
   PencilSquareIcon,
@@ -34,6 +33,7 @@ import Card from "../components/Card";
 // Legacy modals (inline styles) brought back from old-src for now
 import { RegisterUserModal } from "@/components/admin/RegisterUserModal";
 import { UserEditorModal } from "@/components/admin/UserEditorModal";
+import { GamevaultUser, GamevaultUserRoleEnum } from "../api";
 import BackupRestoreDialog from "../components/admin/BackupRestoreDialog";
 import { Label } from "../components/tailwind/fieldset";
 
@@ -74,20 +74,13 @@ export default function Administration() {
 
   const currentEditingUser = useMemo(() => {
     if (editingUserId == null) return null;
-    return users.find((u) => (u.id ?? (u as any).ID) === editingUserId) || null;
+    return users.find((u) => u.id === editingUserId) || null;
   }, [editingUserId, users]);
 
   const filteredUsers = useMemo(() => {
     if (showDeleted) return users;
-    return users.filter((u) => !(u.deleted_at ?? (u as any).DeletedAt));
+    return users.filter((u) => !u.deleted_at);
   }, [users, showDeleted]);
-
-  const roleValues: { value: PermissionRole; label: string }[] = [
-    PermissionRole.GUEST,
-    PermissionRole.USER,
-    PermissionRole.EDITOR,
-    PermissionRole.ADMIN,
-  ].map((r) => ({ value: r, label: PermissionRoleLabel[r] }));
 
   try {
     return (
@@ -169,7 +162,7 @@ export default function Administration() {
               {reindexing ? "Reindexing…" : "Reindex Games"}
             </Button>
             <Button
-              color="red"
+              color="rose"
               disabled={restarting}
               onClick={async () => {
                 if (restarting) return;
@@ -262,26 +255,24 @@ export default function Administration() {
                   </TableCell>
                 </TableRow>
               )}
-              {filteredUsers.map((u) => {
-                const id = u.id ?? (u as any).ID;
-                const deleted = u.deleted_at ?? (u as any).DeletedAt;
+              {filteredUsers.map((u: GamevaultUser) => {
+                const id = u.id;
+                const deleted = u.deleted_at;
                 const busy = opBusy[String(id)];
-                const name =
-                  u.username || (u as any).Username || "Unknown User";
-                const first_name = u.first_name || (u as any).FirstName;
-                const last_name = u.last_name || (u as any).LastName;
-                const email = u.email || (u as any).EMail;
-                const avatarId = (u.avatar as any)?.id || (u.avatar as any)?.ID;
+                const name = u.username || "Unknown User";
+                const first_name = u.first_name;
+                const last_name = u.last_name;
+                const email = u.email;
                 const roleNumeric =
                   typeof u.role === "number"
-                    ? (u.role as PermissionRole)
-                    : PermissionRole.GUEST;
+                    ? (u.role as GamevaultUserRoleEnum)
+                    : GamevaultUserRoleEnum.NUMBER_0;
                 return (
                   <TableRow key={id} className={deleted ? "opacity-60" : ""}>
                     <TableCell>
                       <div className="flex items-center gap-4">
                         <Media
-                          media={u.avatar as any}
+                          media={u.avatar}
                           size={48}
                           className="size-12"
                           square
@@ -332,11 +323,10 @@ export default function Administration() {
                         name="role"
                         value={roleNumeric}
                         onChange={async (val: any) => {
-                          const nextRole = Number(val) as PermissionRole;
+                          const nextRole = Number(val) as GamevaultUserRoleEnum;
                           if (
                             currentUser &&
-                            (currentUser.id ?? (currentUser as any).ID) ===
-                              (u.id ?? (u as any).ID) &&
+                            currentUser.id === u.id &&
                             nextRole !== roleNumeric
                           ) {
                             const proceed = await showAlert({
@@ -352,9 +342,9 @@ export default function Administration() {
                         }}
                         disabled={!!deleted || busy}
                       >
-                        {roleValues.map((r) => (
-                          <ListboxOption key={r.value} value={r.value}>
-                            <ListboxLabel>{r.label}</ListboxLabel>
+                        {Object.values(GamevaultUserRoleEnum).map((r) => (
+                          <ListboxOption key={r} value={r}>
+                            <ListboxLabel>{r}</ListboxLabel>
                           </ListboxOption>
                         ))}
                       </Listbox>
@@ -404,18 +394,15 @@ export default function Administration() {
           <div id="portal-modals" className="contents">
             {currentEditingUser && (
               <UserEditorModal
-                user={currentEditingUser as any}
+                user={currentEditingUser}
                 onClose={() => setEditingUserId(null)}
                 onSave={async (payload) =>
-                  updateUser(currentEditingUser, payload as any)
+                  updateUser(currentEditingUser, payload)
                 }
                 onUserUpdated={(updated) => {
                   setUsers((prev) =>
                     prev.map((u) =>
-                      (u.id ?? (u as any).ID) ===
-                      (updated.id ?? (updated as any).ID)
-                        ? { ...u, ...updated }
-                        : u,
+                      u.id === updated.id ? { ...u, ...updated } : u,
                     ),
                   );
                 }}

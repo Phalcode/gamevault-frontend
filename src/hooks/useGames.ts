@@ -2,7 +2,6 @@ import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-
 interface PaginatedData<T> {
   data: T[];
   meta: { totalItems: number };
@@ -100,8 +99,9 @@ export function useGames({
   };
 }
 
-export function getGameCoverMediaId(game: GamevaultGame): number | string | null {
-  const id =
-    (game.metadata as any)?.cover?.id ?? (game.metadata as any)?.cover?.ID;
+export function getGameCoverMediaId(
+  game: GamevaultGame,
+): number | string | null {
+  const id = game.metadata?.cover?.id;
   return id ?? null;
 }

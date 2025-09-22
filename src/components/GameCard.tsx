@@ -19,13 +19,13 @@ import { useNavigate } from "react-router";
 export function GameCard({ game }: { game: GamevaultGame }) {
   const coverId = getGameCoverMediaId(game);
   const { serverUrl } = useAuth();
-  const { startDownload } = useDownloads() as any;
+  const { startDownload } = useDownloads();
 
-  const filename = (() => { 
-  return `${game.title}.zip`;  
+  const filename = (() => {
+    return `${game.title}.zip`;
   })();
 
-  const rawSize = (game as any).size;
+  const rawSize = game.size;
 
   const formatBytes = useCallback((bytes?: number) => {
     if (bytes === undefined || bytes === null || isNaN(bytes)) return null;
@@ -86,7 +86,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
       <div className="relative aspect-[3/4] w-full bg-bg-muted flex items-center justify-center overflow-hidden">
         {coverId ? (
           <Media
-            media={{ id: coverId } as any}
+            media={{ id: coverId }}
             size={300}
             className="h-full w-full object-contain rounded-none"
             square
