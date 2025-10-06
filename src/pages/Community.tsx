@@ -36,17 +36,19 @@ export default function Community() {
           headers: { Accept: "application/json" },
         });
         if (!res.ok) throw new Error(`Failed to load users (${res.status})`);
-        const arr: GamevaultUser[] = await res.json();
-        if (cancelled) return;
-        setUsers(arr);
+  const arr: GamevaultUser[] = await res.json();
+  if (cancelled) return;
+  // Exclude soft-deleted users (deleted_at present)
+  const active = arr.filter(u => !(u as any).deleted_at);
+  setUsers(active);
         // Default selection: logged-in user's username; else first user's username
         const loggedUsername = loggedIn?.username ?? null;
         const preferred =
           (loggedUsername &&
-            arr.find(
+            active.find(
               (u) => (u.username ?? String(u.id)) === String(loggedUsername),
             )) ||
-          arr[0] ||
+          active[0] ||
           null;
         setCurrentUsername(
           preferred ? (preferred.username ?? String(preferred.id)) : "",
