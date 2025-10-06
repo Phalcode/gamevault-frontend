@@ -22,7 +22,7 @@ export default function ProtectedRoute({
   if (!auth) return <Navigate to="/" replace />;
 
   if (requiredRole !== undefined) {
-    const roleVal = user.role;
+  const roleVal = user?.role;
     if (roleVal == null || roleVal < requiredRole) {
       return <Navigate to="/library" replace />;
     }

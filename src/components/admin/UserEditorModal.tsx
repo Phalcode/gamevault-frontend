@@ -24,7 +24,7 @@ interface Props {
     password?: string;
     birth_date: string | null;
   }) => Promise<{ ok: boolean; message?: string }>;
-  onUserUpdated?: (u: User) => void;
+  onUserUpdated?: (u: GamevaultUser) => void;
   /** If true, treat this editor as editing the current logged-in user (affects endpoints) */
   self?: boolean;
 }

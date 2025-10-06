@@ -15,7 +15,7 @@ import { GamevaultUser } from "../../api";
 
 interface Props {
   onClose: () => void;
-  onRegistered: (u: User) => void;
+  onRegistered: (u: GamevaultUser) => void;
 }
 
 export function RegisterUserModal({ onClose, onRegistered }: Props) {

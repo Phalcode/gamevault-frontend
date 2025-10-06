@@ -13,6 +13,8 @@ export interface UseGamesOptions {
   sortBy: string; // e.g. sort_title, size
   order: "ASC" | "DESC";
   limit?: number;
+  // If true, only return games bookmarked by the current user
+  bookmarkedOnly?: boolean;
 }
 
 export function useGames({
@@ -20,8 +22,9 @@ export function useGames({
   sortBy,
   order,
   limit = 50,
+  bookmarkedOnly = false,
 }: UseGamesOptions) {
-  const { serverUrl, authFetch } = useAuth();
+  const { serverUrl, authFetch, user } = useAuth();
   const [count, setCount] = useState(0);
   const [games, setGames] = useState<GamevaultGame[]>([]);
   const [next, setNext] = useState<string | null>(null);
@@ -42,6 +45,12 @@ export function useGames({
       if (search) params.set("search", search);
       if (sortBy) params.set("sortBy", `${sortBy}:${order}`);
       if (limit) params.set("limit", String(limit));
+      // Advanced filter: bookmarked by current user
+      const userId = (user as any)?.id ?? (user as any)?.ID;
+      if (bookmarkedOnly && userId != null) {
+        // Backend expects: filter.bookmarked_users.id=$eq:<userId>
+        params.set("filter.bookmarked_users.id", `$eq:${userId}`);
+      }
       const url = `${base}/api/games?${params.toString()}`;
       const res = await authFetch(url, { method: "GET", signal: ac.signal });
       if (!res.ok) throw new Error(`Games fetch failed (${res.status})`);
@@ -55,7 +64,7 @@ export function useGames({
     } finally {
       setLoading(false);
     }
-  }, [serverUrl, authFetch, search, sortBy, order, limit]);
+  }, [serverUrl, authFetch, search, sortBy, order, limit, bookmarkedOnly, user]);
 
   const loadMore = useCallback(async () => {
     if (!serverUrl || !next || loading) return;

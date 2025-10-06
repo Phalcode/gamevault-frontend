@@ -67,7 +67,7 @@ export function Sidebar() {
     setBadgeVisible(false);
   };
 
-  const roleVal = user.role;
+  const roleVal = user?.role;
   const isAdmin = roleVal === GamevaultUserRoleEnum.NUMBER_3;
 
   return (
