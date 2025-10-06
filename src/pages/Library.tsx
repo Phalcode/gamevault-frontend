@@ -34,8 +34,25 @@ const LIB_ORDER_KEY = 'app_library_order';
 export default function Library() {
   const { serverUrl, user } = useAuth();
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("sort_title");
-  const [order, setOrder] = useState<"ASC" | "DESC">("ASC");
+  // Initialize sort/order from localStorage if retention is enabled
+  const [sortBy, setSortBy] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && localStorage.getItem(RETAIN_KEY) === '1') {
+        const saved = localStorage.getItem(LIB_SORT_KEY);
+        if (saved && SORT_BY.some(o => o.value === saved)) return saved;
+      }
+    } catch {}
+    return "sort_title";
+  });
+  const [order, setOrder] = useState<"ASC" | "DESC">(() => {
+    try {
+      if (typeof window !== 'undefined' && localStorage.getItem(RETAIN_KEY) === '1') {
+        const saved = localStorage.getItem(LIB_ORDER_KEY) as ("ASC" | "DESC" | null);
+        if (saved === 'ASC' || saved === 'DESC') return saved;
+      }
+    } catch {}
+    return "ASC";
+  });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [bookmarkedOnly, setBookmarkedOnly] = useState(false);
   // Defer search to avoid spamming requests while user types quickly
@@ -54,6 +71,17 @@ export default function Library() {
   useEffect(() => {
     refetch();
   }, [deferredSearch, sortBy, order, bookmarkedOnly, refetch]);
+
+  // Persist sort/order if retention enabled
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (localStorage.getItem(RETAIN_KEY) === '1') {
+      try {
+        localStorage.setItem(LIB_SORT_KEY, sortBy);
+        localStorage.setItem(LIB_ORDER_KEY, order);
+      } catch {}
+    }
+  }, [sortBy, order]);
 
   // Sync bookmark filter in URL search params for shareable links
   useEffect(() => {
