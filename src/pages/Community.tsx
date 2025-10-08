@@ -6,7 +6,8 @@ import { Heading } from "@tw/heading";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { GamevaultUser, GamevaultUserRoleLabels } from "../api";
+import { GamevaultUser } from "../api";
+import { ROLE_LABELS } from "@/utils/roles";
 
 export default function Community() {
   const { serverUrl, authFetch, user: loggedIn } = useAuth();
@@ -167,7 +168,7 @@ export default function Community() {
               </div>
             )}
             <div className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs border-zinc-300/60 text-zinc-700 dark:border-zinc-700/60 dark:text-zinc-200">
-              {current?.role != null ? (GamevaultUserRoleLabels[Number(current.role)] ?? current.role) : ""}
+              {current?.role != null ? (ROLE_LABELS[Number(current.role)] ?? current.role) : ""}
             </div>
           </div>
         </div>
