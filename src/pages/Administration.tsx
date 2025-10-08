@@ -33,7 +33,7 @@ import Card from "../components/Card";
 // Legacy modals (inline styles) brought back from old-src for now
 import { RegisterUserModal } from "@/components/admin/RegisterUserModal";
 import { UserEditorModal } from "@/components/admin/UserEditorModal";
-import { GamevaultUser, GamevaultUserRoleEnum } from "../api";
+import { GamevaultUser, GamevaultUserRoleEnum, GamevaultUserRoleLabels } from "../api";
 import BackupRestoreDialog from "../components/admin/BackupRestoreDialog";
 import { Label } from "../components/tailwind/fieldset";
 
@@ -344,7 +344,9 @@ export default function Administration() {
                       >
                         {Object.values(GamevaultUserRoleEnum).map((r) => (
                           <ListboxOption key={r} value={r}>
-                            <ListboxLabel>{r}</ListboxLabel>
+                            <ListboxLabel>
+                              {GamevaultUserRoleLabels[Number(r)] ?? r}
+                            </ListboxLabel>
                           </ListboxOption>
                         ))}
                       </Listbox>
