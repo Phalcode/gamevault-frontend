@@ -25,6 +25,7 @@
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",
     "react-router": "^7.9.1",
+    "swetrix": "^3.7.1",
     "tailwindcss": "^4.1.13",
     "use-dark-mode": "^2.3.1"
   },
