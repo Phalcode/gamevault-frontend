@@ -16,7 +16,7 @@ export function Login() {
   const [server, setServer] = useState(window.location.origin);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(true);
+  const [useSso, setUseSso] = useState(false);
 
   // Refs for focus trap
   const serverRef = useRef<HTMLInputElement | null>(null);
@@ -45,11 +45,11 @@ export function Login() {
     e.preventDefault();
     try {
       const normalized = normalizeServer(server);
-      await loginBasic({ server: normalized, username, password });
-      if (!remember) {
-        // If user disabled remember, clear stored refresh token
-        localStorage.removeItem("app_refresh_token");
+      if (useSso) {
+        // For now just disable basic login when SSO selected (future: launch popup flow)
+        return;
       }
+      await loginBasic({ server: normalized, username, password });
       navigate("/library", { replace: true });
     } catch {
       // error handled in context
@@ -115,6 +115,7 @@ export function Login() {
           onChange={(e) => setUsername(e.target.value)}
           ref={userRef}
           tabIndex={2}
+          disabled={useSso}
         />
       </Field>
       <Field>
@@ -128,29 +129,27 @@ export function Login() {
           onChange={(e) => setPassword(e.target.value)}
           ref={passRef}
           tabIndex={3}
+          disabled={useSso}
         />
       </Field>
-      <div className="flex items-center justify-between hidden">
-        <CheckboxField>
-          <Checkbox
-            name="remember"
-            checked={remember}
-            onChange={(ev: any) => {
-              const checked = (ev?.target as HTMLInputElement | undefined)
-                ?.checked;
-              if (typeof checked === "boolean") setRemember(checked);
-            }}
-          />
-          <Label>Remember me</Label>
-        </CheckboxField>
-      </div>
+      <CheckboxField className="cursor-pointer select-none">
+        <Checkbox
+          id="login-sso"
+          name="useSso"
+          color="indigo"
+          className="cursor-pointer"
+          checked={useSso}
+          onChange={(checked: boolean) => setUseSso(!!checked)}
+        />
+        <Label htmlFor="login-sso" className="cursor-pointer">Login with SSO</Label>
+      </CheckboxField>
       {error && (
         <div className="text-sm text-red-500 -mt-4" role="alert">
           {error}
         </div>
       )}
       <Button type="submit" className="w-full" disabled={loading} tabIndex={4} ref={submitRef}>
-        {loading ? "Authenticating…" : "Login"}
+        {loading ? (useSso ? 'Preparing SSO…' : 'Authenticating…') : (useSso ? 'Continue with SSO' : 'Login')}
       </Button>
       <Text tabIndex={-1} aria-hidden="true">
         Don’t have an account? {""}

@@ -211,19 +211,19 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
         </>
       )}
 
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 flex items-center justify-between text-[11px] text-white">
-        <div>
+      <div className={
+        `absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 flex items-center justify-between text-[11px] text-white` +
+        (isYT ? ' pointer-events-none' : '')
+      }>
+        <div className={isYT ? 'pointer-events-none' : ''}>
           Media {index + 1} / {list.length}
-          {current?.originalUrl && (
-            <> {" "}- <a href={current.originalUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-indigo-300">source</a></>
-          )}
         </div>
         <div className="flex items-center gap-2">
-          {isYT && !ytId && <span className="text-rose-300">Unrecognized YouTube URL</span>}
+          {isYT && !ytId && <span className="text-rose-300 pointer-events-none">Unrecognized YouTube URL</span>}
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="p-1.5 rounded-md bg-white/10 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="p-1.5 rounded-md bg-white/10 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-500 pointer-events-auto"
             aria-label="Toggle fullscreen"
             title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
             aria-pressed={isFullscreen}
