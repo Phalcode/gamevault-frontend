@@ -6,9 +6,10 @@ import { Field, Label } from "@tw/fieldset";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
-import { FormEvent, useState, useCallback, useRef, useEffect } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import ThemeSwitch from "./ThemeSwitch";
+import { RegisterUserDtoFromJSON } from "../api";
 
 export function Login() {
   const { loginBasic, loading, error } = useAuth();
@@ -37,7 +38,7 @@ export function Login() {
       s = `https://${s}`;
     }
     // Remove trailing slashes
-  s = s.replace(/\/+$/, "");
+    s = s.replace(/\/+$/, "");
     return s;
   }, []);
 
@@ -46,7 +47,7 @@ export function Login() {
     try {
       const normalized = normalizeServer(server);
       if (useSso) {
-        // For now just disable basic login when SSO selected (future: launch popup flow)
+        window.location.href = `${normalized}/api/auth/oauth2/login`;
         return;
       }
       await loginBasic({ server: normalized, username, password });
@@ -57,25 +58,35 @@ export function Login() {
   };
 
   const handleTrapKey: React.KeyboardEventHandler = (e) => {
-    if (e.key !== 'Tab') return;
+    if (e.key !== "Tab") return;
     // Build current focusable list (skip disabled)
-    const elems = [serverRef.current, userRef.current, passRef.current, submitRef.current]
-      .filter((el): el is (HTMLInputElement | HTMLButtonElement) => !!el && (typeof (el as any).disabled === 'boolean' ? !(el as any).disabled : true));
+    const elems = [
+      serverRef.current,
+      userRef.current,
+      passRef.current,
+      submitRef.current,
+    ].filter(
+      (el): el is HTMLInputElement | HTMLButtonElement =>
+        !!el &&
+        (typeof (el as any).disabled === "boolean"
+          ? !(el as any).disabled
+          : true),
+    );
     if (elems.length === 0) return;
     const active = document.activeElement as HTMLElement | null;
-    const currentIndex = elems.findIndex(el => el === active);
+    const currentIndex = elems.findIndex((el) => el === active);
     const goingBack = e.shiftKey;
     if (goingBack) {
       // Shift+Tab on first -> go to last
       if (currentIndex === 0 || active == null) {
         e.preventDefault();
-  elems[elems.length - 1]!.focus();
+        elems[elems.length - 1]!.focus();
       }
     } else {
       // Tab on last -> go to first
       if (currentIndex === elems.length - 1) {
         e.preventDefault();
-  elems[0]!.focus();
+        elems[0]!.focus();
       }
     }
   };
@@ -89,7 +100,7 @@ export function Login() {
       <div tabIndex={-1} aria-hidden="true">
         <Logo variant="text" className="w-full" height="h-full" />
       </div>
-  <Heading tabIndex={-1}>Sign in to your account</Heading>
+      <Heading tabIndex={-1}>Sign in to your account</Heading>
       <Field>
         <Label>Server</Label>
         <Input
@@ -141,15 +152,29 @@ export function Login() {
           checked={useSso}
           onChange={(checked: boolean) => setUseSso(!!checked)}
         />
-        <Label htmlFor="login-sso" className="cursor-pointer">Login with SSO</Label>
+        <Label htmlFor="login-sso" className="cursor-pointer">
+          Login with SSO
+        </Label>
       </CheckboxField>
       {error && (
         <div className="text-sm text-red-500 -mt-4" role="alert">
           {error}
         </div>
       )}
-      <Button type="submit" className="w-full" disabled={loading} tabIndex={4} ref={submitRef}>
-        {loading ? (useSso ? 'Preparing SSO…' : 'Authenticating…') : (useSso ? 'Continue with SSO' : 'Login')}
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={loading}
+        tabIndex={4}
+        ref={submitRef}
+      >
+        {loading
+          ? useSso
+            ? "Preparing SSO…"
+            : "Authenticating…"
+          : useSso
+            ? "Continue with SSO"
+            : "Login"}
       </Button>
       <Text tabIndex={-1} aria-hidden="true">
         Don’t have an account? {""}
