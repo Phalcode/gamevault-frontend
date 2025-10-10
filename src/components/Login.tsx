@@ -12,7 +12,7 @@ import ThemeSwitch from "./ThemeSwitch";
 import { RegisterUserDtoFromJSON } from "../api";
 
 export function Login() {
-  const { loginBasic, loading, error } = useAuth();
+  const { loginBasic, loginWithTokens, loading, error } = useAuth();
   const navigate = useNavigate();
   const [server, setServer] = useState(window.location.origin);
   const [username, setUsername] = useState("");
@@ -41,6 +41,50 @@ export function Login() {
     s = s.replace(/\/+$/, "");
     return s;
   }, []);
+
+  // Parse SSO redirect style: {server}/access_token=...&refresh_token=...
+  useEffect(() => {
+    // Detect tokens embedded after origin (no question mark) e.g. https://srv/access_token=XXX&refresh_token=YYY
+    // Or possibly inside hash.
+    try {
+      const loc = window.location;
+      const path = loc.pathname.startsWith("/")
+        ? loc.pathname.slice(1)
+        : loc.pathname;
+      const hash = loc.hash.startsWith("#") ? loc.hash.slice(1) : loc.hash;
+      const candidate = path.includes("access_token=") ? path : hash;
+      if (!candidate) return;
+      if (!/access_token=/.test(candidate)) return;
+      // Interpret as key=value pairs separated by & possibly with leading segment (e.g., access_token=...&refresh_token=...)
+      const pairs = candidate.split("&").filter(Boolean);
+      const data: Record<string, string> = {};
+      for (const p of pairs) {
+        const eq = p.indexOf("=");
+        if (eq === -1) continue;
+        const k = decodeURIComponent(p.slice(0, eq));
+        const v = decodeURIComponent(p.slice(eq + 1));
+        data[k] = v;
+      }
+      if (!data.access_token) return;
+      // Determine server base: remove the trailing candidate part from URL if it's at pathname
+      const base = window.location.origin;
+      (async () => {
+        try {
+          await loginWithTokens(base, {
+            access_token: data.access_token,
+            refresh_token: data.refresh_token,
+          });
+          // Clean URL (remove tokens) then navigate
+          window.history.replaceState({}, document.title, base + "/login");
+          navigate("/library", { replace: true });
+        } catch {
+          // ignore - error shown via context
+        }
+      })();
+    } catch {
+      // ignore parsing errors
+    }
+  }, [loginWithTokens, navigate]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
