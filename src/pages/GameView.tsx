@@ -16,6 +16,7 @@ import { StarIcon as StarOutline, CalendarDaysIcon, GlobeAltIcon, HashtagIcon } 
 import clsx from "clsx";
 import Markdown from "react-markdown";
 import { Dropdown, DropdownButton, DropdownItem, DropdownLabel, DropdownMenu } from "@tw/dropdown";
+import { Alert, AlertTitle } from "@tw/alert";
 
 export default function GameView() {
   const { id } = useParams<{ id: string }>();
@@ -72,10 +73,19 @@ export default function GameView() {
   const detailsCardRef = useRef<HTMLDivElement | null>(null);
   const [mediaHeight, setMediaHeight] = useState<number | null>(null);
   const [detailsHeight, setDetailsHeight] = useState<number | null>(null);
+  const [isXL, setIsXL] = useState<boolean>(() => typeof window !== 'undefined' ? window.matchMedia('(min-width: 1280px)').matches : false);
 
   const recomputeHeights = useCallback(() => {
-    if (mediaSliderRef.current) setMediaHeight(mediaSliderRef.current.offsetHeight);
-    if (detailsCardRef.current) setDetailsHeight(detailsCardRef.current.offsetHeight);
+    // Only sync heights on xl and above; on smaller screens allow natural height flow to avoid overlap
+    const xl = typeof window !== 'undefined' ? window.matchMedia('(min-width: 1280px)').matches : false;
+    setIsXL(xl);
+    if (xl) {
+      if (mediaSliderRef.current) setMediaHeight(mediaSliderRef.current.offsetHeight);
+      if (detailsCardRef.current) setDetailsHeight(detailsCardRef.current.offsetHeight);
+    } else {
+      setMediaHeight(null);
+      setDetailsHeight(null);
+    }
   }, []);
 
   useLayoutEffect(() => {
@@ -84,6 +94,8 @@ export default function GameView() {
 
   useEffect(() => {
     window.addEventListener('resize', recomputeHeights);
+    // Initial measure
+    recomputeHeights();
     return () => window.removeEventListener('resize', recomputeHeights);
   }, [recomputeHeights]);
   const rawGenres = (game as any)?.metadata?.genres || [];
@@ -155,9 +167,16 @@ export default function GameView() {
     }
   }, [serverUrl, game, currentUserId, bookmarked, authFetch, bookmarkBusy]);
 
+  const [copiedAlertOpen, setCopiedAlertOpen] = useState(false);
+  const copiedTimeoutRef = useRef<number | null>(null);
   const handleShare = useCallback(() => {
     try { navigator.clipboard.writeText(window.location.href); } catch {}
+    // Show ephemeral alert
+    setCopiedAlertOpen(true);
+    if (copiedTimeoutRef.current) window.clearTimeout(copiedTimeoutRef.current);
+    copiedTimeoutRef.current = window.setTimeout(() => setCopiedAlertOpen(false), 1800);
   }, []);
+  useEffect(() => () => { if (copiedTimeoutRef.current) window.clearTimeout(copiedTimeoutRef.current); }, []);
 
   const handleDownload = useCallback(() => {
     if (!game) return;
@@ -223,8 +242,9 @@ export default function GameView() {
       })()
     : null;
 
+  // Removed h-full overflow-auto to prevent nested scroll area causing double vertical scrollbar; letting parent layout manage vertical scrolling.
   return (
-    <div className="flex flex-col h-full overflow-auto pb-12">
+  <div className="flex flex-col pb-12">
       {loading && (
         <div className="p-6 text-sm text-fg-muted">Loading game…</div>
       )}
@@ -234,9 +254,9 @@ export default function GameView() {
         </div>
       )}
       {!loading && !error && game && (
-        <div className="px-2 max-w-[1400px] w-full grid xl:grid-cols-[1fr_20rem] gap-10">
+  <div className="px-2 max-w-[1400px] w-full grid xl:grid-cols-[1fr_20rem] gap-10">
           {/* Row 1: Cover/Title/Actions spans both columns on mobile but only left column on xl */}
-          <div className="flex flex-row gap-4 items-start xl:col-span-1 xl:row-span-1">
+          <div className="flex flex-row gap-4 items-start xl:col-span-1 xl:row-span-1 min-w-0">
             <div className="w-32 aspect-[3/4] rounded-lg overflow-hidden bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-500">
               {coverId ? (
                 <Media
@@ -254,7 +274,8 @@ export default function GameView() {
               <div className="text-xl font-semibold leading-tight truncate pr-2">
                 {title}
               </div>
-              <div className="flex flex-row gap-2">
+              {/* Added flex-wrap to allow buttons to wrap on extremely narrow viewports, preventing horizontal overflow that could push the media slider and cause cutoff */}
+              <div className="flex flex-row flex-wrap gap-2">
                 <Dropdown>
                   <DropdownButton
                     as={Button}
@@ -332,7 +353,7 @@ export default function GameView() {
           </div>
           {/* Spacer so grid second column first row stays empty - ensures metadata card aligns with media slider start */}
             {/* Right Column Row 1: Stats + Progress State */}
-            <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-1">
+            <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-1 min-w-0">
               <div className="grid grid-cols-3 gap-2 text-center text-xs">
                 <div className="p-3 rounded-lg bg-zinc-100 dark:bg-zinc-800">
                   <div className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Playtime</div>
@@ -365,9 +386,10 @@ export default function GameView() {
             </div>
 
           {/* Row 2 Left: Media Slider + Details */}
-          <div className="flex flex-col gap-6 xl:col-start-1 xl:row-start-2 max-w-3xl">
+          {/* min-w-0 ensures the slider can shrink below intrinsic content width inside CSS grid to avoid right-side cutoff on very small screens */}
+          <div className="flex flex-col gap-6 xl:col-start-1 xl:row-start-2 min-w-0">
             {(trailers.length > 0 || screenshots.length > 0) && (
-              <div className="w-full" ref={mediaSliderRef}>
+              <div className="w-full min-w-0" ref={mediaSliderRef}>
                 <MediaSlider
                   trailers={trailers}
                   screenshots={screenshots}
@@ -428,9 +450,9 @@ export default function GameView() {
           </div>
 
           {/* Row 2 Right: Additional Metadata Card aligned with Media Slider top */}
-          <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-2">
-            <div className="w-full" style={mediaHeight ? {height: mediaHeight} : undefined}>
-            <Card title="Additional Metadata" className="min-h-[160px] h-full -mb-1">
+          <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-2 min-w-0">
+            <div className="w-full" style={isXL && mediaHeight ? {height: mediaHeight} : undefined}>
+            <Card title="Additional Metadata" className="min-h-[160px] h-full">
               <ul className="space-y-4 text-sm">
                 <li className="flex items-start gap-3">
                   <CalendarDaysIcon className="w-5 h-5 mt-0.5 text-zinc-500 dark:text-zinc-400" />
@@ -486,7 +508,7 @@ export default function GameView() {
               </ul>
             </Card>
             </div>
-            <div className="w-full" style={detailsHeight ? {height: detailsHeight} : undefined}>
+            <div className="w-full" style={isXL && detailsHeight ? {height: detailsHeight} : undefined}>
             <Card title="Activity" className="!mb-0 h-full">
               {(() => {
                 const progresses: Progress[] = (game as any)?.progresses || [];
@@ -537,6 +559,16 @@ export default function GameView() {
           </div>
         </div>
       )}
+      {/* Ephemeral 'Link copied' alert */}
+      <Alert
+        open={copiedAlertOpen}
+        onClose={(open: boolean) => { if (!open) setCopiedAlertOpen(false); }}
+        variant="toast"
+        size="xs"
+        className="select-none"
+      >
+        <AlertTitle className="text-sm font-medium">Link copied</AlertTitle>
+      </Alert>
     </div>
   );
 }
