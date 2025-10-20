@@ -1,13 +1,14 @@
 import {
-  createContext,
-  useContext,
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
   ReactNode,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
 } from "react";
-import { AuthTokens, User } from "@/types/api";
+import { GamevaultUser } from "../api";
+import { AuthTokens } from "../types/AuthTokens";
 
 interface LoginArgs {
   server: string;
@@ -18,14 +19,18 @@ interface LoginArgs {
 interface AuthContextValue {
   serverUrl: string;
   auth: AuthTokens | null;
-  user: User | null;
+  user: GamevaultUser | null;
   error: string | null;
   loading: boolean;
   bootstrapping: boolean;
-  loginBasic: (args: LoginArgs) => Promise<{ auth: AuthTokens; user: User }>;
+  loginBasic: (
+    args: LoginArgs,
+  ) => Promise<{ auth: AuthTokens; user: GamevaultUser }>;
+  /** Directly initialize auth state from already obtained tokens (e.g. SSO redirect). */
+  loginWithTokens: (server: string, tokens: AuthTokens) => Promise<{ auth: AuthTokens; user: GamevaultUser }>;
   logout: () => void;
   authFetch: (input: string, init?: RequestInit) => Promise<Response>;
-  refreshCurrentUser: () => Promise<User | null>;
+  refreshCurrentUser: () => Promise<GamevaultUser | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -91,7 +96,7 @@ function computeNextTokenRefresh(token: string): Date {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [serverUrl, setServerUrl] = useState("");
   const [auth, setAuth] = useState<AuthTokens | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<GamevaultUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
     return res.json();
   }
-  async function fetchCurrentUser(): Promise<User> {
+  async function fetchCurrentUser(): Promise<GamevaultUser> {
     const res = await authFetch(`${serverRef.current}/api/users/me`);
     if (!res.ok)
       throw new Error(
@@ -229,6 +234,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const loginWithTokens = useCallback(
+    async (server: string, tokens: AuthTokens) => {
+      setError(null);
+      setLoading(true);
+      setUser(null);
+      setAuth(null);
+      authRef.current = null;
+      nextTokenRefreshRef.current = null;
+      serverRef.current = (server || "").replace(/\/+$/, "");
+      setServerUrl(serverRef.current);
+      localStorage.setItem(SERVER_KEY, serverRef.current);
+      try {
+        if (!tokens?.access_token) throw new Error("Missing access token");
+        authRef.current = tokens;
+        setAuth(tokens);
+        if (tokens.refresh_token)
+          localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
+        nextTokenRefreshRef.current = computeNextTokenRefresh(
+          tokens.access_token,
+        );
+        const me = await fetchCurrentUser();
+        setUser(me);
+        return { auth: tokens, user: me };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(msg);
+        throw e;
+      } finally {
+        setLoading(false);
+        setBootstrapping(false);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     (async () => {
       const storedRefresh = localStorage.getItem(REFRESH_KEY);
@@ -290,6 +330,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     bootstrapping,
     loginBasic,
+    loginWithTokens,
     logout,
     authFetch,
     refreshCurrentUser,

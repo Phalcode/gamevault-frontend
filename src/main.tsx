@@ -13,12 +13,13 @@ import "./index.css";
 import DashboardLayout from "./layouts/DashboardLayout";
 import FullscreenLayout from "./layouts/FullscreenLayout";
 import Administration from "./pages/Administration";
-import { PermissionRole } from "@/types/api";
 import ProtectedRoute from "./guards/ProtectedRoute";
 import Community from "./pages/Community";
 import Library from "./pages/Library";
+import GameView from "./pages/GameView";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
+import { GamevaultUserRoleEnum } from "./api";
 
 (window as any).global = window;
 
@@ -37,12 +38,13 @@ createRoot(document.getElementById("root")!).render(
 
               <Route element={<DashboardLayout />}>
                 <Route index path="library" element={<Library />} />
+                <Route path="library/:id" element={<GameView />} />
                 <Route path="community" element={<Community />} />
                 <Route path="settings" element={<Settings />} />
                 <Route
                   path="admin"
                   element={
-                    <ProtectedRoute guarded requiredRole={PermissionRole.ADMIN}>
+                    <ProtectedRoute guarded requiredRole={GamevaultUserRoleEnum.NUMBER_3}>
                       <Administration />
                     </ProtectedRoute>
                   }

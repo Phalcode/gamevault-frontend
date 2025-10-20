@@ -3,7 +3,6 @@ import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminUsers } from "@/hooks/useAdminUsers";
 import { useServerStatus } from "@/hooks/useServerStatus";
-import { PermissionRole, PermissionRoleLabel } from "@/types/api";
 import {
   ArrowPathIcon,
   PencilSquareIcon,
@@ -34,6 +33,8 @@ import Card from "../components/Card";
 // Legacy modals (inline styles) brought back from old-src for now
 import { RegisterUserModal } from "@/components/admin/RegisterUserModal";
 import { UserEditorModal } from "@/components/admin/UserEditorModal";
+import { GamevaultUser, GamevaultUserRoleEnum } from "../api";
+import { ROLE_LABELS } from "@/utils/roles";
 import BackupRestoreDialog from "../components/admin/BackupRestoreDialog";
 import { Label } from "../components/tailwind/fieldset";
 
@@ -63,6 +64,8 @@ export default function Administration() {
   const connected = !!serverUrl && !!info && !statusLoading && !statusError;
   const [reindexing, setReindexing] = useState(false);
   const [reindexError, setReindexError] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
 
   // State: show deleted users toggle
   const [showDeleted, setShowDeleted] = useState(false);
@@ -72,20 +75,13 @@ export default function Administration() {
 
   const currentEditingUser = useMemo(() => {
     if (editingUserId == null) return null;
-    return users.find((u) => (u.id ?? (u as any).ID) === editingUserId) || null;
+    return users.find((u) => u.id === editingUserId) || null;
   }, [editingUserId, users]);
 
   const filteredUsers = useMemo(() => {
     if (showDeleted) return users;
-    return users.filter((u) => !(u.deleted_at ?? (u as any).DeletedAt));
+    return users.filter((u) => !u.deleted_at);
   }, [users, showDeleted]);
-
-  const roleValues: { value: PermissionRole; label: string }[] = [
-    PermissionRole.GUEST,
-    PermissionRole.USER,
-    PermissionRole.EDITOR,
-    PermissionRole.ADMIN,
-  ].map((r) => ({ value: r, label: PermissionRoleLabel[r] }));
 
   try {
     return (
@@ -166,9 +162,42 @@ export default function Administration() {
             >
               {reindexing ? "Reindexing…" : "Reindex Games"}
             </Button>
-            {reindexError && (
+            <Button
+              color="rose"
+              disabled={restarting}
+              onClick={async () => {
+                if (restarting) return;
+                try {
+                  setRestartError(null);
+                  setRestarting(true);
+                  const base = serverUrl.replace(/\/+$/, "");
+
+                  const res = await authFetch(
+                    `${base}/api/admin/web-ui/restart`,
+                    {
+                      method: "POST",
+                    },
+                  );
+                  if (!res.ok) {
+                    const txt = await res.text();
+                    throw new Error(txt || `Restart failed (${res.status})`);
+                  } else {
+                    window.location.reload();
+                  }
+                } catch (e: any) {
+                  setRestartError(e.message || String(e));
+                } finally {
+                  setRestarting(false);
+                }
+              }}
+              title="Restart Web UI"
+              className="items-center"
+            >
+              {restarting ? "Restarting..." : "Restart Web UI"}
+            </Button>
+            {restartError && (
               <div className="col-span-full text-xs text-red-500 bg-red-500/10 rounded-md px-3 py-2">
-                {reindexError}
+                {restartError}
               </div>
             )}
           </Card>
@@ -227,26 +256,24 @@ export default function Administration() {
                   </TableCell>
                 </TableRow>
               )}
-              {filteredUsers.map((u) => {
-                const id = u.id ?? (u as any).ID;
-                const deleted = u.deleted_at ?? (u as any).DeletedAt;
+              {filteredUsers.map((u: GamevaultUser) => {
+                const id = u.id;
+                const deleted = u.deleted_at;
                 const busy = opBusy[String(id)];
-                const name =
-                  u.username || (u as any).Username || "Unknown User";
-                const first_name = u.first_name || (u as any).FirstName;
-                const last_name = u.last_name || (u as any).LastName;
-                const email = u.email || (u as any).EMail;
-                const avatarId = (u.avatar as any)?.id || (u.avatar as any)?.ID;
+                const name = u.username || "Unknown User";
+                const first_name = u.first_name;
+                const last_name = u.last_name;
+                const email = u.email;
                 const roleNumeric =
                   typeof u.role === "number"
-                    ? (u.role as PermissionRole)
-                    : PermissionRole.GUEST;
+                    ? (u.role as GamevaultUserRoleEnum)
+                    : GamevaultUserRoleEnum.NUMBER_0;
                 return (
                   <TableRow key={id} className={deleted ? "opacity-60" : ""}>
                     <TableCell>
                       <div className="flex items-center gap-4">
                         <Media
-                          media={u.avatar as any}
+                          media={u.avatar}
                           size={48}
                           className="size-12"
                           square
@@ -297,11 +324,10 @@ export default function Administration() {
                         name="role"
                         value={roleNumeric}
                         onChange={async (val: any) => {
-                          const nextRole = Number(val) as PermissionRole;
+                          const nextRole = Number(val) as GamevaultUserRoleEnum;
                           if (
                             currentUser &&
-                            (currentUser.id ?? (currentUser as any).ID) ===
-                              (u.id ?? (u as any).ID) &&
+                            currentUser.id === u.id &&
                             nextRole !== roleNumeric
                           ) {
                             const proceed = await showAlert({
@@ -317,9 +343,11 @@ export default function Administration() {
                         }}
                         disabled={!!deleted || busy}
                       >
-                        {roleValues.map((r) => (
-                          <ListboxOption key={r.value} value={r.value}>
-                            <ListboxLabel>{r.label}</ListboxLabel>
+                        {Object.values(GamevaultUserRoleEnum).map((r) => (
+                          <ListboxOption key={r} value={r}>
+                            <ListboxLabel>
+                              {ROLE_LABELS[Number(r)] ?? r}
+                            </ListboxLabel>
                           </ListboxOption>
                         ))}
                       </Listbox>
@@ -369,18 +397,19 @@ export default function Administration() {
           <div id="portal-modals" className="contents">
             {currentEditingUser && (
               <UserEditorModal
-                user={currentEditingUser as any}
+                user={currentEditingUser}
                 onClose={() => setEditingUserId(null)}
                 onSave={async (payload) =>
-                  updateUser(currentEditingUser, payload as any)
+                  updateUser(currentEditingUser, {
+                    ...payload,
+                    // Convert birth_date string|null to Date if present, otherwise undefined to satisfy typing
+                    birth_date: payload.birth_date ? new Date(payload.birth_date) : undefined,
+                  })
                 }
                 onUserUpdated={(updated) => {
                   setUsers((prev) =>
                     prev.map((u) =>
-                      (u.id ?? (u as any).ID) ===
-                      (updated.id ?? (updated as any).ID)
-                        ? { ...u, ...updated }
-                        : u,
+                      u.id === updated.id ? { ...u, ...updated } : u,
                     ),
                   );
                 }}

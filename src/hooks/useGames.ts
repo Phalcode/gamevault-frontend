@@ -1,25 +1,6 @@
+import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useRef, useState } from "react";
-
-export interface GameMediaRef {
-  id: number | string;
-}
-export interface GameMetadata {
-  cover?: GameMediaRef | { ID?: number | string };
-  title?: string;
-}
-export interface Game {
-  id: number;
-  title: string;
-  sort_title?: string;
-  metadata?: GameMetadata | null;
-  // Optional file system path provided by backend (used for deriving download filename)
-  path?: string;
-  Path?: string; // legacy / PascalCase variant just in case
-  // Size of the game in bytes (optional, provided by backend if available)
-  size?: number;
-  Size?: number; // legacy / alternate casing safeguard
-}
 
 interface PaginatedData<T> {
   data: T[];
@@ -32,6 +13,8 @@ export interface UseGamesOptions {
   sortBy: string; // e.g. sort_title, size
   order: "ASC" | "DESC";
   limit?: number;
+  // If true, only return games bookmarked by the current user
+  bookmarkedOnly?: boolean;
 }
 
 export function useGames({
@@ -39,10 +22,11 @@ export function useGames({
   sortBy,
   order,
   limit = 50,
+  bookmarkedOnly = false,
 }: UseGamesOptions) {
-  const { serverUrl, authFetch } = useAuth();
+  const { serverUrl, authFetch, user } = useAuth();
   const [count, setCount] = useState(0);
-  const [games, setGames] = useState<Game[]>([]);
+  const [games, setGames] = useState<GamevaultGame[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,10 +45,16 @@ export function useGames({
       if (search) params.set("search", search);
       if (sortBy) params.set("sortBy", `${sortBy}:${order}`);
       if (limit) params.set("limit", String(limit));
+      // Advanced filter: bookmarked by current user
+      const userId = (user as any)?.id ?? (user as any)?.ID;
+      if (bookmarkedOnly && userId != null) {
+        // Backend expects: filter.bookmarked_users.id=$eq:<userId>
+        params.set("filter.bookmarked_users.id", `$eq:${userId}`);
+      }
       const url = `${base}/api/games?${params.toString()}`;
       const res = await authFetch(url, { method: "GET", signal: ac.signal });
       if (!res.ok) throw new Error(`Games fetch failed (${res.status})`);
-      const json: PaginatedData<Game> = await res.json();
+      const json: PaginatedData<GamevaultGame> = await res.json();
       setCount(json.meta.totalItems);
       setGames(json.data || []);
       setNext(json.links?.next || null);
@@ -74,7 +64,7 @@ export function useGames({
     } finally {
       setLoading(false);
     }
-  }, [serverUrl, authFetch, search, sortBy, order, limit]);
+  }, [serverUrl, authFetch, search, sortBy, order, limit, bookmarkedOnly, user]);
 
   const loadMore = useCallback(async () => {
     if (!serverUrl || !next || loading) return;
@@ -92,7 +82,7 @@ export function useGames({
       }
       const res = await authFetch(url, { method: "GET" });
       if (!res.ok) throw new Error(`Games fetch failed (${res.status})`);
-      const json: PaginatedData<Game> = await res.json();
+      const json: PaginatedData<GamevaultGame> = await res.json();
       setGames((prev) => [...prev, ...(json.data || [])]);
       setNext(json.links?.next || null);
     } catch (e: any) {
@@ -118,8 +108,9 @@ export function useGames({
   };
 }
 
-export function getGameCoverMediaId(game: Game): number | string | null {
-  const id =
-    (game.metadata as any)?.cover?.id ?? (game.metadata as any)?.cover?.ID;
+export function getGameCoverMediaId(
+  game: GamevaultGame,
+): number | string | null {
+  const id = game.metadata?.cover?.id;
   return id ?? null;
 }

@@ -1,39 +1,32 @@
 import { useAuth } from "@/context/AuthContext";
-import { PermissionRole, User, normalizePermissionRole } from "@/types/api";
 import { useCallback, useEffect, useRef, useState } from "react";
+// Local helper to normalize user objects if backend changes shape; currently identity
+function normalizeUser<T>(u: T): T { return u; }
+import { GamevaultUser, GamevaultUserRoleEnum } from "../api";
 
 export interface UseAdminUsersResult {
-  users: User[];
+  users: GamevaultUser[];
   loading: boolean;
   error: string | null;
   refresh: (force?: boolean) => void;
   opBusy: Record<string, boolean>;
-  toggleActivated: (u: User) => Promise<void>;
-  deleteUser: (u: User) => Promise<void>;
-  recoverUser: (u: User) => Promise<void>;
+  toggleActivated: (u: GamevaultUser) => Promise<void>;
+  deleteUser: (u: GamevaultUser) => Promise<void>;
+  recoverUser: (u: GamevaultUser) => Promise<void>;
   updateUser: (
-    u: User,
-    payload: Partial<User> & { password?: string | null },
+    u: GamevaultUser,
+    payload: Partial<GamevaultUser> & { password?: string | null },
   ) => Promise<{ ok: boolean; message?: string }>;
-  updateUserRole: (u: User, role: PermissionRole) => Promise<void>;
-  setUsers: React.Dispatch<React.SetStateAction<User[]>>;
-}
-
-function normalizeActivation(u: User): User {
-  const raw: any = u.activated ?? (u as any).Activated;
-  const active = raw === true || raw === 1 || raw === "activated";
-  return { ...u, activated: active };
-}
-function normalizeUser(u: User): User {
-  return {
-    ...normalizeActivation(u),
-    role: normalizePermissionRole((u as any).role),
-  };
+  updateUserRole: (
+    u: GamevaultUser,
+    role: GamevaultUserRoleEnum,
+  ) => Promise<void>;
+  setUsers: React.Dispatch<React.SetStateAction<GamevaultUser[]>>;
 }
 
 export function useAdminUsers(): UseAdminUsersResult {
   const { auth, serverUrl, authFetch } = useAuth();
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<GamevaultUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [opBusy, setOpBusy] = useState<Record<string, boolean>>({});
@@ -57,16 +50,9 @@ export function useAdminUsers(): UseAdminUsersResult {
           throw new Error(
             `Fetching users failed (${res.status}): ${(await res.text()) || res.statusText}`,
           );
-        const data = await res.json();
+        const list = await res.json();
         if (cancelled) return;
-        const list: User[] = Array.isArray(data)
-          ? data
-          : data &&
-              typeof data === "object" &&
-              Array.isArray((data as any).items)
-            ? (data as any).items
-            : [];
-        setUsers(list.map(normalizeUser));
+        setUsers(list);
         fetchedRef.current = true;
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -87,16 +73,14 @@ export function useAdminUsers(): UseAdminUsersResult {
     fetchUsers(force);
   };
 
-  const toggleActivated = async (u: User) => {
+  const toggleActivated = async (u: GamevaultUser) => {
     if (!safeBase) return;
-    const uid = u.id ?? (u as any).ID;
+    const uid = u.id;
     if (!uid || opBusy[uid]) return;
     const current = !!u.activated;
     const next = !current;
     setUsers((prev) =>
-      prev.map((x) =>
-        (x.id ?? (x as any).ID) === uid ? { ...x, activated: next } : x,
-      ),
+      prev.map((x) => (x.id === uid ? { ...x, activated: next } : x)),
     );
     setUserOpBusy(uid, true);
     try {
@@ -119,26 +103,22 @@ export function useAdminUsers(): UseAdminUsersResult {
       if (updated && typeof updated === "object") {
         setUsers((prev) =>
           prev.map((x) =>
-            (x.id ?? (x as any).ID) === uid
-              ? normalizeUser({ ...x, ...updated })
-              : x,
+            x.id === uid ? normalizeUser({ ...x, ...updated }) : x,
           ),
         );
       }
     } catch {
       setUsers((prev) =>
-        prev.map((x) =>
-          (x.id ?? (x as any).ID) === uid ? { ...x, activated: current } : x,
-        ),
+        prev.map((x) => (x.id === uid ? { ...x, activated: current } : x)),
       );
     } finally {
       setUserOpBusy(uid, false);
     }
   };
 
-  const deleteUser = async (u: User) => {
+  const deleteUser = async (u: GamevaultUser) => {
     if (!safeBase) return;
-    const uid = u.id ?? (u as any).ID;
+    const uid = u.id;
     if (!uid || opBusy[uid]) return;
     setUserOpBusy(uid, true);
     try {
@@ -158,7 +138,7 @@ export function useAdminUsers(): UseAdminUsersResult {
       }
       setUsers((prev) =>
         prev.map((x) => {
-          if ((x.id ?? (x as any).ID) === uid) {
+          if (x.id === uid) {
             if (updated && ("deleted_at" in updated || "DeletedAt" in updated))
               return normalizeUser({ ...x, ...updated });
             return { ...x, deleted_at: new Date().toISOString() };
@@ -172,9 +152,9 @@ export function useAdminUsers(): UseAdminUsersResult {
     }
   };
 
-  const recoverUser = async (u: User) => {
+  const recoverUser = async (u: GamevaultUser) => {
     if (!safeBase) return;
-    const uid = u.id ?? (u as any).ID;
+    const uid = u.id;
     if (!uid || opBusy[uid]) return;
     setUserOpBusy(uid, true);
     try {
@@ -193,7 +173,7 @@ export function useAdminUsers(): UseAdminUsersResult {
       } catch {}
       setUsers((prev) =>
         prev.map((x) => {
-          if ((x.id ?? (x as any).ID) === uid) {
+          if (x.id === uid) {
             if (updated && ("deleted_at" in updated || "DeletedAt" in updated))
               return normalizeUser({ ...x, ...updated });
             return { ...x, deleted_at: null, DeletedAt: null };
@@ -208,11 +188,11 @@ export function useAdminUsers(): UseAdminUsersResult {
   };
 
   const updateUser = async (
-    u: User,
-    payload: Partial<User> & { password?: string | null },
+    u: GamevaultUser,
+    payload: Partial<GamevaultUser> & { password?: string | null },
   ) => {
     if (!safeBase) return { ok: false, message: "No server base URL" };
-    const id = u.id ?? (u as any).ID;
+    const id = u.id;
     try {
       const body: Record<string, any> = {
         username: payload.username,
@@ -239,9 +219,7 @@ export function useAdminUsers(): UseAdminUsersResult {
       const updated = await res.json();
       setUsers((prev) =>
         prev.map((x) =>
-          (x.id ?? (x as any).ID) === id
-            ? normalizeUser({ ...x, ...updated })
-            : x,
+          x.id === id ? normalizeUser({ ...x, ...updated }) : x,
         ),
       );
       return { ok: true };
@@ -250,20 +228,19 @@ export function useAdminUsers(): UseAdminUsersResult {
     }
   };
 
-  const updateUserRole = async (u: User, newRole: PermissionRole) => {
+  const updateUserRole = async (
+    u: GamevaultUser,
+    newRole: GamevaultUserRoleEnum,
+  ) => {
     if (!safeBase) return;
-    const uid = u.id ?? (u as any).ID;
+    const uid = u.id;
     if (!uid || opBusy[uid]) return;
-    const originalRole = normalizePermissionRole(u.role);
+    const originalRole = u.role;
     setUsers((prev) =>
-      prev.map((x) =>
-        (x.id ?? (x as any).ID) === uid ? { ...x, role: newRole } : x,
-      ),
+      prev.map((x) => (x.id === uid ? { ...x, role: newRole } : x)),
     );
     setUserOpBusy(uid, true);
     try {
-      // TODO: Handle Self-Degradation
-
       const res = await authFetch(`${safeBase}/api/users/${uid}`, {
         method: "PUT",
         headers: {
@@ -283,17 +260,13 @@ export function useAdminUsers(): UseAdminUsersResult {
       if (updated && typeof updated === "object") {
         setUsers((prev) =>
           prev.map((x) =>
-            (x.id ?? (x as any).ID) === uid
-              ? normalizeUser({ ...x, ...updated })
-              : x,
+            x.id === uid ? normalizeUser({ ...x, ...updated }) : x,
           ),
         );
       }
     } catch {
       setUsers((prev) =>
-        prev.map((x) =>
-          (x.id ?? (x as any).ID) === uid ? { ...x, role: originalRole } : x,
-        ),
+        prev.map((x) => (x.id === uid ? { ...x, role: originalRole } : x)),
       );
     } finally {
       setUserOpBusy(uid, false);

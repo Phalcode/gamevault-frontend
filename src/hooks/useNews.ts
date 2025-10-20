@@ -28,10 +28,13 @@ export function useNews() {
       newsText: string,
       setNews: (nr: NewsResult) => void,
     ) => {
+      if (!newsText.trim()) {
+        setNews({ content: newsText, error: null, isNew: false });
+        return;
+      }
       const newHash = await hashText(newsText);
       const storedHash = localStorage.getItem(key);
       const isNew = storedHash ? storedHash !== newHash : false;
-
       setNews({ content: newsText, error: null, isNew });
     },
     [],

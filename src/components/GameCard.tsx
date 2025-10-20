@@ -1,8 +1,11 @@
+import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { Media } from "@/components/Media";
 import { useAuth } from "@/context/AuthContext";
 import { useDownloads } from "@/context/DownloadContext";
-import { Game, getGameCoverMediaId } from "@/hooks/useGames";
+import { getGameCoverMediaId } from "@/hooks/useGames";
 import { CloudArrowDownIcon } from "@heroicons/react/16/solid";
+import { StarIcon as StarSolid } from "@heroicons/react/24/solid";
+import { StarIcon as StarOutline } from "@heroicons/react/24/outline";
 import { Button } from "@tw/button";
 import {
   Dropdown,
@@ -12,27 +15,52 @@ import {
   DropdownMenu,
 } from "@tw/dropdown";
 import clsx from "clsx";
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 
-export function GameCard({ game }: { game: Game }) {
-  const coverId = getGameCoverMediaId(game);
-  const { serverUrl } = useAuth();
+export function GameCard({ game }: { game: GamevaultGame }) {
+  const coverId = getGameCoverMediaId(game) as number | string | null;
+  const { serverUrl, user, authFetch } = useAuth();
+  // Derive initial bookmarked state from raw API shape (bookmarked_users or bookmarkedUsers)
+  const currentUserId = (user as any)?.id ?? (user as any)?.ID;
+  const initialBookmarked = useMemo(() => {
+    if (!currentUserId) return false;
+    const raw = (game as any).bookmarked_users || (game as any).bookmarkedUsers;
+    if (!Array.isArray(raw)) return false;
+    return raw.some((u: any) => (u?.id ?? u?.ID) === currentUserId);
+  }, [game, currentUserId]);
+  const [bookmarked, setBookmarked] = useState<boolean>(initialBookmarked);
+  const [bookmarkBusy, setBookmarkBusy] = useState(false);
+
+  const toggleBookmark = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!serverUrl || !currentUserId || bookmarkBusy) return;
+      const base = serverUrl.replace(/\/+$/, "");
+      const url = `${base}/api/users/me/bookmark/${game.id}`;
+      const next = !bookmarked;
+      setBookmarked(next); // optimistic
+      setBookmarkBusy(true);
+      try {
+        const res = await authFetch(url, { method: next ? "POST" : "DELETE" });
+        if (!res.ok) throw new Error(`Bookmark toggle failed (${res.status})`);
+      } catch (err) {
+        // rollback on error
+        setBookmarked(!next);
+      } finally {
+        setBookmarkBusy(false);
+      }
+    },
+    [serverUrl, currentUserId, bookmarkBusy, authFetch, game.id, bookmarked],
+  );
   const { startDownload } = useDownloads() as any;
 
   const filename = (() => {
-    const p = game.path || (game as any).Path;
-    if (!p) return `${game.title}.zip`;
-    // Derive filename similar to Path.GetFileName
-    try {
-      const parts = p.split(/\\|\//);
-      const last = parts[parts.length - 1];
-      return last || `${game.title}.zip`;
-    } catch {
-      return `${game.title}.zip`;
-    }
+    return `${game.title}.zip`;
   })();
 
-  const rawSize = (game as any).size;
+  const rawSize = game.size;
 
   const formatBytes = useCallback((bytes?: number) => {
     if (bytes === undefined || bytes === null || isNaN(bytes)) return null;
@@ -71,14 +99,15 @@ export function GameCard({ game }: { game: Game }) {
     [game.id],
   );
 
-  const handleClientOpen = useCallback(
+  const navigate = useNavigate();
+
+  const handleOpenGameView = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      const url = `gamevault://show?gameid=${game.id}`;
-      window.location.href = url;
+      navigate(`/library/${game.id}`);
     },
-    [game.id],
+    [navigate, game.id],
   );
 
   return (
@@ -92,18 +121,43 @@ export function GameCard({ game }: { game: Game }) {
       <div className="relative aspect-[3/4] w-full bg-bg-muted flex items-center justify-center overflow-hidden">
         {coverId ? (
           <Media
-            media={{ id: coverId } as any}
+            media={{
+              id: typeof coverId === 'number' ? coverId : Number(coverId) || 0,
+              created_at: new Date(0),
+              entity_version: 0,
+            } as any}
             size={300}
             className="h-full w-full object-contain rounded-none"
             square
             alt={game.title}
-            onClick={handleClientOpen}
+            onClick={handleOpenGameView}
           />
         ) : (
-          <div onClick={handleClientOpen} className="text-xs text-fg-muted">
+          <div onClick={handleOpenGameView} className="text-xs text-fg-muted">
             No Cover
           </div>
         )}
+        {/* Top-right bookmark toggle */}
+        <button
+          type="button"
+          onClick={toggleBookmark}
+            aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
+            aria-pressed={bookmarked}
+          disabled={!currentUserId || bookmarkBusy}
+          className={clsx(
+            "absolute top-1 right-1 h-8 w-8 flex items-center justify-center rounded-md border shadow-sm backdrop-blur-sm transition-colors",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
+            bookmarked
+              ? "bg-yellow-400/20 border-yellow-400"
+              : "bg-zinc-900/40 dark:bg-zinc-700/50 border-white/20 hover:bg-zinc-800/60 dark:hover:bg-zinc-600/60",
+          )}
+        >
+          {bookmarked ? (
+            <StarSolid className="h-5 w-5 text-yellow-400" />
+          ) : (
+            <StarOutline className="h-5 w-5 text-white" />
+          )}
+        </button>
         {/* Bottom-right download actions */}
         <div className="absolute bottom-0 right-0 p-1 z-10 flex justify-end opacity-85">
           <Dropdown>
@@ -130,7 +184,7 @@ export function GameCard({ game }: { game: Game }) {
         <h3 className="text-sm font-medium truncate" title={game.title}>
           {game.metadata?.title || game.title}
         </h3>
-        {game.sort_title && game.sort_title !== game.title && (
+        {(game as any).sort_title && (game as any).sort_title !== game.title && (
           <p
             className="mt-0.5 text-xs text-fg-muted truncate"
             title={game.title}

@@ -6,48 +6,151 @@ import { Field, Label } from "@tw/fieldset";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import ThemeSwitch from "./ThemeSwitch";
+import { RegisterUserDtoFromJSON } from "../api";
 
 export function Login() {
-  const { loginBasic, loading, error } = useAuth();
+  const { loginBasic, loginWithTokens, loading, error } = useAuth();
   const navigate = useNavigate();
   const [server, setServer] = useState(window.location.origin);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(true);
+  const [useSso, setUseSso] = useState(false);
+
+  // Refs for focus trap
+  const serverRef = useRef<HTMLInputElement | null>(null);
+  const userRef = useRef<HTMLInputElement | null>(null);
+  const passRef = useRef<HTMLInputElement | null>(null);
+  const submitRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    // Auto-focus server field on mount
+    serverRef.current?.focus();
+  }, []);
+
+  const normalizeServer = useCallback((raw: string) => {
+    if (!raw) return raw;
+    let s = raw.trim();
+    // If user omitted protocol, assume https
+    if (!/^https?:\/\//i.test(s)) {
+      s = `https://${s}`;
+    }
+    // Remove trailing slashes
+    s = s.replace(/\/+$/, "");
+    return s;
+  }, []);
+
+  // Parse SSO redirect style: {server}/access_token=...&refresh_token=...
+  useEffect(() => {
+    try {
+      const loc = window.location;
+      const search = loc.search.startsWith("?") ? loc.search.substring(1) : loc.search;
+      const path = loc.pathname.startsWith("/") ? loc.pathname.slice(1) : loc.pathname;
+      const hash = loc.hash.startsWith("#") ? loc.hash.slice(1) : loc.hash;
+
+      // Priority order: query string (?access_token=...), then path style, then hash fragment.
+      let candidate = "";
+      if (/access_token=/.test(search)) candidate = search;
+      else if (/access_token=/.test(path)) candidate = path;
+      else if (/access_token=/.test(hash)) candidate = hash;
+      if (!candidate) return; // no tokens present
+
+      const params = new URLSearchParams(candidate.replace(/^[^?]*\?/, ""));
+      const access = params.get("access_token") || "";
+      const refresh = params.get("refresh_token") || undefined;
+      if (!access) return;
+
+      const base = window.location.origin; // assume same origin the user entered for SSO
+      (async () => {
+        try {
+          await loginWithTokens(base, { access_token: access, refresh_token: refresh });
+          // Scrub sensitive tokens from URL: go to /login (or /library directly after navigation) without query/hash.
+          const cleanUrl = base + "/login";
+            window.history.replaceState({}, document.title, cleanUrl);
+          navigate("/library", { replace: true });
+        } catch {
+          // ignore - context will show error
+        }
+      })();
+    } catch {
+      // swallow parsing errors silently
+    }
+  }, [loginWithTokens, navigate]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await loginBasic({ server, username, password });
-      if (!remember) {
-        // If user disabled remember, clear stored refresh token
-        localStorage.removeItem("app_refresh_token");
+      const normalized = normalizeServer(server);
+      if (useSso) {
+        window.location.href = `${normalized}/api/auth/oauth2/login`;
+        return;
       }
+      await loginBasic({ server: normalized, username, password });
       navigate("/library", { replace: true });
     } catch {
       // error handled in context
     }
   };
 
+  const handleTrapKey: React.KeyboardEventHandler = (e) => {
+    if (e.key !== "Tab") return;
+    // Build current focusable list (skip disabled)
+    const elems = [
+      serverRef.current,
+      userRef.current,
+      passRef.current,
+      submitRef.current,
+    ].filter(
+      (el): el is HTMLInputElement | HTMLButtonElement =>
+        !!el &&
+        (typeof (el as any).disabled === "boolean"
+          ? !(el as any).disabled
+          : true),
+    );
+    if (elems.length === 0) return;
+    const active = document.activeElement as HTMLElement | null;
+    const currentIndex = elems.findIndex((el) => el === active);
+    const goingBack = e.shiftKey;
+    if (goingBack) {
+      // Shift+Tab on first -> go to last
+      if (currentIndex === 0 || active == null) {
+        e.preventDefault();
+        elems[elems.length - 1]!.focus();
+      }
+    } else {
+      // Tab on last -> go to first
+      if (currentIndex === elems.length - 1) {
+        e.preventDefault();
+        elems[0]!.focus();
+      }
+    }
+  };
+
   return (
     <form
       onSubmit={onSubmit}
+      onKeyDown={handleTrapKey}
       className="grid w-full max-w-sm grid-cols-1 gap-8"
     >
-      <Logo variant="text" className="w-full" height="h-full" />
-      <Heading>Sign in to your account</Heading>
+      <div tabIndex={-1} aria-hidden="true">
+        <Logo variant="text" className="w-full" height="h-full" />
+      </div>
+      <Heading tabIndex={-1}>Sign in to your account</Heading>
       <Field>
         <Label>Server</Label>
         <Input
-          type="url"
+          type="text"
           name="server"
           required
           value={server}
           onChange={(e) => setServer(e.target.value)}
+          // Only trim whitespace on blur; do NOT auto-inject protocol into the visible field
+          onBlur={() => setServer((s) => s.trim())}
           autoComplete="url"
+          ref={serverRef}
+          tabIndex={1}
         />
       </Field>
       <Field>
@@ -58,6 +161,9 @@ export function Login() {
           autoComplete="username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
+          ref={userRef}
+          tabIndex={2}
+          disabled={useSso}
         />
       </Field>
       <Field>
@@ -69,37 +175,53 @@ export function Login() {
           autoComplete="current-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          ref={passRef}
+          tabIndex={3}
+          disabled={useSso}
         />
       </Field>
-      <div className="flex items-center justify-between hidden">
-        <CheckboxField>
-          <Checkbox
-            name="remember"
-            checked={remember}
-            onChange={(ev: any) => {
-              const checked = (ev?.target as HTMLInputElement | undefined)
-                ?.checked;
-              if (typeof checked === "boolean") setRemember(checked);
-            }}
-          />
-          <Label>Remember me</Label>
-        </CheckboxField>
-      </div>
+      <CheckboxField className="cursor-pointer select-none">
+        <Checkbox
+          id="login-sso"
+          name="useSso"
+          color="indigo"
+          className="cursor-pointer"
+          checked={useSso}
+          onChange={(checked: boolean) => setUseSso(!!checked)}
+        />
+        <Label htmlFor="login-sso" className="cursor-pointer">
+          Login with SSO
+        </Label>
+      </CheckboxField>
       {error && (
         <div className="text-sm text-red-500 -mt-4" role="alert">
           {error}
         </div>
       )}
-      <Button type="submit" className="w-full" disabled={loading}>
-        {loading ? "Authenticating…" : "Login"}
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={loading}
+        tabIndex={4}
+        ref={submitRef}
+      >
+        {loading
+          ? useSso
+            ? "Preparing SSO…"
+            : "Authenticating…"
+          : useSso
+            ? "Continue with SSO"
+            : "Login"}
       </Button>
-      <Text>
+      <Text tabIndex={-1} aria-hidden="true">
         Don’t have an account? {""}
-        <TextLink href="/register">
+        <TextLink href="/register" tabIndex={-1} aria-hidden="true">
           <Strong>Sign up</Strong>
         </TextLink>
       </Text>
-      <ThemeSwitch />
+      <div tabIndex={-1} aria-hidden="true">
+        <ThemeSwitch />
+      </div>
     </form>
   );
 }

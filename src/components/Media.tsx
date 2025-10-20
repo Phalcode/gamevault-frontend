@@ -1,9 +1,9 @@
 import { useAuth } from "@/context/AuthContext";
-import { Media as MediaType } from "@/types/api";
 import React, { useEffect, useRef, useState } from "react";
+import { Media as MediaType } from "../api";
 
 interface Props {
-  media?: MediaType | null;
+  media?: MediaType;
   size?: number;
   width?: number;
   height?: number;
@@ -25,7 +25,7 @@ export function Media({
   fallback,
   onClick = () => {},
 }: Props) {
-  const imageId = media?.ID ?? (media as any)?.id;
+  const imageId = media?.id;
   const { authFetch, serverUrl } = useAuth();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

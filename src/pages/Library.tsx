@@ -6,6 +6,10 @@ import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { StarIcon } from "@heroicons/react/24/solid";
+import { StarIcon as StarOutlineIcon } from "@heroicons/react/24/outline";
+import Card from "@/components/Card";
+import { Button } from "@/components/tailwind/button";
 import { Badge } from "../components/tailwind/badge";
 
 const SORT_BY: { label: string; value: string }[] = [
@@ -23,11 +27,34 @@ const ORDER_BY: { label: string; value: "ASC" | "DESC" }[] = [
   { label: "Ascending", value: "ASC" },
 ];
 
+const RETAIN_KEY = 'app_retain_library_prefs';
+const LIB_SORT_KEY = 'app_library_sort';
+const LIB_ORDER_KEY = 'app_library_order';
+
 export default function Library() {
-  const { serverUrl } = useAuth();
+  const { serverUrl, user } = useAuth();
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("sort_title");
-  const [order, setOrder] = useState<"ASC" | "DESC">("ASC");
+  // Initialize sort/order from localStorage if retention is enabled
+  const [sortBy, setSortBy] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && localStorage.getItem(RETAIN_KEY) === '1') {
+        const saved = localStorage.getItem(LIB_SORT_KEY);
+        if (saved && SORT_BY.some(o => o.value === saved)) return saved;
+      }
+    } catch {}
+    return "sort_title";
+  });
+  const [order, setOrder] = useState<"ASC" | "DESC">(() => {
+    try {
+      if (typeof window !== 'undefined' && localStorage.getItem(RETAIN_KEY) === '1') {
+        const saved = localStorage.getItem(LIB_ORDER_KEY) as ("ASC" | "DESC" | null);
+        if (saved === 'ASC' || saved === 'DESC') return saved;
+      }
+    } catch {}
+    return "ASC";
+  });
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [bookmarkedOnly, setBookmarkedOnly] = useState(false);
   // Defer search to avoid spamming requests while user types quickly
   const deferredSearch = useDeferredValue(search);
   const { count, games, loading, error, loadMore, hasMore, refetch } = useGames(
@@ -36,13 +63,43 @@ export default function Library() {
       sortBy,
       order,
       limit: 50,
+      bookmarkedOnly,
     },
   );
 
   // Reset to first page when filters change (search, sortBy, order)
   useEffect(() => {
     refetch();
-  }, [deferredSearch, sortBy, order, refetch]);
+  }, [deferredSearch, sortBy, order, bookmarkedOnly, refetch]);
+
+  // Persist sort/order if retention enabled
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (localStorage.getItem(RETAIN_KEY) === '1') {
+      try {
+        localStorage.setItem(LIB_SORT_KEY, sortBy);
+        localStorage.setItem(LIB_ORDER_KEY, order);
+      } catch {}
+    }
+  }, [sortBy, order]);
+
+  // Sync bookmark filter in URL search params for shareable links
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (bookmarkedOnly) {
+      url.searchParams.set("bookmarked", "1");
+    } else {
+      url.searchParams.delete("bookmarked");
+    }
+    // We intentionally do not push to history each keystroke of search for cleanliness
+    window.history.replaceState({}, "", url.toString());
+  }, [bookmarkedOnly]);
+
+  // Initialize from URL (first render)
+  useEffect(() => {
+    const params = new URL(window.location.href).searchParams;
+    if (params.get("bookmarked") === "1") setBookmarkedOnly(true);
+  }, []);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -116,7 +173,40 @@ export default function Library() {
             ))}
           </Listbox>
         </div>
+        <div className="flex flex-col w-40">
+          <label className="block text-xs font-medium text-fg-muted mb-1 invisible">
+            Advanced Filters
+          </label>
+          <Button
+            outline
+            className="w-full justify-center h-9 text-sm items-center"
+            onClick={() => setShowAdvanced((s) => !s)}
+          >
+            {showAdvanced ? "Hide Filters" : "Advanced Filters"}
+          </Button>
+        </div>
       </div>
+      {showAdvanced && (
+        <Card title="Advanced Filters" className="gap-4 !mb-6">
+          <div className="flex items-center gap-3 flex-wrap text-xs">
+            <Button
+              aria-pressed={bookmarkedOnly}
+              disabled={!user}
+              onClick={() => user && setBookmarkedOnly((v) => !v)}
+              {...(bookmarkedOnly ? { color: "yellow" } : { outline: true })}
+              className="text-sm h-9 px-3 flex items-center gap-1"
+            >
+              {bookmarkedOnly ? (
+                <StarIcon data-slot="icon" className="h-4 w-4" />
+              ) : (
+                <StarOutlineIcon data-slot="icon" className="h-4 w-4" />
+              )}
+              Bookmarked
+            </Button>
+          </div>
+          {/* Placeholder for future filters */}
+        </Card>
+      )}
       <div className="flex-1 overflow-auto">
         {!serverUrl && (
           <div className="p-8 text-sm text-fg-muted">

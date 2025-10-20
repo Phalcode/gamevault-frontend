@@ -13,7 +13,7 @@
     "tauridev": "tauri dev",
     "build": "vite build",
     "lint": "prettier --write . && eslint .",
-    "postinstall": "rimraf ./src/api && openapi-generator-cli generate -g typescript-fetch -i https://gamevault.alfagun74.de/api/docs-yaml -o ./src/api --global-property models"
+    "postinstall": "rimraf ./src/api && openapi-generator-cli generate -g typescript-fetch -i https://gamevault.alfagun74.de/api/docs-yaml -o ./src/api --global-property models,supportingFiles -p enumPropertyNaming=snake_case -p modelPropertyNaming=snake_case"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.8",

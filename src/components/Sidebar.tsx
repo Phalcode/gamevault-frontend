@@ -34,20 +34,20 @@ import {
   Sidebar as TailwindSidebar,
 } from "@tw/sidebar";
 import { useEffect, useState } from "react";
-import { PermissionRole, normalizePermissionRole } from "@/types/api";
 import { useNavigate } from "react-router";
+import { GamevaultUserRoleEnum } from "../api";
 import { useNews } from "../hooks/useNews";
 import ThemeSwitch from "./ThemeSwitch";
-import { NewsDialog } from "./news/NewsDialog";
 import { UserEditorModal } from "./admin/UserEditorModal";
+import { NewsDialog } from "./news/NewsDialog";
 
 export function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [showNews, setShowNews] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const username = user?.username || (user as any)?.Username || "Unknown";
-  const email = user?.email || (user as any)?.EMail || "";
+  const username = user?.username || "Unknown User";
+  const email = user?.email || "";
   const avatar = user?.avatar;
   const { hasNewNews } = useNews();
   const [badgeVisible, setBadgeVisible] = useState(hasNewNews);
@@ -67,8 +67,8 @@ export function Sidebar() {
     setBadgeVisible(false);
   };
 
-  const roleVal = normalizePermissionRole((user as any)?.role);
-  const isAdmin = roleVal === PermissionRole.ADMIN;
+  const roleVal = user?.role;
+  const isAdmin = roleVal === GamevaultUserRoleEnum.NUMBER_3;
 
   return (
     <>
@@ -204,7 +204,7 @@ export function Sidebar() {
       {showEditProfile && user && (
         <UserEditorModal
           self
-          user={user as any}
+          user={user}
           onClose={() => setShowEditProfile(false)}
         />
       )}

@@ -1,6 +1,6 @@
 import { Navigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
-import { PermissionRole, normalizePermissionRole } from "@/types/api";
+import { GamevaultUserRoleEnum } from "../api";
 
 export default function ProtectedRoute({
   children,
@@ -9,7 +9,7 @@ export default function ProtectedRoute({
 }: {
   children: React.ReactElement;
   guarded: boolean;
-  requiredRole?: PermissionRole;
+  requiredRole?: GamevaultUserRoleEnum;
 }) {
   const { auth, bootstrapping, user } = useAuth();
 
@@ -22,7 +22,7 @@ export default function ProtectedRoute({
   if (!auth) return <Navigate to="/" replace />;
 
   if (requiredRole !== undefined) {
-    const roleVal = normalizePermissionRole((user as any)?.role);
+  const roleVal = user?.role;
     if (roleVal == null || roleVal < requiredRole) {
       return <Navigate to="/library" replace />;
     }
