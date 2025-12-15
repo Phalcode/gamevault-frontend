@@ -27,6 +27,7 @@ import { ProgressStateEnum } from "@/api/models/Progress";
 import MultiSelectFilterDialog, {
   FilterItem,
 } from "@/components/MultiSelectFilterDialog";
+import { Strong, TextLink } from "@/components/tailwind/text";
 
 const SORT_BY: { label: string; value: string }[] = [
   { label: "Title", value: "sort_title" },
@@ -79,8 +80,7 @@ export default function Library() {
   const { serverUrl, user } = useAuth();
 
   const CONTROL_HEIGHT_CLASS = "min-h-11 sm:min-h-9";
-  const INPUT_CONTROL_HEIGHT_CLASS =
-    "[&_input]:min-h-11 sm:[&_input]:min-h-9";
+  const INPUT_CONTROL_HEIGHT_CLASS = "[&_input]:min-h-11 sm:[&_input]:min-h-9";
 
   const urlInitializedRef = useRef(false);
   const [search, setSearch] = useState("");
@@ -183,12 +183,14 @@ export default function Library() {
   // Defer search to avoid spamming requests while user types quickly
   const deferredSearch = useDeferredValue(search);
 
-  // Convert selected game type FilterItems to GamevaultGameTypeEnum values for API
+  // Convert selected type FilterItems to GamevaultGameTypeEnum values for API
   const gameTypeValues = useMemo(() => {
     return selectedGameTypes
       .map((item) => String(item.id))
       .filter((v): v is GamevaultGameTypeEnum =>
-        Object.values(GamevaultGameTypeEnum).includes(v as GamevaultGameTypeEnum),
+        Object.values(GamevaultGameTypeEnum).includes(
+          v as GamevaultGameTypeEnum,
+        ),
       );
   }, [selectedGameTypes]);
 
@@ -265,7 +267,9 @@ export default function Library() {
 
   const isGameType = useCallback(
     (value: string): value is GamevaultGameTypeEnum =>
-      Object.values(GamevaultGameTypeEnum).includes(value as GamevaultGameTypeEnum),
+      Object.values(GamevaultGameTypeEnum).includes(
+        value as GamevaultGameTypeEnum,
+      ),
     [],
   );
 
@@ -277,7 +281,10 @@ export default function Library() {
 
   const isBookmark = useCallback(
     (value: string): value is BookmarkFilter | "1" =>
-      value === "all" || value === "mine" || value === "others" || value === "1",
+      value === "all" ||
+      value === "mine" ||
+      value === "others" ||
+      value === "1",
     [],
   );
 
@@ -370,8 +377,16 @@ export default function Library() {
         .map((i) => String(i.id))
         .filter((v): v is GamevaultGameTypeEnum => isGameType(v)),
     );
-    setParamValues(params, "tags", selectedTags.map((t) => t.name));
-    setParamValues(params, "genres", selectedGenres.map((g) => g.name));
+    setParamValues(
+      params,
+      "tags",
+      selectedTags.map((t) => t.name),
+    );
+    setParamValues(
+      params,
+      "genres",
+      selectedGenres.map((g) => g.name),
+    );
     setParamValues(
       params,
       "developers",
@@ -531,7 +546,7 @@ export default function Library() {
 
             {/* Section 1: Multi-Select Filter Buttons */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-              {/* Game Types */}
+              {/* Types */}
               <div className="col-span-1">
                 <label className="block text-xs font-medium text-fg-muted mb-1">
                   Type
@@ -836,7 +851,7 @@ export default function Library() {
           </div>
         </div>
       )}
-      <div className="flex-1 overflow-y-scroll overflow-x-hidden">
+      <div className="flex-1 overflow-y-scroll overflow-x-hidden text-center">
         {!serverUrl && (
           <div className="p-8 text-sm text-fg-muted">
             Connect to a server to load games.
@@ -851,7 +866,23 @@ export default function Library() {
           <div className="p-8 text-sm text-fg-muted">Loading games…</div>
         )}
         {serverUrl && !loading && games.length === 0 && !error && (
-          <div className="p-8 text-sm text-fg-muted">No games found.</div>
+          <div className="p-8 text-sm text-fg-muted">
+            No games found.
+            {(search.trim() || hasActiveFilters) && (
+              <div className="mt-2">
+                <TextLink
+                  href="#"
+                  onClick={() => {
+                    clearAllFilters();
+                    setShowFilters(false);
+                    setSearch("");
+                  }}
+                >
+                  <Strong>Try clearing all filters and search</Strong>
+                </TextLink>
+              </div>
+            )}
+          </div>
         )}
         <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] pb-8">
           {games.map((g) => (
@@ -870,7 +901,7 @@ export default function Library() {
       <MultiSelectFilterDialog
         open={gameTypesDialogOpen}
         onClose={() => setGameTypesDialogOpen(false)}
-        title="Game Types"
+        title="Types"
         staticItems={GAME_TYPE_FILTER_ITEMS}
         selectedItems={selectedGameTypes}
         onSelectionChange={setSelectedGameTypes}
