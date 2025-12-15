@@ -81,6 +81,8 @@ export default function Library() {
   const CONTROL_HEIGHT_CLASS = "min-h-11 sm:min-h-9";
   const INPUT_CONTROL_HEIGHT_CLASS =
     "[&_input]:min-h-11 sm:[&_input]:min-h-9";
+
+  const urlInitializedRef = useRef(false);
   const [search, setSearch] = useState("");
   // Initialize sort/order from localStorage if retention is enabled
   const [sortBy, setSortBy] = useState(() => {
@@ -184,11 +186,10 @@ export default function Library() {
   // Convert selected game type FilterItems to GamevaultGameTypeEnum values for API
   const gameTypeValues = useMemo(() => {
     return selectedGameTypes
-      .map((item) => {
-        const found = GAME_TYPES.find((t) => t.label === item.name);
-        return found?.value;
-      })
-      .filter((v): v is GamevaultGameTypeEnum => v !== undefined);
+      .map((item) => String(item.id))
+      .filter((v): v is GamevaultGameTypeEnum =>
+        Object.values(GamevaultGameTypeEnum).includes(v as GamevaultGameTypeEnum),
+      );
   }, [selectedGameTypes]);
 
   // Memoize array values to prevent unnecessary re-renders
@@ -237,32 +238,182 @@ export default function Library() {
     }
   }, [sortBy, order]);
 
-  // Sync bookmark filter in URL search params for shareable links
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    if (bookmarkFilter !== "all") {
-      url.searchParams.set("bookmarked", bookmarkFilter);
-    } else {
-      url.searchParams.delete("bookmarked");
-    }
-    // We intentionally do not push to history each keystroke of search for cleanliness
-    window.history.replaceState({}, "", url.toString());
-  }, [bookmarkFilter]);
+  const getParamValues = useCallback((params: URLSearchParams, key: string) => {
+    const repeated = params.getAll(key).filter(Boolean);
+    if (repeated.length > 0) return repeated;
+    const single = params.get(key);
+    if (!single) return [];
+    return single
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }, []);
+
+  const setParamValues = useCallback(
+    (params: URLSearchParams, key: string, values: string[]) => {
+      params.delete(key);
+      values.forEach((v) => params.append(key, v));
+    },
+    [],
+  );
+
+  const isProgressState = useCallback(
+    (value: string): value is ProgressStateEnum =>
+      Object.values(ProgressStateEnum).includes(value as ProgressStateEnum),
+    [],
+  );
+
+  const isGameType = useCallback(
+    (value: string): value is GamevaultGameTypeEnum =>
+      Object.values(GamevaultGameTypeEnum).includes(value as GamevaultGameTypeEnum),
+    [],
+  );
+
+  const isEarlyAccess = useCallback(
+    (value: string): value is EarlyAccessFilter =>
+      value === "all" || value === "true" || value === "false",
+    [],
+  );
+
+  const isBookmark = useCallback(
+    (value: string): value is BookmarkFilter | "1" =>
+      value === "all" || value === "mine" || value === "others" || value === "1",
+    [],
+  );
 
   // Initialize from URL (first render)
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
     const params = new URL(window.location.href).searchParams;
+
+    const q = params.get("q");
+    if (q) setSearch(q);
+
+    const sort = params.get("sort");
+    if (sort && SORT_BY.some((o) => o.value === sort)) setSortBy(sort);
+
+    const ord = params.get("order");
+    if (ord === "ASC" || ord === "DESC") setOrder(ord);
+
     const bookmarked = params.get("bookmarked");
-    if (
-      bookmarked === "mine" ||
-      bookmarked === "others" ||
-      bookmarked === "1"
-    ) {
-      setBookmarkFilter(
-        bookmarked === "1" ? "mine" : (bookmarked as BookmarkFilter),
+    if (bookmarked && isBookmark(bookmarked)) {
+      setBookmarkFilter(bookmarked === "1" ? "mine" : bookmarked);
+    }
+
+    const types = getParamValues(params, "types").filter(isGameType);
+    if (types.length > 0) {
+      setSelectedGameTypes(
+        types
+          .map((t): FilterItem | null => {
+            const match = GAME_TYPES.find((gt) => gt.value === t);
+            return match ? { id: t, name: match.label } : null;
+          })
+          .filter((x): x is FilterItem => x !== null),
       );
     }
-  }, []);
+
+    const tags = getParamValues(params, "tags");
+    if (tags.length > 0) setSelectedTags(tags.map((t) => ({ id: t, name: t })));
+
+    const genres = getParamValues(params, "genres");
+    if (genres.length > 0)
+      setSelectedGenres(genres.map((g) => ({ id: g, name: g })));
+
+    const developers = getParamValues(params, "developers");
+    if (developers.length > 0)
+      setSelectedDevelopers(developers.map((d) => ({ id: d, name: d })));
+
+    const publishers = getParamValues(params, "publishers");
+    if (publishers.length > 0)
+      setSelectedPublishers(publishers.map((p) => ({ id: p, name: p })));
+
+    const state = params.get("state");
+    if (state && isProgressState(state)) setSelectedGameState(state);
+
+    const after = params.get("releasedAfter");
+    if (after) setReleaseDateFrom(after);
+
+    const before = params.get("releasedBefore");
+    if (before) setReleaseDateTo(before);
+
+    const ea = params.get("earlyAccess");
+    if (ea && isEarlyAccess(ea)) setEarlyAccess(ea);
+
+    urlInitializedRef.current = true;
+  }, [getParamValues, isBookmark, isEarlyAccess, isGameType, isProgressState]);
+
+  // Sync all filters into URL search params for shareable links
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!urlInitializedRef.current) return;
+
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
+
+    if (search.trim().length > 0) params.set("q", search.trim());
+    else params.delete("q");
+
+    if (sortBy !== "sort_title") params.set("sort", sortBy);
+    else params.delete("sort");
+
+    if (order !== "ASC") params.set("order", order);
+    else params.delete("order");
+
+    if (bookmarkFilter !== "all") params.set("bookmarked", bookmarkFilter);
+    else params.delete("bookmarked");
+
+    setParamValues(
+      params,
+      "types",
+      selectedGameTypes
+        .map((i) => String(i.id))
+        .filter((v): v is GamevaultGameTypeEnum => isGameType(v)),
+    );
+    setParamValues(params, "tags", selectedTags.map((t) => t.name));
+    setParamValues(params, "genres", selectedGenres.map((g) => g.name));
+    setParamValues(
+      params,
+      "developers",
+      selectedDevelopers.map((d) => d.name),
+    );
+    setParamValues(
+      params,
+      "publishers",
+      selectedPublishers.map((p) => p.name),
+    );
+
+    if (selectedGameState) params.set("state", selectedGameState);
+    else params.delete("state");
+
+    if (releaseDateFrom) params.set("releasedAfter", releaseDateFrom);
+    else params.delete("releasedAfter");
+
+    if (releaseDateTo) params.set("releasedBefore", releaseDateTo);
+    else params.delete("releasedBefore");
+
+    if (earlyAccess !== "all") params.set("earlyAccess", earlyAccess);
+    else params.delete("earlyAccess");
+
+    // We intentionally do not push to history each keystroke of search for cleanliness
+    window.history.replaceState({}, "", url.toString());
+  }, [
+    bookmarkFilter,
+    earlyAccess,
+    isGameType,
+    order,
+    releaseDateFrom,
+    releaseDateTo,
+    search,
+    selectedDevelopers,
+    selectedGameState,
+    selectedGameTypes,
+    selectedGenres,
+    selectedPublishers,
+    selectedTags,
+    setParamValues,
+    sortBy,
+  ]);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
