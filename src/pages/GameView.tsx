@@ -17,6 +17,7 @@ import clsx from "clsx";
 import Markdown from "react-markdown";
 import { Dropdown, DropdownButton, DropdownItem, DropdownLabel, DropdownMenu } from "@tw/dropdown";
 import { Alert, AlertTitle } from "@tw/alert";
+import { GameSettings } from "@/components/admin/GameSettings";
 
 export default function GameView() {
   const { id } = useParams<{ id: string }>();
@@ -31,6 +32,7 @@ export default function GameView() {
   const [progressState, setProgressState] = useState<keyof typeof ProgressStateEnum | null>(null);
   const [progressUpdating, setProgressUpdating] = useState(false);
   const insertedPlaceholderRef = useRef(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (!serverUrl || !numericId || Number.isNaN(numericId)) return;
@@ -301,7 +303,7 @@ export default function GameView() {
                 </Dropdown>
                 <Button
                   plain
-                  onClick={() => alert("Coming soon")}
+                  onClick={() => setSettingsOpen(true)}
                   className="h-9 w-9 p-0 flex items-center justify-center"
                   title="Settings"
                 >
@@ -569,6 +571,15 @@ export default function GameView() {
       >
         <AlertTitle className="text-sm font-medium">Link copied</AlertTitle>
       </Alert>
+      
+      {/* Game Settings Modal */}
+      {settingsOpen && game && (
+        <GameSettings
+          game={game}
+          onClose={() => setSettingsOpen(false)}
+          onGameUpdated={(updatedGame) => setGame(updatedGame)}
+        />
+      )}
     </div>
   );
 }
