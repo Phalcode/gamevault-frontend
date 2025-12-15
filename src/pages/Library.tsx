@@ -67,7 +67,7 @@ const EARLY_ACCESS_OPTIONS: { label: string; value: EarlyAccessFilter }[] = [
 
 const BOOKMARK_OPTIONS: { label: string; value: BookmarkFilter }[] = [
   { label: "All", value: "all" },
-  { label: "My Bookmarks", value: "mine" },
+  { label: "Bookmarked by Me", value: "mine" },
   { label: "Bookmarked by Others", value: "others" },
 ];
 
@@ -77,6 +77,10 @@ const LIB_ORDER_KEY = "app_library_order";
 
 export default function Library() {
   const { serverUrl, user } = useAuth();
+
+  const CONTROL_HEIGHT_CLASS = "min-h-11 sm:min-h-9";
+  const INPUT_CONTROL_HEIGHT_CLASS =
+    "[&_input]:min-h-11 sm:[&_input]:min-h-9";
   const [search, setSearch] = useState("");
   // Initialize sort/order from localStorage if retention is enabled
   const [sortBy, setSortBy] = useState(() => {
@@ -302,11 +306,11 @@ export default function Library() {
           />
         </div>
         {/* Sort, Order, and Filters Button - Same row */}
-        <div className="grid grid-cols-[1fr_auto_auto] gap-3">
-          <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">
-            Sort & Filter
-          </label>
+        <div className="flex gap-3 items-end">
+          <div className="flex-1 min-w-0">
+            <label className="block text-xs font-medium text-fg-muted mb-1">
+              Sort & Filter
+            </label>
             <Listbox
               name="sortBy"
               value={sortBy}
@@ -319,13 +323,11 @@ export default function Library() {
               ))}
             </Listbox>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-fg-muted mb-1 invisible">
-              Sorting Direction
-            </label>
+          <div className="flex-none">
             <Button
               outline
-              className="h-9 px-3 gap-1.5"
+              className={`${CONTROL_HEIGHT_CLASS} px-3 gap-1.5`}
+              aria-label="Toggle sorting direction"
               onClick={() => setOrder((o) => (o === "ASC" ? "DESC" : "ASC"))}
             >
               {order === "ASC" ? (
@@ -338,13 +340,11 @@ export default function Library() {
               </span>
             </Button>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-fg-muted mb-1 invisible">
-              Filters
-            </label>
+          <div className="flex-none">
             <Button
               outline
-              className="h-9 px-3"
+              className={`${CONTROL_HEIGHT_CLASS} px-3`}
+              aria-label={showFilters ? "Hide filters" : "Show filters"}
               onClick={() => setShowFilters((s) => !s)}
             >
               <FunnelIcon className="h-4 w-4 sm:mr-1" />
@@ -370,7 +370,7 @@ export default function Library() {
                 <Button
                   outline
                   onClick={clearAllFilters}
-                  className="text-sm h-9 px-3 flex items-center gap-1"
+                  className={`${CONTROL_HEIGHT_CLASS} px-3 flex items-center gap-1`}
                 >
                   <TrashIcon className="h-4 w-4" />
                   Clear All
@@ -388,7 +388,7 @@ export default function Library() {
                 <Button
                   outline
                   onClick={() => setGameTypesDialogOpen(true)}
-                  className="w-full justify-start text-sm h-9 px-3"
+                  className={`w-full justify-start ${CONTROL_HEIGHT_CLASS} px-3`}
                 >
                   <span
                     className={`truncate ${selectedGameTypes.length > 0 ? "text-pink-600 dark:text-pink-400" : ""}`}
@@ -408,7 +408,7 @@ export default function Library() {
                 <Button
                   outline
                   onClick={() => setTagsDialogOpen(true)}
-                  className="w-full justify-start text-sm h-9 px-3"
+                  className={`w-full justify-start ${CONTROL_HEIGHT_CLASS} px-3`}
                 >
                   <span
                     className={`truncate ${selectedTags.length > 0 ? "text-blue-600 dark:text-blue-400" : ""}`}
@@ -428,7 +428,7 @@ export default function Library() {
                 <Button
                   outline
                   onClick={() => setGenresDialogOpen(true)}
-                  className="w-full justify-start text-sm h-9 px-3"
+                  className={`w-full justify-start ${CONTROL_HEIGHT_CLASS} px-3`}
                 >
                   <span
                     className={`truncate ${selectedGenres.length > 0 ? "text-green-600 dark:text-green-400" : ""}`}
@@ -448,7 +448,7 @@ export default function Library() {
                 <Button
                   outline
                   onClick={() => setDevelopersDialogOpen(true)}
-                  className="w-full justify-start text-sm h-9 px-3"
+                  className={`w-full justify-start ${CONTROL_HEIGHT_CLASS} px-3`}
                 >
                   <span
                     className={`truncate ${selectedDevelopers.length > 0 ? "text-purple-600 dark:text-purple-400" : ""}`}
@@ -468,7 +468,7 @@ export default function Library() {
                 <Button
                   outline
                   onClick={() => setPublishersDialogOpen(true)}
-                  className="w-full justify-start text-sm h-9 px-3"
+                  className={`w-full justify-start ${CONTROL_HEIGHT_CLASS} px-3`}
                 >
                   <span
                     className={`truncate ${selectedPublishers.length > 0 ? "text-orange-600 dark:text-orange-400" : ""}`}
@@ -514,6 +514,7 @@ export default function Library() {
                 </label>
                 <Input
                   type="date"
+                  className={INPUT_CONTROL_HEIGHT_CLASS}
                   value={releaseDateFrom}
                   onChange={(e: any) => setReleaseDateFrom(e.target.value)}
                 />
@@ -526,6 +527,7 @@ export default function Library() {
                 </label>
                 <Input
                   type="date"
+                  className={INPUT_CONTROL_HEIGHT_CLASS}
                   value={releaseDateTo}
                   onChange={(e: any) => setReleaseDateTo(e.target.value)}
                 />
