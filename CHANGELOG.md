@@ -1,13 +1,21 @@
 # GameVault Frontend Changelog
 
-## 1.1.0
-Recommended Gamevault Server Version: `v16.1.2`
+## 16.2.0
+
 ### Changes
 - Added GameSettings
 - Extended library filters
 - Bug fix: Youtube player error 153
 
-## 1.0.0
+## 16.1.0
+
+### Changes
+- Added GameView Layout
+- Added Support for SSO
+- Added Sorting + Filtering
+
+
+## 16.0.0
 
 ### Changes
 
