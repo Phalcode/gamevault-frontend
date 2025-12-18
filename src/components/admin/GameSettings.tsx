@@ -9,10 +9,13 @@ import { Text } from "@/components/tailwind/text";
 import { Listbox, ListboxOption, ListboxLabel } from "@/components/tailwind/listbox";
 import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { UpdateGameDto } from "@/api/models/UpdateGameDto";
+import { MetadataProviderDto } from "@/api/models/MetadataProviderDto";
+import { GameMetadata } from "@/api/models/GameMetadata";
+import { MapGameDto } from "@/api/models/MapGameDto";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
-import { useState, useRef, useEffect, useCallback } from "react";
-import { PhotoIcon, CircleStackIcon, PencilIcon, MagnifyingGlassIcon, SparklesIcon, ArrowUturnLeftIcon } from "@heroicons/react/24/outline";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { PhotoIcon, CircleStackIcon, PencilIcon, MagnifyingGlassIcon, SparklesIcon, ArrowUturnLeftIcon, ArrowPathIcon, LinkSlashIcon } from "@heroicons/react/24/outline";
 import { PaintBrushIcon } from "@heroicons/react/16/solid";
 
 interface Props {
@@ -20,6 +23,36 @@ interface Props {
   onClose: () => void;
   onGameUpdated?: (g: GamevaultGame) => void;
 }
+
+// No cool object binding in react, so we manually pick fields for custom metadata. But at least this is type save
+type CustomMetadataForm = {
+  [K in keyof Pick<GameMetadata, 
+    'title' | 
+    'description' | 
+    'notes' | 
+    'average_playtime' | 
+    'age_rating' | 
+    'release_date' | 
+    'rating' | 
+    'early_access' |
+    'launch_executable' |
+    'launch_parameters' |
+    'installer_executable' |
+    'installer_parameters' |
+    'uninstaller_executable' |
+    'uninstaller_parameters' |
+    'url_websites' |
+    'url_trailers' |
+    'url_gameplays' |
+    'url_screenshots'
+  >]: string;
+} & {
+  sort_title: string;
+  genres: string;
+  tags: string;
+  publishers: string;
+  developers: string;
+};
 
 type TabKey = "images" | "metadata" | "custom-metadata";
 
@@ -37,6 +70,8 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
   const { showAlert } = useAlertDialog();
   const [activeTab, setActiveTab] = useState<TabKey>("images");
   const [saving, setSaving] = useState(false);
+  const [fullGame, setFullGame] = useState<GamevaultGame | null>(null);
+  const [loadingFullGame, setLoadingFullGame] = useState(true);
   
   // Image state & logic
   const [coverImg, setCoverImg] = useState<ImageState>({
@@ -59,8 +94,8 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
   const [imagesMsg, setImagesMsg] = useState<string | null>(null);
   const revokeRef = useRef<string[]>([]);
 
-  // Custom metadata state
-  const [customMetadata, setCustomMetadata] = useState({
+  // Custom metadata state - initialize empty object with all editable GameMetadata fields
+  const getEmptyCustomMetadata = (): CustomMetadataForm => ({
     title: "",
     sort_title: "",
     description: "",
@@ -70,8 +105,297 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
     release_date: "",
     rating: "",
     early_access: "",
+    launch_executable: "",
+    launch_parameters: "",
+    installer_executable: "",
+    installer_parameters: "",
+    uninstaller_executable: "",
+    uninstaller_parameters: "",
+    url_websites: "",
+    genres: "",
+    tags: "",
+    publishers: "",
+    developers: "",
+    url_trailers: "",
+    url_gameplays: "",
+    url_screenshots: "",
   });
+
+  const [customMetadata, setCustomMetadata] = useState<CustomMetadataForm>(getEmptyCustomMetadata());
   const [savingCustomMetadata, setSavingCustomMetadata] = useState(false);
+
+  // Metadata providers state
+  const [metadataProviders, setMetadataProviders] = useState<MetadataProviderDto[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(false);
+  const [selectedMetadataProviderIndex, setSelectedMetadataProviderIndex] = useState<number>(0);
+  const [remapSearchResults, setRemapSearchResults] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [customPriority, setCustomPriority] = useState<string>("");
+  const [remapping, setRemapping] = useState(false);
+  const searchTimeoutRef = useRef<number | null>(null);
+  const [gameCoverUrl, setGameCoverUrl] = useState<string | null>(null);
+  const [mappedGameCoverUrl, setMappedGameCoverUrl] = useState<string | null>(null);
+
+  // Fetch full game object on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingFullGame(true);
+        const base = serverUrl.replace(/\/+$/, "");
+        const res = await authFetch(`${base}/api/games/${game.id}`, {
+          method: "GET",
+        });
+        if (!res.ok) throw new Error(`Failed to load game (${res.status})`);
+        const json = await res.json();
+        if (!cancelled) setFullGame(json);
+      } catch (e: any) {
+        console.error("Failed to fetch full game:", e);
+        if (!cancelled) setFullGame(game); // fallback to slim version
+      } finally {
+        if (!cancelled) setLoadingFullGame(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [serverUrl, authFetch, game]);
+
+  // Use fullGame if available, otherwise fallback to game prop
+  const workingGame = fullGame || game;
+
+  // Computed: Current shown mapped game
+  const currentShownMappedGame = useMemo<GameMetadata | null>(() => {
+    if (!workingGame.provider_metadata || metadataProviders.length === 0) return null;
+    const selectedProvider = metadataProviders[selectedMetadataProviderIndex];
+    if (!selectedProvider) return null;
+    
+    return workingGame.provider_metadata.find(
+      (meta) => meta.provider_slug === selectedProvider.slug
+    ) || null;
+  }, [workingGame.provider_metadata, metadataProviders, selectedMetadataProviderIndex]);
+
+  // Initialize providers on metadata tab open
+  useEffect(() => {
+    if (activeTab === "metadata" && metadataProviders.length === 0 && !loadingProviders) {
+      const initializeProviders = async () => {
+        setLoadingProviders(true);
+        try {
+          const base = serverUrl?.replace(/\/+$/, "");
+          if (!base) throw new Error("Missing server URL");
+          
+          const res = await authFetch(`${base}/api/metadata/providers`);
+          if (!res.ok) {
+            throw new Error(`Failed to fetch providers (${res.status})`);
+          }
+          
+          let providers: MetadataProviderDto[] = await res.json();
+          console.log('📦 Providers from API:', providers.map(p => ({ slug: p.slug, name: p.name, priority: p.priority })));
+          
+          // Override priorities from game's provider_metadata
+          if (workingGame.provider_metadata) {
+            console.log('🎮 Game provider_metadata:', workingGame.provider_metadata.map(m => ({ slug: m.provider_slug, priority: m.provider_priority })));
+            providers = providers.map(provider => {
+              const gameProviderMeta = workingGame.provider_metadata?.find(
+                meta => meta.provider_slug === provider.slug
+              );
+              if (gameProviderMeta?.provider_priority != null) {
+                console.log(`✅ Overriding ${provider.slug}: ${provider.priority} -> ${gameProviderMeta.provider_priority}`);
+                return { ...provider, priority: gameProviderMeta.provider_priority };
+              }
+              return provider;
+            });
+          }
+          
+          // Sort by priority descending
+          providers.sort((a, b) => b.priority - a.priority);
+          console.log('🔄 Providers after sort:', providers.map(p => ({ slug: p.slug, name: p.name, priority: p.priority })));
+          
+          setMetadataProviders(providers);
+          setSelectedMetadataProviderIndex(0);
+          
+        } catch (e: any) {
+          console.error("Failed to fetch metadata providers:", e);
+          await showAlert({
+            title: "Error",
+            description: e?.message || "Failed to load metadata providers",
+            affirmativeText: "OK",
+          });
+        } finally {
+          setLoadingProviders(false);
+        }
+      };
+      
+      initializeProviders();
+    }
+  }, [activeTab, metadataProviders.length, loadingProviders, serverUrl, authFetch, workingGame.provider_metadata, showAlert]);
+
+  // Clear search results when provider selection changes
+  useEffect(() => {
+    setRemapSearchResults([]);
+    setSearchQuery("");
+    setMappedGameCoverUrl(null);
+    
+    // Set the current priority as the input value
+    if (currentShownMappedGame?.provider_priority != null) {
+      setCustomPriority(currentShownMappedGame.provider_priority.toString());
+    } else {
+      setCustomPriority("");
+    }
+  }, [selectedMetadataProviderIndex, currentShownMappedGame]);
+
+  // Debounced search function
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (!searchQuery.trim() || metadataProviders.length === 0) {
+      setRemapSearchResults([]);
+      return;
+    }
+
+    searchTimeoutRef.current = setTimeout(async () => {
+      const selectedProvider = metadataProviders[selectedMetadataProviderIndex];
+      if (!selectedProvider) return;
+
+      setSearching(true);
+      try {
+        const base = serverUrl?.replace(/\/+$/, "");
+        if (!base) throw new Error("Missing server URL");
+        
+        const res = await authFetch(
+          `${base}/api/metadata/providers/${selectedProvider.slug}/search?query=${encodeURIComponent(searchQuery)}`
+        );
+        
+        if (!res.ok) {
+          throw new Error(`Search failed (${res.status})`);
+        }
+        
+        const results = await res.json();
+        setRemapSearchResults(Array.isArray(results) ? results : []);
+      } catch (e: any) {
+        console.error("Search failed:", e);
+        setRemapSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 400);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery, metadataProviders, selectedMetadataProviderIndex, serverUrl, authFetch]);
+
+  // Core remap function
+  const remapGame = async (
+    providerDataId: string | null,
+    priority?: number
+  ) => {
+    const selectedProvider = metadataProviders[selectedMetadataProviderIndex];
+    if (!selectedProvider) return;
+
+    setRemapping(true);
+    try {
+      const base = serverUrl?.replace(/\/+$/, "");
+      if (!base) throw new Error("Missing server URL");
+
+      const mappingRequest: MapGameDto = {
+        provider_slug: selectedProvider.slug,
+        provider_data_id: providerDataId || undefined,
+        provider_priority: priority !== undefined ? priority : selectedProvider.priority,
+      };
+
+      const updateDto: UpdateGameDto = {
+        mapping_requests: [mappingRequest],
+      };
+
+      const res = await authFetch(`${base}/api/games/${workingGame.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(updateDto),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Remap failed (${res.status}): ${txt || res.statusText}`);
+      }
+
+      const updatedGame = await res.json();
+      setFullGame(updatedGame);
+      onGameUpdated?.(updatedGame);
+
+      // Refresh providers to get updated priorities
+      setMetadataProviders([]);
+      
+      await showAlert({
+        title: "Success",
+        description: providerDataId 
+          ? "Game remapped successfully" 
+          : "Game unmapped successfully",
+        affirmativeText: "OK",
+      });
+    } catch (e: any) {
+      await showAlert({
+        title: "Error",
+        description: e?.message || "Failed to remap game",
+        affirmativeText: "OK",
+      });
+    } finally {
+      setRemapping(false);
+    }
+  };
+
+  const handleSavePriority = async () => {
+    const priority = parseInt(customPriority, 10);
+    if (isNaN(priority)) {
+      await showAlert({
+        title: "Invalid Priority",
+        description: "Please enter a valid number for priority",
+        affirmativeText: "OK",
+      });
+      return;
+    }
+
+    if (!currentShownMappedGame?.provider_data_id) {
+      await showAlert({
+        title: "No Mapping",
+        description: "This game is not mapped to the selected provider",
+        affirmativeText: "OK",
+      });
+      return;
+    }
+
+    await remapGame(currentShownMappedGame.provider_data_id, priority);
+    setCustomPriority("");
+  };
+
+  const handleUnmap = async () => {
+    const result = await showAlert({
+      title: "Unmap Provider",
+      description: "Are you sure you want to unmap this game from the selected provider?",
+      affirmativeText: "Yes",
+      negativeText: "Cancel",
+    });
+
+    if (result) {
+      await remapGame(null);
+    }
+  };
+
+  const handleRecache = async () => {
+    if (!currentShownMappedGame?.provider_data_id) return;
+    await remapGame(currentShownMappedGame.provider_data_id);
+  };
+
+  const handleRemapToResult = async (providerDataId: string) => {
+    await remapGame(providerDataId);
+    setRemapSearchResults([]);
+    setSearchQuery("");
+  };
 
   useEffect(
     () => () => {
@@ -84,8 +408,8 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
     [],
   );
 
-  const coverMediaId = game.metadata?.cover?.id;
-  const backgroundMediaId = game.metadata?.background?.id;
+  const coverMediaId = workingGame.metadata?.cover?.id;
+  const backgroundMediaId = workingGame.metadata?.background?.id;
 
   const fetchMediaBlobUrl = useCallback(
     async (id: number): Promise<string | null> => {
@@ -139,6 +463,38 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
     coverImg.original,
     bgImg.original,
   ]);
+
+  // Load game cover image for metadata tab
+  useEffect(() => {
+    let cancelled = false;
+    const loadGameCover = async () => {
+      if (workingGame.metadata?.cover?.id) {
+        const url = await fetchMediaBlobUrl(Number(workingGame.metadata.cover.id));
+        if (!cancelled && url) {
+          setGameCoverUrl(url);
+        }
+      }
+    };
+    loadGameCover();
+    return () => { cancelled = true; };
+  }, [workingGame.metadata?.cover?.id, fetchMediaBlobUrl]);
+
+  // Load mapped game cover image for metadata tab
+  useEffect(() => {
+    let cancelled = false;
+    const loadMappedCover = async () => {
+      if (currentShownMappedGame?.cover?.id) {
+        const url = await fetchMediaBlobUrl(Number(currentShownMappedGame.cover.id));
+        if (!cancelled && url) {
+          setMappedGameCoverUrl(url);
+        }
+      } else {
+        setMappedGameCoverUrl(null);
+      }
+    };
+    loadMappedCover();
+    return () => { cancelled = true; };
+  }, [currentShownMappedGame?.cover?.id, fetchMediaBlobUrl]);
 
   const isProbablyImageUrl = (v: string) =>
     /^https?:\/\/.+\.(png|jpe?g|gif|webp|avif|svg)(\?.*)?$/i.test(v.trim());
@@ -259,7 +615,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
         if (coverId) updateGame.user_metadata!.cover = { id: coverId } as any;
         if (backgroundId) updateGame.user_metadata!.background = { id: backgroundId } as any;
         
-        const res = await authFetch(`${base}/api/games/${game.id}`, {
+        const res = await authFetch(`${base}/api/games/${workingGame.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(updateGame),
@@ -271,6 +627,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
         }
         
         const updatedGame = await res.json();
+        setFullGame(updatedGame);
         onGameUpdated?.(updatedGame);
       }
       
@@ -303,16 +660,16 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
     }
   };
 
-  const applyWatermark = (field: keyof typeof customMetadata) => {
-    const metadata = game.metadata;
+  const applyWatermark = (field: keyof CustomMetadataForm) => {
+    const metadata = workingGame.metadata;
     let value: any = "";
     
     switch (field) {
       case "title":
-        value = metadata?.title || game.title || "";
+        value = metadata?.title || workingGame.title || "";
         break;
       case "sort_title":
-        value = game.sort_title || "";
+        value = workingGame.sort_title || "";
         break;
       case "description":
         value = metadata?.description || "";
@@ -330,8 +687,8 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
         if (metadata?.release_date) {
           const date = new Date(metadata.release_date);
           value = date.toISOString().split('T')[0];
-        } else if (game.release_date) {
-          const date = new Date(game.release_date);
+        } else if (workingGame.release_date) {
+          const date = new Date(workingGame.release_date);
           value = date.toISOString().split('T')[0];
         }
         break;
@@ -339,21 +696,63 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
         value = metadata?.rating?.toString() || "";
         break;
       case "early_access":
-        value = metadata?.early_access !== undefined ? metadata.early_access.toString() : (game.early_access !== undefined ? game.early_access.toString() : "");
+        value = metadata?.early_access !== undefined ? metadata.early_access.toString() : (workingGame.early_access !== undefined ? workingGame.early_access.toString() : "");
+        break;
+      case "launch_executable":
+        value = metadata?.launch_executable || "";
+        break;
+      case "launch_parameters":
+        value = metadata?.launch_parameters || "";
+        break;
+      case "installer_executable":
+        value = metadata?.installer_executable || "";
+        break;
+      case "installer_parameters":
+        value = metadata?.installer_parameters || "";
+        break;
+      case "uninstaller_executable":
+        value = metadata?.uninstaller_executable || "";
+        break;
+      case "uninstaller_parameters":
+        value = metadata?.uninstaller_parameters || "";
+        break;
+      case "url_websites":
+        value = Array.isArray(metadata?.url_websites) ? metadata.url_websites.join(", ") : "";
+        break;
+      case "genres":
+        value = Array.isArray(metadata?.genres) ? metadata.genres.map((g: any) => g.name || g).join(", ") : "";
+        break;
+      case "tags":
+        value = Array.isArray(metadata?.tags) ? metadata.tags.map((t: any) => t.name || t).join(", ") : "";
+        break;
+      case "publishers":
+        value = Array.isArray(metadata?.publishers) ? metadata.publishers.map((p: any) => p.name || p).join(", ") : "";
+        break;
+      case "developers":
+        value = Array.isArray(metadata?.developers) ? metadata.developers.map((d: any) => d.name || d).join(", ") : "";
+        break;
+      case "url_trailers":
+        value = Array.isArray(metadata?.url_trailers) ? metadata.url_trailers.join(", ") : "";
+        break;
+      case "url_gameplays":
+        value = Array.isArray(metadata?.url_gameplays) ? metadata.url_gameplays.join(", ") : "";
+        break;
+      case "url_screenshots":
+        value = Array.isArray(metadata?.url_screenshots) ? metadata.url_screenshots.join(", ") : "";
         break;
     }
     
     setCustomMetadata(prev => ({ ...prev, [field]: value }));
   };
 
-  const getWatermark = (field: keyof typeof customMetadata): string => {
-    const metadata = game.metadata;
+  const getWatermark = (field: keyof CustomMetadataForm): string => {
+    const metadata = workingGame.metadata;
     
     switch (field) {
       case "title":
-        return metadata?.title || game.title || "";
+        return metadata?.title || workingGame.title || "";
       case "sort_title":
-        return game.sort_title || "";
+        return workingGame.sort_title || "";
       case "description":
         return metadata?.description || "";
       case "notes":
@@ -366,15 +765,43 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
         if (metadata?.release_date) {
           const date = new Date(metadata.release_date);
           return date.toISOString().split('T')[0];
-        } else if (game.release_date) {
-          const date = new Date(game.release_date);
+        } else if (workingGame.release_date) {
+          const date = new Date(workingGame.release_date);
           return date.toISOString().split('T')[0];
         }
         return "";
       case "rating":
         return metadata?.rating?.toString() || "";
       case "early_access":
-        return metadata?.early_access !== undefined ? (metadata.early_access ? "true" : "false") : (game.early_access !== undefined ? (game.early_access ? "true" : "false") : "");
+        return metadata?.early_access !== undefined ? (metadata.early_access ? "true" : "false") : (workingGame.early_access !== undefined ? (workingGame.early_access ? "true" : "false") : "");
+      case "launch_executable":
+        return metadata?.launch_executable || "";
+      case "launch_parameters":
+        return metadata?.launch_parameters || "";
+      case "installer_executable":
+        return metadata?.installer_executable || "";
+      case "installer_parameters":
+        return metadata?.installer_parameters || "";
+      case "uninstaller_executable":
+        return metadata?.uninstaller_executable || "";
+      case "uninstaller_parameters":
+        return metadata?.uninstaller_parameters || "";
+      case "url_websites":
+        return Array.isArray(metadata?.url_websites) ? metadata.url_websites.join(", ") : "";
+      case "genres":
+        return Array.isArray(metadata?.genres) ? metadata.genres.map((g: any) => g.name || g).join(", ") : "";
+      case "tags":
+        return Array.isArray(metadata?.tags) ? metadata.tags.map((t: any) => t.name || t).join(", ") : "";
+      case "publishers":
+        return Array.isArray(metadata?.publishers) ? metadata.publishers.map((p: any) => p.name || p).join(", ") : "";
+      case "developers":
+        return Array.isArray(metadata?.developers) ? metadata.developers.map((d: any) => d.name || d).join(", ") : "";
+      case "url_trailers":
+        return Array.isArray(metadata?.url_trailers) ? metadata.url_trailers.join(", ") : "";
+      case "url_gameplays":
+        return Array.isArray(metadata?.url_gameplays) ? metadata.url_gameplays.join(", ") : "";
+      case "url_screenshots":
+        return Array.isArray(metadata?.url_screenshots) ? metadata.url_screenshots.join(", ") : "";
       default:
         return "";
     }
@@ -397,12 +824,28 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
       if (customMetadata.release_date) updateDto.release_date = customMetadata.release_date;
       if (customMetadata.rating) updateDto.rating = Number(customMetadata.rating);
       if (customMetadata.early_access !== "") updateDto.early_access = customMetadata.early_access === "true";
+      
+      if (customMetadata.launch_executable) updateDto.launch_executable = customMetadata.launch_executable;
+      if (customMetadata.launch_parameters) updateDto.launch_parameters = customMetadata.launch_parameters;
+      if (customMetadata.installer_executable) updateDto.installer_executable = customMetadata.installer_executable;
+      if (customMetadata.installer_parameters) updateDto.installer_parameters = customMetadata.installer_parameters;
+      if (customMetadata.uninstaller_executable) updateDto.uninstaller_executable = customMetadata.uninstaller_executable;
+      if (customMetadata.uninstaller_parameters) updateDto.uninstaller_parameters = customMetadata.uninstaller_parameters;
+      
+      if (customMetadata.url_websites) updateDto.url_websites = customMetadata.url_websites.split(',').map(s => s.trim()).filter(Boolean);
+      if (customMetadata.genres) updateDto.genres = customMetadata.genres.split(',').map(s => s.trim()).filter(Boolean);
+      if (customMetadata.tags) updateDto.tags = customMetadata.tags.split(',').map(s => s.trim()).filter(Boolean);
+      if (customMetadata.publishers) updateDto.publishers = customMetadata.publishers.split(',').map(s => s.trim()).filter(Boolean);
+      if (customMetadata.developers) updateDto.developers = customMetadata.developers.split(',').map(s => s.trim()).filter(Boolean);
+      if (customMetadata.url_trailers) updateDto.url_trailers = customMetadata.url_trailers.split(',').map(s => s.trim()).filter(Boolean);
+      if (customMetadata.url_gameplays) updateDto.url_gameplays = customMetadata.url_gameplays.split(',').map(s => s.trim()).filter(Boolean);
+      if (customMetadata.url_screenshots) updateDto.url_screenshots = customMetadata.url_screenshots.split(',').map(s => s.trim()).filter(Boolean);
 
       const payload: UpdateGameDto = {
         user_metadata: updateDto,
       };
 
-      const res = await authFetch(`${base}/api/games/${game.id}`, {
+      const res = await authFetch(`${base}/api/games/${workingGame.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(payload),
@@ -414,6 +857,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
       }
 
       const updatedGame = await res.json();
+      setFullGame(updatedGame);
       onGameUpdated?.(updatedGame);
 
       await showAlert({
@@ -423,17 +867,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
       });
       
       // Reset form
-      setCustomMetadata({
-        title: "",
-        sort_title: "",
-        description: "",
-        notes: "",
-        average_playtime: "",
-        age_rating: "",
-        release_date: "",
-        rating: "",
-        early_access: "",
-      });
+      setCustomMetadata(getEmptyCustomMetadata());
     } catch (e: any) {
       await showAlert({
         title: "Error",
@@ -468,7 +902,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
           ],
         };
 
-        const res = await authFetch(`${base}/api/games/${game.id}`, {
+        const res = await authFetch(`${base}/api/games/${workingGame.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(updateGame),
@@ -480,6 +914,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
         }
 
         const updatedGame = await res.json();
+        setFullGame(updatedGame);
         onGameUpdated?.(updatedGame);
         
         await showAlert({
@@ -500,8 +935,8 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
   };
 
   return (
-    <Dialog open onClose={onClose} size="4xl" className="">
-      <DialogTitle className="flex items-center justify-between gap-4 pb-1">
+    <Dialog open onClose={onClose} size="7xl" className="!max-w-[min(95vw,1200px)] sm:!max-w-[min(65vw,1200px)] !max-h-[min(90vh,900px)] !w-full flex flex-col">
+      <DialogTitle className="flex items-center justify-between gap-2 sm:gap-4 pb-1 flex-shrink-0">
         <span>Game Settings</span>
         <button
           type="button"
@@ -523,15 +958,21 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
         </button>
       </DialogTitle>
       
+      {loadingFullGame ? (
+        <div className="flex items-center justify-center p-8">
+          <div className="text-sm text-fg-muted">Loading game data...</div>
+        </div>
+      ) : (
+      <>
       {/* Vertical tab navigation layout */}
-      <div className="flex gap-0 h-[600px]">
+      <div className="flex flex-col sm:flex-row gap-0 flex-1 min-h-0">
         {/* Left sidebar - vertical tabs */}
-        <div className="w-52 border-r border-zinc-200 dark:border-zinc-700 py-4">
-          <nav className="flex flex-col gap-1 px-3">
+        <div className="w-full sm:w-52 border-b sm:border-b-0 sm:border-r border-zinc-200 dark:border-zinc-700 py-2 sm:py-4">
+          <nav className="flex flex-row sm:flex-col gap-1 px-2 sm:px-3 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             <button
               onClick={() => setActiveTab("images")}
               className={
-                "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-left " +
+                "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
                 (activeTab === "images"
                   ? "bg-indigo-500 text-white"
                   : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800")
@@ -543,7 +984,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
             <button
               onClick={() => setActiveTab("metadata")}
               className={
-                "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-left " +
+                "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
                 (activeTab === "metadata"
                   ? "bg-indigo-500 text-white"
                   : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800")
@@ -555,7 +996,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
             <button
               onClick={() => setActiveTab("custom-metadata")}
               className={
-                "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-left " +
+                "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
                 (activeTab === "custom-metadata"
                   ? "bg-indigo-500 text-white"
                   : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800")
@@ -568,8 +1009,8 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
         </div>
 
         {/* Right content area */}
-        <div className="flex-1 flex flex-col">
-          <DialogBody className="flex-1 px-6 py-4 overflow-y-auto">
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+          <DialogBody className="flex-1 px-6 py-4 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-zinc-600">
             {activeTab === "images" && (
               <div className="grid gap-8 md:grid-cols-2">
                 {/* Cover zone */}
@@ -660,7 +1101,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
                     type="button"
                     color="zinc"
                     onClick={() => {
-                      const gameTitle = game.metadata?.title || game.title || "";
+                      const gameTitle = workingGame.metadata?.title || workingGame.title || "";
                       const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(gameTitle)} Game Box Art&tbm=isch`;
                       window.open(searchUrl, "_blank");
                     }}
@@ -760,7 +1201,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
                     type="button"
                     color="zinc"
                     onClick={() => {
-                      const gameTitle = game.metadata?.title || game.title || "";
+                      const gameTitle = workingGame.metadata?.title || workingGame.title || "";
                       const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(gameTitle)} Game Background Art&tbm=isch`;
                       window.open(searchUrl, "_blank");
                     }}
@@ -797,20 +1238,296 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
             )}
 
             {activeTab === "metadata" && (
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-lg font-semibold mb-4 text-zinc-800 dark:text-zinc-100">
-                    Metadata
-                  </h3>
-                  <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                    View and manage game metadata from external sources.
-                  </p>
-                </div>
-                {/* TODO: Implement metadata management UI */}
-              
-                 <p className="text-xs text-zinc-500 dark:text-zinc-400 italic">
-                    Full metadata editing coming soon
-                  </p>
+              <div className="h-full flex flex-col overflow-hidden">
+                {loadingProviders ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-sm text-zinc-500 dark:text-zinc-400">Loading providers...</div>
+                  </div>
+                ) : metadataProviders.length === 0 ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-sm text-zinc-500 dark:text-zinc-400">No metadata providers available</div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col h-full overflow-hidden">
+                    {/* Provider Selector */}
+                    <div className="flex-shrink-0 flex gap-2 flex-wrap mb-4 pb-4 border-b border-zinc-200 dark:border-zinc-700">
+                      {metadataProviders.map((provider, index) => {
+                        const isMapped = workingGame.provider_metadata?.some(
+                          meta => meta.provider_slug === provider.slug
+                        );
+                        return (
+                          <button
+                            key={provider.slug}
+                            onClick={() => setSelectedMetadataProviderIndex(index)}
+                            disabled={remapping}
+                            className={
+                              "px-3 py-1.5 rounded-lg text-sm font-medium transition-all " +
+                              (selectedMetadataProviderIndex === index
+                                ? "bg-indigo-500 text-white shadow-sm"
+                                : isMapped
+                                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                                  : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 opacity-60 hover:opacity-100")
+                            }
+                          >
+                            {provider.name} ({provider.priority})
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Content Area with fixed sections */}
+                    <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto overflow-x-hidden pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-zinc-600 max-w-full">
+                      {/* Three Column Layout - Fixed height section */}
+                      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_150px] gap-6 xl:gap-[30px] flex-shrink-0 w-full max-w-full">
+                        {/* Left Column: GameVault Data */}
+                        <div className="flex flex-col overflow-x-hidden space-y-4 pb-4 xl:pb-0 border-b xl:border-b-0 border-zinc-200 dark:border-zinc-700 min-w-0">
+                        <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
+                          GameVault
+                        </h4>
+                        
+                        <div className="flex gap-4">
+                          {/* Cover Image */}
+                          {gameCoverUrl && (
+                            <div className="flex-shrink-0 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                              <img
+                                src={gameCoverUrl}
+                                alt="Cover"
+                                className="w-32 h-44 object-cover"
+                                style={{ aspectRatio: '2/3' }}
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            </div>
+                          )}
+
+                          <div className="flex-1 space-y-2 text-sm">
+                          <div>
+                            <div className="text-zinc-500 dark:text-zinc-400 mb-1">File Path:</div>
+                            <div className="text-zinc-900 dark:text-zinc-100 font-mono text-xs overflow-hidden whitespace-nowrap text-ellipsis">
+                              {workingGame.file_path || "N/A"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-zinc-500 dark:text-zinc-400 mb-1">Release Date:</div>
+                            <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
+                              {workingGame.release_date 
+                                ? new Date(workingGame.release_date).toLocaleDateString() 
+                                : "N/A"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-zinc-500 dark:text-zinc-400 mb-1">Added:</div>
+                            <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
+                              {new Date(workingGame.created_at).toLocaleDateString()}
+                            </div>
+                          </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Middle Column: Mapped Game Data */}
+                      <div className="flex flex-col overflow-x-hidden space-y-4 pb-4 xl:pb-0 border-b xl:border-b-0 border-zinc-200 dark:border-zinc-700 min-w-0">
+                        <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
+                          Mapped Game
+                        </h4>
+
+                        {currentShownMappedGame ? (
+                          <>
+                            <div className="flex gap-4">
+                              {/* Cover Image */}
+                              {mappedGameCoverUrl && (
+                                <div className="flex-shrink-0 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                                  <img
+                                    src={mappedGameCoverUrl}
+                                    alt="Provider Cover"
+                                    className="w-32 h-44 object-cover"
+                                    style={{ aspectRatio: '2/3' }}
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).style.display = 'none';
+                                    }}
+                                  />
+                                </div>
+                              )}
+
+                              <div className="flex-1 space-y-2 text-sm">
+                              <div>
+                                <div className="text-zinc-500 dark:text-zinc-400 mb-1">Title:</div>
+                                <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
+                                  {currentShownMappedGame.title || "N/A"}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-zinc-500 dark:text-zinc-400 mb-1">Release Date:</div>
+                                <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
+                                  {currentShownMappedGame.release_date 
+                                    ? new Date(currentShownMappedGame.release_date).toLocaleDateString() 
+                                    : "N/A"}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-zinc-500 dark:text-zinc-400 mb-1">Last Cached:</div>
+                                <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
+                                  {currentShownMappedGame.updated_at 
+                                    ? new Date(currentShownMappedGame.updated_at).toLocaleDateString() 
+                                    : "N/A"}
+                                </div>
+                              </div>
+                              {currentShownMappedGame.provider_data_url && (
+                                <div>
+                                  <a
+                                    href={currentShownMappedGame.provider_data_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-indigo-600 dark:text-indigo-400 hover:underline text-xs"
+                                  >
+                                    View on {metadataProviders[selectedMetadataProviderIndex]?.name}
+                                  </a>
+                                </div>
+                              )}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex items-center justify-center h-32 text-sm text-zinc-500 dark:text-zinc-400">
+                            Not mapped to this provider
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Actions Column */}
+                      <div className="flex flex-col space-y-4 w-full max-w-full xl:max-w-none">
+                        <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
+                          Actions
+                        </h4>
+                        
+                        {currentShownMappedGame ? (
+                          <div className="space-y-3 w-full max-w-full">
+                            <div className="w-full max-w-full">
+                              <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">
+                                Priority
+                              </label>
+                              <div className="flex gap-2 w-full max-w-full">
+                                <Input
+                                  type="number"
+                                  placeholder={`${currentShownMappedGame?.provider_priority ?? metadataProviders[selectedMetadataProviderIndex]?.priority ?? ''}`}
+                                  value={customPriority}
+                                  onChange={(e) => setCustomPriority(e.target.value)}
+                                  disabled={remapping}
+                                  className="flex-1"
+                                />
+                                <Button
+                                  color="indigo"
+                                  onClick={handleSavePriority}
+                                  disabled={!customPriority || remapping}
+                                >
+                                  Save
+                                </Button>
+                              </div>
+                            </div>
+                            
+                            <Button
+                              color="amber"
+                              onClick={handleRecache}
+                              disabled={remapping}
+                              className="w-full"
+                            >
+                              <ArrowPathIcon className="w-4 h-4" />
+                              Recache
+                            </Button>
+                            <Button
+                              color="rose"
+                              onClick={handleUnmap}
+                              disabled={remapping}
+                              className="w-full"
+                            >
+                              <LinkSlashIcon className="w-4 h-4" />
+                              Unmap
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center flex-1 text-sm text-zinc-500 dark:text-zinc-400 text-center">
+                            No actions available
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                      {/* Search & Remap Section - Full Width with own scrollbar */}
+                      <div className="flex-1 min-h-[300px] flex flex-col space-y-4 pt-4 border-t border-zinc-200 dark:border-zinc-700 min-w-0 max-w-full">
+                        <div className="flex-shrink-0">
+                        <h4 className="text-base font-semibold mb-3 text-zinc-800 dark:text-zinc-100">
+                          Search & Remap
+                        </h4>
+                        <Input
+                          type="text"
+                          placeholder={`Search ${metadataProviders[selectedMetadataProviderIndex]?.name}...`}
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          disabled={remapping}
+                        />
+                      </div>
+
+                      {searching && (
+                        <div className="text-center py-4 text-sm text-zinc-500 dark:text-zinc-400">
+                          Searching...
+                        </div>
+                      )}
+
+                      {!searching && remapSearchResults.length > 0 && (
+                        <div className="flex-1 overflow-y-auto space-y-2 pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-zinc-600 min-w-0">
+                          {remapSearchResults.map((result, idx) => (
+                            <div
+                              key={idx}
+                              className="relative flex gap-3 p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 min-w-0 max-w-full overflow-hidden"
+                            >
+                              {result.provider_data_id && (
+                                <div className="absolute top-2 right-2 text-[10px] text-zinc-400 dark:text-zinc-500 font-mono bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 rounded z-10">
+                                  ID: {result.provider_data_id}
+                                </div>
+                              )}
+                              {result.cover_url && (
+                                <img
+                                  src={result.cover_url}
+                                  alt={result.title}
+                                  className="w-16 h-20 object-cover rounded flex-shrink-0"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).style.display = 'none';
+                                  }}
+                                />
+                              )}
+                              <div className="flex-1 min-w-0 pr-20">
+                                <div className="font-medium text-sm text-zinc-900 dark:text-zinc-100 truncate">
+                                  {result.title || "Untitled"}
+                                </div>
+                                {result.release_date && (
+                                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                    {new Date(result.release_date).getFullYear()}
+                                  </div>
+                                )}
+                                {result.description && (
+                                  <div className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 line-clamp-2">
+                                    {result.description}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="absolute right-2 top-1/2 -translate-y-1/2 mt-5 z-10">
+                                <Button
+                                  color="indigo"
+                                  onClick={() => handleRemapToResult(result.provider_data_id)}
+                                  disabled={remapping || !result.provider_data_id}
+                                >
+                                  Remap
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                      </div>
+                    </div>
+                )}
               </div>
             )}
 
@@ -823,7 +1540,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
                       Custom Metadata
                     </h3>
                     <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                      Add custom fields and override metadata for this game.
+                      Add custom fields and override metadata for this workingGame.
                     </p>
                   </div>
                   <Button
@@ -1020,6 +1737,11 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
                           </button>
                         )}
                       </div>
+                      {getWatermark("release_date") && !customMetadata.release_date && (
+                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          Current: {new Date(getWatermark("release_date")).toLocaleDateString()}
+                        </p>
+                      )}
                     </div>
 
                     {/* Rating */}
@@ -1069,6 +1791,370 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
                     </Listbox>
                   </div>
 
+                  {/* Launch Executable */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Default Launch Executable
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.launch_executable}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, launch_executable: e.target.value })}
+                        placeholder={getWatermark("launch_executable")}
+                        className="pr-10"
+                      />
+                      {getWatermark("launch_executable") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("launch_executable")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Launch Parameters */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Default Launch Parameters
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.launch_parameters}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, launch_parameters: e.target.value })}
+                        placeholder={getWatermark("launch_parameters")}
+                        className="pr-10"
+                      />
+                      {getWatermark("launch_parameters") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("launch_parameters")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Installer Executable */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Default Installer Executable
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.installer_executable}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, installer_executable: e.target.value })}
+                        placeholder={getWatermark("installer_executable")}
+                        className="pr-10"
+                      />
+                      {getWatermark("installer_executable") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("installer_executable")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Installer Parameters */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Default Installer Parameters
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.installer_parameters}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, installer_parameters: e.target.value })}
+                        placeholder={getWatermark("installer_parameters")}
+                        className="pr-10"
+                      />
+                      {getWatermark("installer_parameters") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("installer_parameters")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Uninstaller Executable */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Default Uninstaller Executable
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.uninstaller_executable}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, uninstaller_executable: e.target.value })}
+                        placeholder={getWatermark("uninstaller_executable")}
+                        className="pr-10"
+                      />
+                      {getWatermark("uninstaller_executable") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("uninstaller_executable")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Uninstaller Parameters */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Default Uninstaller Parameters
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.uninstaller_parameters}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, uninstaller_parameters: e.target.value })}
+                        placeholder={getWatermark("uninstaller_parameters")}
+                        className="pr-10"
+                      />
+                      {getWatermark("uninstaller_parameters") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("uninstaller_parameters")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Website URLs */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Website URLs <span className="text-xs text-zinc-400">(comma-separated)</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.url_websites}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, url_websites: e.target.value })}
+                        placeholder={getWatermark("url_websites")}
+                        className="pr-10"
+                      />
+                      {getWatermark("url_websites") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("url_websites")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Genres */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Genres <span className="text-xs text-zinc-400">(comma-separated)</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.genres}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, genres: e.target.value })}
+                        placeholder={getWatermark("genres")}
+                        className="pr-10"
+                      />
+                      {getWatermark("genres") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("genres")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Tags */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Tags <span className="text-xs text-zinc-400">(comma-separated)</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.tags}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, tags: e.target.value })}
+                        placeholder={getWatermark("tags")}
+                        className="pr-10"
+                      />
+                      {getWatermark("tags") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("tags")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Publishers */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Publishers <span className="text-xs text-zinc-400">(comma-separated)</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.publishers}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, publishers: e.target.value })}
+                        placeholder={getWatermark("publishers")}
+                        className="pr-10"
+                      />
+                      {getWatermark("publishers") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("publishers")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Developers */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Developers <span className="text-xs text-zinc-400">(comma-separated)</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.developers}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, developers: e.target.value })}
+                        placeholder={getWatermark("developers")}
+                        className="pr-10"
+                      />
+                      {getWatermark("developers") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("developers")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Trailer URLs */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Trailer URLs <span className="text-xs text-zinc-400">(comma-separated)</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.url_trailers}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, url_trailers: e.target.value })}
+                        placeholder={getWatermark("url_trailers")}
+                        className="pr-10"
+                      />
+                      {getWatermark("url_trailers") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("url_trailers")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Gameplay URLs */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Gameplay URLs <span className="text-xs text-zinc-400">(comma-separated)</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.url_gameplays}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, url_gameplays: e.target.value })}
+                        placeholder={getWatermark("url_gameplays")}
+                        className="pr-10"
+                      />
+                      {getWatermark("url_gameplays") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("url_gameplays")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Screenshot URLs */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                      Screenshot URLs <span className="text-xs text-zinc-400">(comma-separated)</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={customMetadata.url_screenshots}
+                        onChange={(e) => setCustomMetadata({ ...customMetadata, url_screenshots: e.target.value })}
+                        placeholder={getWatermark("url_screenshots")}
+                        className="pr-10"
+                      />
+                      {getWatermark("url_screenshots") && (
+                        <button
+                          type="button"
+                          onClick={() => applyWatermark("url_screenshots")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                          title="Apply current value"
+                        >
+                          <ArrowUturnLeftIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   </div>
                 </div>
                 
@@ -1089,11 +2175,13 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
       </div>
       
       {/* Bottom left info */}
-      <div className="absolute bottom-4 left-4 text-xs text-zinc-500 dark:text-zinc-400 space-y-0.5">
-        <div>{game.metadata?.title || game.title || "Unknown"}</div>
-        <div>ID: {game.id}</div>
-        <div>Version: {game.version || "N/A"}</div>
+      <div className="absolute bottom-4 left-4 text-xs text-zinc-500 dark:text-zinc-400 flex flex-row gap-4 lg:flex-col lg:gap-0 lg:space-y-0.5">
+        <div className="truncate max-w-[200px] lg:max-w-none">{workingGame.metadata?.title || workingGame.title || "Unknown"}</div>
+        <div>ID: {workingGame.id}</div>
+        <div>Version: {workingGame.version || "N/A"}</div>
       </div>
+      </>
+      )}
     </Dialog>
   );
 }
