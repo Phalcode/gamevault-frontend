@@ -4,9 +4,10 @@ import { useAuth } from "@/context/AuthContext";
 import { useDownloads } from "@/context/DownloadContext";
 import { getGameCoverMediaId } from "@/hooks/useGames";
 import { CloudArrowDownIcon } from "@heroicons/react/16/solid";
-import { StarIcon as StarSolid } from "@heroicons/react/24/solid";
+import { StarIcon as StarSolid, Cog8ToothIcon } from "@heroicons/react/24/solid";
 import { StarIcon as StarOutline } from "@heroicons/react/24/outline";
 import { Button } from "@tw/button";
+import { GameSettings } from "@/components/admin/GameSettings";
 import {
   Dropdown,
   DropdownButton,
@@ -15,11 +16,10 @@ import {
   DropdownMenu,
 } from "@tw/dropdown";
 import clsx from "clsx";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router";
 
 export function GameCard({ game }: { game: GamevaultGame }) {
-  const coverId = getGameCoverMediaId(game) as number | string | null;
   const { serverUrl, user, authFetch } = useAuth();
   // Derive initial bookmarked state from raw API shape (bookmarked_users or bookmarkedUsers)
   const currentUserId = (user as any)?.id ?? (user as any)?.ID;
@@ -31,6 +31,14 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   }, [game, currentUserId]);
   const [bookmarked, setBookmarked] = useState<boolean>(initialBookmarked);
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [localGame, setLocalGame] = useState<GamevaultGame>(game);
+
+  const coverId = getGameCoverMediaId(localGame) as number | string | null;
+
+  useEffect(() => {
+    setLocalGame(game);
+  }, [game]);
 
   const toggleBookmark = useCallback(
     async (e: React.MouseEvent) => {
@@ -57,10 +65,10 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   const { startDownload } = useDownloads() as any;
 
   const filename = (() => {
-    return `${game.title}.zip`;
+    return `${localGame.title}.zip`;
   })();
 
-  const rawSize = game.size;
+  const rawSize = localGame.size;
 
   const formatBytes = useCallback((bytes?: number) => {
     if (bytes === undefined || bytes === null || isNaN(bytes)) return null;
@@ -110,7 +118,17 @@ export function GameCard({ game }: { game: GamevaultGame }) {
     [navigate, game.id],
   );
 
+  const handleOpenSettings = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setSettingsOpen(true);
+    },
+    [],
+  );
+
   return (
+    <>
     <div
       className={clsx(
         "group flex flex-col rounded-xl bg-zinc-100 dark:bg-zinc-800 shadow-sm ring-1 ring-zinc-950/10 dark:ring-white/5 overflow-hidden focus:outline-none focus:ring-2 focus:ring-indigo-500",
@@ -129,7 +147,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
             size={300}
             className="h-full w-full object-contain rounded-none"
             square
-            alt={game.title}
+            alt={localGame.title}
             onClick={handleOpenGameView}
           />
         ) : (
@@ -158,6 +176,16 @@ export function GameCard({ game }: { game: GamevaultGame }) {
             <StarOutline className="h-5 w-5 text-white" />
           )}
         </button>
+        {/* Top-left settings button */}
+        <button
+          type="button"
+          onClick={handleOpenSettings}
+          aria-label="Settings"
+          className="absolute top-1 left-1 h-8 w-8 flex items-center justify-center rounded-md border shadow-sm backdrop-blur-sm transition-colors bg-zinc-900/40 dark:bg-zinc-700/50 border-white/20 hover:bg-zinc-800/60 dark:hover:bg-zinc-600/60"
+          title="Settings"
+        >
+          <Cog8ToothIcon className="h-5 w-5 text-white" />
+        </button>
         {/* Bottom-right download actions */}
         <div className="absolute bottom-0 right-0 p-1 z-10 flex justify-end opacity-85">
           <Dropdown>
@@ -181,15 +209,15 @@ export function GameCard({ game }: { game: GamevaultGame }) {
         </div>
       </div>
       <div className="p-2 pt-2">
-        <h3 className="text-sm font-medium truncate" title={game.title}>
-          {game.metadata?.title || game.title}
+        <h3 className="text-sm font-medium truncate" title={localGame.title}>
+          {localGame.metadata?.title || localGame.title}
         </h3>
-        {(game as any).sort_title && (game as any).sort_title !== game.title && (
+        {(localGame as any).sort_title && (localGame as any).sort_title !== localGame.title && (
           <p
             className="mt-0.5 text-xs text-fg-muted truncate"
-            title={game.title}
+            title={localGame.title}
           >
-            {game.title}
+            {localGame.title}
           </p>
         )}
         {formattedSize && (
@@ -199,6 +227,14 @@ export function GameCard({ game }: { game: GamevaultGame }) {
         )}
       </div>
     </div>
+      {settingsOpen && (
+        <GameSettings
+          game={game}
+          onClose={() => setSettingsOpen(false)}
+          onGameUpdated={(updatedGame) => setLocalGame(updatedGame)}
+        />
+      )}
+    </>
   );
 }
 

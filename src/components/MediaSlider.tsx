@@ -161,6 +161,7 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
           src={`https://www.youtube.com/embed/${ytId}?rel=0&playsinline=1&mute=1&fs=0&enablejsapi=1${autoPlay ? "&autoplay=1" : ""}`}
           title={current.title || "Trailer"}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerPolicy="strict-origin-when-cross-origin"
           // Native fullscreen intentionally disabled to use custom control
           ref={(el) => {
             if (el && autoPlay) {
