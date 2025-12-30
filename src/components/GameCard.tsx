@@ -17,7 +17,7 @@ import {
 } from "@tw/dropdown";
 import clsx from "clsx";
 import { useCallback, useMemo, useState, useEffect } from "react";
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 
 export function GameCard({ game }: { game: GamevaultGame }) {
   const { serverUrl, user, authFetch } = useAuth();
@@ -107,16 +107,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
     [game.id],
   );
 
-  const navigate = useNavigate();
-
-  const handleOpenGameView = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      navigate(`/library/${game.id}`);
-    },
-    [navigate, game.id],
-  );
+  const gameViewUrl = `/library/${game.id}`;
 
   const handleOpenSettings = useCallback(
     (e: React.MouseEvent) => {
@@ -129,12 +120,12 @@ export function GameCard({ game }: { game: GamevaultGame }) {
 
   return (
     <>
-    <div
+    <Link
+      to={gameViewUrl}
       className={clsx(
         "group flex flex-col rounded-xl bg-zinc-100 dark:bg-zinc-800 shadow-sm ring-1 ring-zinc-950/10 dark:ring-white/5 overflow-hidden focus:outline-none focus:ring-2 focus:ring-indigo-500",
         "transition-colors hover:bg-zinc-200/60 dark:hover:bg-zinc-700/70 cursor-pointer",
       )}
-      tabIndex={0}
     >
       <div className="relative aspect-[3/4] w-full bg-bg-muted flex items-center justify-center overflow-hidden">
         {coverId ? (
@@ -148,10 +139,9 @@ export function GameCard({ game }: { game: GamevaultGame }) {
             className="h-full w-full object-contain rounded-none"
             square
             alt={localGame.title}
-            onClick={handleOpenGameView}
           />
         ) : (
-          <div onClick={handleOpenGameView} className="text-xs text-fg-muted">
+          <div className="text-xs text-fg-muted">
             No Cover
           </div>
         )}
@@ -226,7 +216,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
           </p>
         )}
       </div>
-    </div>
+    </Link>
       {settingsOpen && (
         <GameSettings
           game={game}

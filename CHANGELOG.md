@@ -1,5 +1,11 @@
 # GameVault Frontend Changelog
 
+## 16.2.1
+
+### Changes
+
+- [#6](https://github.com/Phalcode/gamevault-frontend/issues/6) - Use proper href links on game cards and community progress list for better accessibility (middle-click/right-click to open in new tab)
+
 ## 16.2.0
 
 ### Changes

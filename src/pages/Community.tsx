@@ -5,13 +5,12 @@ import { Divider } from "@tw/divider";
 import { Heading } from "@tw/heading";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 import { GamevaultUser } from "../api";
 import { ROLE_LABELS } from "@/utils/roles";
 
 export default function Community() {
   const { serverUrl, authFetch, user: loggedIn } = useAuth();
-  const navigate = useNavigate();
   const [users, setUsers] = useState<GamevaultUser[]>([]);
   const [currentUsername, setCurrentUsername] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
@@ -282,52 +281,60 @@ export default function Community() {
                   const coverId = game ? getGameCoverMediaId(game) : null;
                   const key = p.id ?? `${(game && game.id) || "g"}-${idx}`;
                   const hours = minutes / 60;
-                  const openGame = () => {
-                    if (!game?.id) return;
-                    const base = (serverUrl || "").replace(/\/+$/, "");
-                    if (base) {
-                      window.location.href = `${base}/library/${game.id}`;
-                    } else {
-                      navigate(`/library/${game.id}`);
-                    }
-                  };
-                  const onKey: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      openGame();
-                    }
-                  };
+                  const gameUrl = game?.id ? `/library/${game.id}` : undefined;
                   return (
                     <div
                       key={String(key)}
                       className="flex items-center gap-4 p-3"
                     >
-                      <div
-                        className="shrink-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded-lg"
-                        role="button"
-                        tabIndex={0}
-                        onClick={openGame}
-                        onKeyDown={onKey}
-                        title={title}
-                      >
-                        {coverId ? (
-                          <Media
-                            media={{ id: coverId } as any}
-                            width={48}
-                            height={64}
-                            className="rounded-lg"
-                            square
-                            alt={title}
-                          />
-                        ) : (
-                          <div
-                            className="rounded-lg bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-600 dark:text-zinc-400"
-                            style={{ width: 48, height: 64 }}
-                          >
-                            No Cover
-                          </div>
-                        )}
-                      </div>
+                      {gameUrl ? (
+                        <Link
+                          to={gameUrl}
+                          className="shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded-lg"
+                          title={title}
+                        >
+                          {coverId ? (
+                            <Media
+                              media={{ id: coverId } as any}
+                              width={48}
+                              height={64}
+                              className="rounded-lg"
+                              square
+                              alt={title}
+                            />
+                          ) : (
+                            <div
+                              className="rounded-lg bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-600 dark:text-zinc-400"
+                              style={{ width: 48, height: 64 }}
+                            >
+                              No Cover
+                            </div>
+                          )}
+                        </Link>
+                      ) : (
+                        <div
+                          className="shrink-0 rounded-lg"
+                          title={title}
+                        >
+                          {coverId ? (
+                            <Media
+                              media={{ id: coverId } as any}
+                              width={48}
+                              height={64}
+                              className="rounded-lg"
+                              square
+                              alt={title}
+                            />
+                          ) : (
+                            <div
+                              className="rounded-lg bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-600 dark:text-zinc-400"
+                              style={{ width: 48, height: 64 }}
+                            >
+                              No Cover
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium truncate">
                           {title}
