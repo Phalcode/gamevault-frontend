@@ -4,8 +4,6 @@ import { Media } from "@/components/Media";
 import MediaSlider from "@/components/MediaSlider";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@tw/button";
-import { Divider } from "@tw/divider";
-import { Heading } from "@tw/heading"; // retained for potential future use (removed on screen)
 import { Listbox, ListboxOption, ListboxLabel } from "@tw/listbox";
 import Card from "@/components/Card";
 import { useDownloads } from "@/context/DownloadContext";

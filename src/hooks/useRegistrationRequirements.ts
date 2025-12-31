@@ -13,7 +13,8 @@ interface RegistrationRequirements {
   loading: boolean;
   error: string | null;
   required: Set<string>;
-  registrationEnabled: boolean | null; // null while unknown
+  registrationEnabled: boolean | null;
+  availableAuthenticationMethods: string[];
   isMandatory: (field: string) => boolean;
 }
 
@@ -23,6 +24,7 @@ export function useRegistrationRequirements(serverOverride?: string): Registrati
   const [error, setError] = useState<string | null>(null);
   const [required, setRequired] = useState<Set<string>>(new Set());
   const [registrationEnabled, setRegistrationEnabled] = useState<boolean | null>(null);
+  const [availableAuthenticationMethods, setAvailableAuthenticationMethods] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,6 +35,7 @@ export function useRegistrationRequirements(serverOverride?: string): Registrati
         setError(null);
         setRequired(new Set());
         setRegistrationEnabled(null);
+        setAvailableAuthenticationMethods([]);
         return;
       }
       try {
@@ -45,14 +48,19 @@ export function useRegistrationRequirements(serverOverride?: string): Registrati
         const res = await fetch(`${base}/api/status`, { method: 'GET' });
         if (!res.ok) throw new Error(`Status ${res.status}`);
         const info: ServerInfo = await res.json();
-        if (!cancelled) setRegistrationEnabled(info.registration_enabled ?? true);
-        const fields = new Set(info.required_registration_fields || info.required_registration_fields || []);
+        if (!cancelled) {
+          setRegistrationEnabled(info.registration_enabled ?? true);
+          // Default to basic if missing (backward compatibility), otherwise use provided list
+          setAvailableAuthenticationMethods(info.available_authentication_methods ?? ['basic']);
+        }
+        const fields = new Set(info.required_registration_fields ?? []);
         fields.add('username');
         fields.add('password');
         if (!cancelled) setRequired(fields);
       } catch (e: any) {
         if (!cancelled) setError(e?.message || 'Failed to load server status');
         if (!cancelled) setRegistrationEnabled(true); // optimistic default
+        if (!cancelled) setAvailableAuthenticationMethods(['basic']); // match optimistic default
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -63,5 +71,5 @@ export function useRegistrationRequirements(serverOverride?: string): Registrati
 
   const isMandatory = (field: string) => required.has(field);
 
-  return { loading, error, required, registrationEnabled, isMandatory };
+  return { loading, error, required, registrationEnabled, availableAuthenticationMethods, isMandatory };
 }
