@@ -2,6 +2,15 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "ui:dev",
+      "type": "shell",
+      "isBackground": true,
+      "command": "yarn",
+      "args": [
+        "dev"
+      ],
+    },
+    {
       "label": "start-web-dev-server",
       "type": "shell",
       "command": "pnpm",
