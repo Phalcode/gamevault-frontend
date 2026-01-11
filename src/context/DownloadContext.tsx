@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { useAuth } from "./AuthContext";
+import { isTauriApp } from "@/utils/tauri";
 
 export interface ActiveDownload {
   gameId: number;
@@ -127,7 +128,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       if (downloads[gameId]?.status === "downloading") return;
       const base = serverUrl.replace(/\/$/, "");
       const url = `${base}/api/games/${gameId}/download`;
-      const isDesktop = Boolean((window as any).__TAURI__);
+      const isDesktop = isTauriApp();
+      console.log('Is Tauri Desktop App:', isDesktop);
       const ac = new AbortController();
       const entry: ActiveDownload = {
         gameId,
@@ -143,6 +145,100 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       speedSamplesRef.current[gameId] = [{ t: performance.now(), bytes: 0 }];
 
       try {
+        // Handle Tauri-specific downloads
+        if (isDesktop) {
+          console.log('=== Starting Tauri Download ===');
+          const downloadPath = localStorage.getItem('tauri_download_path');
+          console.log('Tauri download path from localStorage:', downloadPath);
+          if (!downloadPath) {
+            updateDownload(gameId, { 
+              status: "error", 
+              error: "No download location configured. Please set one in Settings." 
+            });
+            return;
+          }
+
+          console.log('Importing Tauri modules...');
+          const { create } = await import('@tauri-apps/plugin-fs');
+          const { join } = await import('@tauri-apps/api/path');
+          
+          console.log('Joining paths:', { downloadPath, filename });
+          const filePath = await join(downloadPath, filename);
+          console.log('Full file path:', filePath);
+          console.log('File path type:', typeof filePath);
+          console.log('File path length:', filePath.length);
+          
+          // Create the file for writing
+          console.log('Attempting to create file...');
+          let file;
+          try {
+            file = await create(filePath);
+            console.log('File created successfully, file object:', file);
+          } catch (createError) {
+            console.error('Error creating file:', createError);
+            console.error('Error details:', JSON.stringify(createError, null, 2));
+            throw createError;
+          }
+          
+          const res = await authFetch(url, {
+            method: "GET",
+            signal: ac.signal,
+          });
+
+          if (!res.ok) {
+            await file.close();
+            throw new Error(`HTTP ${res.status}`);
+          }
+          const total = Number(res.headers.get("Content-Length")) || 0;
+          console.log('Total download size:', total);
+          if (total > 0) updateDownload(gameId, { total });
+          
+          const reader = res.body?.getReader();
+          if (!reader) {
+            await file.close();
+            throw new Error("Streaming not supported");
+          }
+          
+          let received = 0;
+          
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (value) {
+                // Write chunk to file immediately
+                await file.write(value);
+                
+                received += value.length;
+                const progressDecimal = total > 0 ? received / total : 0;
+                const progress = progressDecimal * 100; // Convert to percentage
+                const now = performance.now();
+                const samples = speedSamplesRef.current[gameId];
+                samples.push({ t: now, bytes: received });
+                trimSamples(samples, now);
+                const speedBps = computeSpeedBps(samples, received, now);
+                const last = lastUpdateRef.current[gameId] || 0;
+                if (now - last > UI_THROTTLE_MS || progressDecimal === 1) {
+                  lastUpdateRef.current[gameId] = now;
+                  updateDownload(gameId, { received, progress, speedBps });
+                  console.log(`Progress: ${progress.toFixed(1)}%, Received: ${received}/${total}`);
+                }
+              }
+            }
+            
+            console.log('Download complete, closing file...');
+            await file.close();
+            console.log('File closed successfully');
+            updateDownload(gameId, { status: "completed", progress: 100 });
+          } catch (error) {
+            console.error('Error during download:', error);
+            await file.close();
+            throw error;
+          }
+          return;
+        }
+
+        // Handle non-Tauri downloads (web browser)
         if (!isDesktop) {
           try {
             const downloadSpeed = localStorage.getItem("download_speed_limit_kb");
@@ -161,7 +257,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               a.remove();
               updateDownload(gameId, {
                 status: "completed",
-                progress: 1,
+                progress: 100,
                 received: 0,
                 total: null,
               });
@@ -212,14 +308,15 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             if (writer) await writer.write(value);
             else chunks.push(value);
             received += value.length;
-            const progress = total > 0 ? received / total : null;
+            const progressDecimal = total > 0 ? received / total : 0;
+            const progress = progressDecimal * 100; // Convert to percentage
             const now = performance.now();
             const samples = speedSamplesRef.current[gameId];
             samples.push({ t: now, bytes: received });
             trimSamples(samples, now);
             const speedBps = computeSpeedBps(samples, received, now);
             const last = lastUpdateRef.current[gameId] || 0;
-            if (now - last > UI_THROTTLE_MS || progress === 1) {
+            if (now - last > UI_THROTTLE_MS || progressDecimal === 1) {
               lastUpdateRef.current[gameId] = now;
               updateDownload(gameId, { received, progress, speedBps });
             }
@@ -237,7 +334,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           a.remove();
           URL.revokeObjectURL(objectUrl);
         }
-        updateDownload(gameId, { status: "completed", progress: 1 });
+        updateDownload(gameId, { status: "completed", progress: 100 });
       } catch (err: any) {
         if (err?.name === "AbortError") {
           updateDownload(gameId, { status: "aborted" });

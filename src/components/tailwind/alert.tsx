@@ -43,6 +43,7 @@ export function Alert({
             className,
             "fixed top-4 right-4 z-50 w-[220px] sm:w-auto rounded-md bg-white px-4 py-2 shadow-lg ring-1 ring-zinc-950/10 text-sm flex items-center gap-2 dark:bg-zinc-900 dark:ring-white/10",
             "transition duration-150 data-closed:opacity-0 data-enter:ease-out data-leave:ease-in data-closed:translate-y-2 data-enter:translate-y-0",
+            "pointer-events-auto",
           )}
         >
           {children}

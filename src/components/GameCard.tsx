@@ -1,6 +1,7 @@
 import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { Media } from "@/components/Media";
 import { useAuth } from "@/context/AuthContext";
+import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useDownloads } from "@/context/DownloadContext";
 import { getGameCoverMediaId } from "@/hooks/useGames";
 import { CloudArrowDownIcon } from "@heroicons/react/16/solid";
@@ -8,6 +9,8 @@ import { StarIcon as StarSolid, Cog8ToothIcon } from "@heroicons/react/24/solid"
 import { StarIcon as StarOutline } from "@heroicons/react/24/outline";
 import { Button } from "@tw/button";
 import { GameSettings } from "@/components/admin/GameSettings";
+import { isTauriApp } from "@/utils/tauri";
+import { Alert, AlertTitle } from "@tw/alert";
 import {
   Dropdown,
   DropdownButton,
@@ -21,6 +24,7 @@ import { Link } from "react-router";
 
 export function GameCard({ game }: { game: GamevaultGame }) {
   const { serverUrl, user, authFetch } = useAuth();
+  const { showAlert } = useAlertDialog();
   // Derive initial bookmarked state from raw API shape (bookmarked_users or bookmarkedUsers)
   const currentUserId = (user as any)?.id ?? (user as any)?.ID;
   const initialBookmarked = useMemo(() => {
@@ -64,6 +68,8 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   );
   const { startDownload } = useDownloads() as any;
 
+  const isTauri = isTauriApp();
+
   const filename = (() => {
     return `${localGame.title}.zip`;
   })();
@@ -93,8 +99,46 @@ export function GameCard({ game }: { game: GamevaultGame }) {
       e.stopPropagation();
       if (!serverUrl) return;
       startDownload(game.id, filename);
+      
+      // Show global alert notification
+      showAlert({
+        title: `Added ${localGame.metadata?.title || localGame.title} to the download queue`
+      });
     },
-    [serverUrl, startDownload, game.id, filename],
+    [serverUrl, startDownload, game.id, filename, showAlert, localGame],
+  );
+
+  const handleTauriDownload = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!serverUrl) return;
+      
+      console.log('=== handleTauriDownload called ===');
+      console.log('Game ID:', game.id, 'Filename:', filename);
+      
+      try {
+        // Get download path from localStorage
+        const downloadPath = localStorage.getItem('tauri_download_path');
+        console.log('Download path check:', downloadPath);
+        if (!downloadPath) {
+          alert('Please select a download location in Settings first.');
+          return;
+        }
+
+        // Start download tracking
+        console.log('Starting download...');
+        startDownload(game.id, filename);
+        
+        // Show global alert notification
+        showAlert({
+          title: `Added ${localGame.metadata?.title || localGame.title} to the download queue`
+        });
+      } catch (error) {
+        console.error('Error starting Tauri download:', error);
+      }
+    },
+    [serverUrl, startDownload, game.id, filename, showAlert, localGame],
   );
 
   const handleClientDownload = useCallback(
@@ -178,24 +222,39 @@ export function GameCard({ game }: { game: GamevaultGame }) {
         </button>
         {/* Bottom-right download actions */}
         <div className="absolute bottom-0 right-0 p-1 z-10 flex justify-end opacity-85">
-          <Dropdown>
-            <DropdownButton
-              as={Button}
+          {isTauri ? (
+            <Button
               color="zinc"
               aria-label="Download"
               className="flex justify-center h-8 text-md font-medium items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm"
+              onClick={handleTauriDownload}
             >
               <CloudArrowDownIcon className="w-6 h-6 fill-white" />
-            </DropdownButton>
-            <DropdownMenu className="min-w-48" anchor="top end">
-              <DropdownItem onClick={handleDirectDownload}>
-                <DropdownLabel>Direct Download</DropdownLabel>
-              </DropdownItem>
-              <DropdownItem onClick={handleClientDownload}>
-                <DropdownLabel>Download via GameVault Client</DropdownLabel>
-              </DropdownItem>
-            </DropdownMenu>
-          </Dropdown>
+            </Button>
+          ) : (
+            <Dropdown>
+              <DropdownButton
+                as={Button}
+                color="zinc"
+                aria-label="Download"
+                className="flex justify-center h-8 text-md font-medium items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm"
+                onClick={(e: React.MouseEvent) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
+                <CloudArrowDownIcon className="w-6 h-6 fill-white" />
+              </DropdownButton>
+              <DropdownMenu className="min-w-48" anchor="top end">
+                <DropdownItem onClick={handleDirectDownload}>
+                  <DropdownLabel>Direct Download</DropdownLabel>
+                </DropdownItem>
+                <DropdownItem onClick={handleClientDownload}>
+                  <DropdownLabel>Download via GameVault Client</DropdownLabel>
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+          )}
         </div>
       </div>
       <div className="p-2 pt-2">

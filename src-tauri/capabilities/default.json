@@ -3,5 +3,25 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "core:path:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "fs:default",
+    "fs:allow-create",
+    "fs:allow-write",
+    "fs:allow-write-file",
+    "fs:allow-read-file",
+    "fs:allow-exists",
+    "fs:allow-home-read-recursive",
+    "fs:allow-home-write-recursive"
+  ],
+  "scope": {
+    "allow": [
+      "$HOME/**",
+      "$DOWNLOAD/**",
+      "**"
+    ]
+  }
 }

@@ -12,9 +12,11 @@ import {
   Squares2X2Icon,
   UserGroupIcon,
   UserIcon,
+  ArrowDownTrayIcon,
 } from "@heroicons/react/16/solid";
 import { Cog6ToothIcon } from "@heroicons/react/20/solid";
 import { Badge } from "@tw/badge";
+import { isTauriApp } from "@/utils/tauri";
 import {
   Dropdown,
   DropdownButton,
@@ -69,6 +71,7 @@ export function Sidebar() {
 
   const roleVal = user?.role;
   const isAdmin = roleVal === GamevaultUserRoleEnum.NUMBER_3;
+  const isTauri = isTauriApp();
 
   return (
     <>
@@ -84,6 +87,14 @@ export function Sidebar() {
                 Library
               </SidebarLabel>
             </SidebarItem>
+            {isTauri && (
+              <SidebarItem href="/downloads">
+                <ArrowDownTrayIcon />
+                <SidebarLabel className="flex justify-between w-full">
+                  Downloads
+                </SidebarLabel>
+              </SidebarItem>
+            )}
             <SidebarItem href="/community">
               <UserGroupIcon />
               <SidebarLabel className="flex justify-between w-full">

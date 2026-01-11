@@ -3,6 +3,7 @@ import { Progress, ProgressStateEnum } from "@/api/models/Progress";
 import { Media } from "@/components/Media";
 import MediaSlider from "@/components/MediaSlider";
 import { useAuth } from "@/context/AuthContext";
+import { useAlertDialog } from "@/context/AlertDialogContext";
 import { Button } from "@tw/button";
 import { Listbox, ListboxOption, ListboxLabel } from "@tw/listbox";
 import Card from "@/components/Card";
@@ -16,6 +17,7 @@ import Markdown from "react-markdown";
 import { Dropdown, DropdownButton, DropdownItem, DropdownLabel, DropdownMenu } from "@tw/dropdown";
 import { Alert, AlertTitle } from "@tw/alert";
 import { GameSettings } from "@/components/admin/GameSettings";
+import { isTauriApp } from "@/utils/tauri";
 
 export default function GameView() {
   const { id } = useParams<{ id: string }>();
@@ -27,10 +29,12 @@ export default function GameView() {
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
   const { startDownload } = useDownloads() as any;
+  const { showAlert } = useAlertDialog();
   const [progressState, setProgressState] = useState<keyof typeof ProgressStateEnum | null>(null);
   const [progressUpdating, setProgressUpdating] = useState(false);
   const insertedPlaceholderRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const isTauri = isTauriApp();
 
   useEffect(() => {
     if (!serverUrl || !numericId || Number.isNaN(numericId)) return;
@@ -167,22 +171,51 @@ export default function GameView() {
     }
   }, [serverUrl, game, currentUserId, bookmarked, authFetch, bookmarkBusy]);
 
-  const [copiedAlertOpen, setCopiedAlertOpen] = useState(false);
-  const copiedTimeoutRef = useRef<number | null>(null);
   const handleShare = useCallback(() => {
     try { navigator.clipboard.writeText(window.location.href); } catch {}
-    // Show ephemeral alert
-    setCopiedAlertOpen(true);
-    if (copiedTimeoutRef.current) window.clearTimeout(copiedTimeoutRef.current);
-    copiedTimeoutRef.current = window.setTimeout(() => setCopiedAlertOpen(false), 1800);
-  }, []);
-  useEffect(() => () => { if (copiedTimeoutRef.current) window.clearTimeout(copiedTimeoutRef.current); }, []);
+    // Show global alert notification
+    showAlert({
+      title: "Link copied"
+    });
+  }, [showAlert]);
 
-  const handleDownload = useCallback(() => {
+  const handleDirectDownload = useCallback(() => {
     if (!game) return;
-    // Use id + title for filename
     startDownload(game.id, `${title || game.title}.zip`);
-  }, [game, startDownload, title]);
+    
+    // Show global alert notification
+    showAlert({
+      title: `Added ${title || game.title} to the download queue`
+    });
+  }, [game, startDownload, title, showAlert]);
+
+  const handleTauriDownload = useCallback(async () => {
+    if (!game) return;
+    
+    try {
+      // Get download path from localStorage
+      const downloadPath = localStorage.getItem('tauri_download_path');
+      if (!downloadPath) {
+        alert('Please select a download location in Settings first.');
+        return;
+      }
+
+      // Start download tracking
+      startDownload(game.id, `${title || game.title}.zip`);
+      
+      // Show global alert notification
+      showAlert({
+        title: `Added ${title || game.title} to the download queue`
+      });
+    } catch (error) {
+      console.error('Error starting Tauri download:', error);
+    }
+  }, [game, startDownload, title, showAlert]);
+
+  const handleClientDownload = useCallback(() => {
+    if (!game) return;
+    window.location.href = `gamevault://install?gameid=${game.id}`;
+  }, [game]);
 
   const PROGRESS_LABEL: Record<string, string> = {
     UNPLAYED: "Unplayed",
@@ -276,29 +309,41 @@ export default function GameView() {
               </div>
               {/* Added flex-wrap to allow buttons to wrap on extremely narrow viewports, preventing horizontal overflow that could push the media slider and cause cutoff */}
               <div className="flex flex-row flex-wrap gap-2">
-                <Dropdown>
-                  <DropdownButton
-                    as={Button}
+                {isTauri ? (
+                  <Button
                     color="indigo"
                     aria-label="Download"
                     className="h-9 w-9 p-0 flex items-center justify-center"
                     title="Download"
+                    onClick={handleTauriDownload}
                   >
                     <CloudArrowDownIcon className="w-5 h-5" />
-                  </DropdownButton>
-                  <DropdownMenu className="min-w-48" anchor="bottom start">
-                    <DropdownItem onClick={handleDownload}>
-                      <DropdownLabel>Direct Download</DropdownLabel>
-                    </DropdownItem>
-                    <DropdownItem
-                      onClick={() => {
-                        if (!game) return; window.location.href = `gamevault://install?gameid=${game.id}`;
+                  </Button>
+                ) : (
+                  <Dropdown>
+                    <DropdownButton
+                      as={Button}
+                      color="indigo"
+                      aria-label="Download"
+                      className="h-9 w-9 p-0 flex items-center justify-center"
+                      title="Download"
+                      onClick={(e: React.MouseEvent) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                       }}
                     >
-                      <DropdownLabel>Open in Client</DropdownLabel>
-                    </DropdownItem>
-                  </DropdownMenu>
-                </Dropdown>
+                      <CloudArrowDownIcon className="w-5 h-5" />
+                    </DropdownButton>
+                    <DropdownMenu className="min-w-48" anchor="bottom start">
+                      <DropdownItem onClick={handleDirectDownload}>
+                        <DropdownLabel>Direct Download</DropdownLabel>
+                      </DropdownItem>
+                      <DropdownItem onClick={handleClientDownload}>
+                        <DropdownLabel>Open in Client</DropdownLabel>
+                      </DropdownItem>
+                    </DropdownMenu>
+                  </Dropdown>
+                )}
                 <Button
                   plain
                   onClick={() => setSettingsOpen(true)}
@@ -559,16 +604,6 @@ export default function GameView() {
           </div>
         </div>
       )}
-      {/* Ephemeral 'Link copied' alert */}
-      <Alert
-        open={copiedAlertOpen}
-        onClose={(open: boolean) => { if (!open) setCopiedAlertOpen(false); }}
-        variant="toast"
-        size="xs"
-        className="select-none"
-      >
-        <AlertTitle className="text-sm font-medium">Link copied</AlertTitle>
-      </Alert>
       
       {/* Game Settings Modal */}
       {settingsOpen && game && (
