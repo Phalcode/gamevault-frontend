@@ -350,68 +350,75 @@ export default function Library() {
     urlInitializedRef.current = true;
   }, [getParamValues, isBookmark, isEarlyAccess, isGameType, isProgressState]);
 
-  // Sync all filters into URL search params for shareable links
+  // Sync all filters into URL search params for shareable links (debounced)
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!urlInitializedRef.current) return;
 
-    const url = new URL(window.location.href);
-    const params = url.searchParams;
+    const timeoutId = setTimeout(() => {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
 
-    if (search.trim().length > 0) params.set("q", search.trim());
-    else params.delete("q");
+      if (search.trim().length > 0) params.set("q", search.trim());
+      else params.delete("q");
 
-    if (sortBy !== "sort_title") params.set("sort", sortBy);
-    else params.delete("sort");
+      if (sortBy !== "sort_title") params.set("sort", sortBy);
+      else params.delete("sort");
 
-    if (order !== "ASC") params.set("order", order);
-    else params.delete("order");
+      if (order !== "ASC") params.set("order", order);
+      else params.delete("order");
 
-    if (bookmarkFilter !== "all") params.set("bookmarked", bookmarkFilter);
-    else params.delete("bookmarked");
+      if (bookmarkFilter !== "all") params.set("bookmarked", bookmarkFilter);
+      else params.delete("bookmarked");
 
-    setParamValues(
-      params,
-      "types",
-      selectedGameTypes
-        .map((i) => String(i.id))
-        .filter((v): v is GamevaultGameTypeEnum => isGameType(v)),
-    );
-    setParamValues(
-      params,
-      "tags",
-      selectedTags.map((t) => t.name),
-    );
-    setParamValues(
-      params,
-      "genres",
-      selectedGenres.map((g) => g.name),
-    );
-    setParamValues(
-      params,
-      "developers",
-      selectedDevelopers.map((d) => d.name),
-    );
-    setParamValues(
-      params,
-      "publishers",
-      selectedPublishers.map((p) => p.name),
-    );
+      setParamValues(
+        params,
+        "types",
+        selectedGameTypes
+          .map((i) => String(i.id))
+          .filter((v): v is GamevaultGameTypeEnum => isGameType(v)),
+      );
+      setParamValues(
+        params,
+        "tags",
+        selectedTags.map((t) => t.name),
+      );
+      setParamValues(
+        params,
+        "genres",
+        selectedGenres.map((g) => g.name),
+      );
+      setParamValues(
+        params,
+        "developers",
+        selectedDevelopers.map((d) => d.name),
+      );
+      setParamValues(
+        params,
+        "publishers",
+        selectedPublishers.map((p) => p.name),
+      );
 
-    if (selectedGameState) params.set("state", selectedGameState);
-    else params.delete("state");
+      if (selectedGameState) params.set("state", selectedGameState);
+      else params.delete("state");
 
-    if (releaseDateFrom) params.set("releasedAfter", releaseDateFrom);
-    else params.delete("releasedAfter");
+      if (releaseDateFrom) params.set("releasedAfter", releaseDateFrom);
+      else params.delete("releasedAfter");
 
-    if (releaseDateTo) params.set("releasedBefore", releaseDateTo);
-    else params.delete("releasedBefore");
+      if (releaseDateTo) params.set("releasedBefore", releaseDateTo);
+      else params.delete("releasedBefore");
 
-    if (earlyAccess !== "all") params.set("earlyAccess", earlyAccess);
-    else params.delete("earlyAccess");
+      if (earlyAccess !== "all") params.set("earlyAccess", earlyAccess);
+      else params.delete("earlyAccess");
 
-    // We intentionally do not push to history each keystroke of search for cleanliness
-    window.history.replaceState({}, "", url.toString());
+      // Only update URL if it actually changed to avoid rate-limiting errors
+      const newUrl = url.toString();
+      if (newUrl !== window.location.href) {
+        window.history.replaceState({}, "", newUrl);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
   }, [
     bookmarkFilter,
     earlyAccess,

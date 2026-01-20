@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Tauri App",
+      "type": "msedge",
+      "port": 9222,
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/src-tauri/target/debug/app.exe",
+      "useWebView": true,
+      "webRoot": "${workspaceFolder}",
+      "preLaunchTask": "ui:dev"
+    },   
+    {
+      "name": "Debug Web (Edge)",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/src",
+      "preLaunchTask": "start-web-dev-server",
+      "userDataDir": "${workspaceFolder}/.vscode-edge-profile",
+      "sourceMaps": true,
+      "sourceMapPathOverrides": {
+        "webpack:///./src/*": "${webRoot}/*"
+      }
+    }
+  ],
+  "compounds": []
+}

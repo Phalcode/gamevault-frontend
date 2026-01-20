@@ -19,6 +19,7 @@ import Library from "./pages/Library";
 import GameView from "./pages/GameView";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
+import Downloads from "./pages/Downloads";
 import { GamevaultUserRoleEnum } from "./api";
 
 (window as any).global = window;
@@ -39,6 +40,7 @@ createRoot(document.getElementById("root")!).render(
               <Route element={<DashboardLayout />}>
                 <Route index path="library" element={<Library />} />
                 <Route path="library/:id" element={<GameView />} />
+                <Route path="downloads" element={<Downloads />} />
                 <Route path="community" element={<Community />} />
                 <Route path="settings" element={<Settings />} />
                 <Route

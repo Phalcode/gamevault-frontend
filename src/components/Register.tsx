@@ -22,26 +22,23 @@ interface FormState {
 export function Register() {
   const { serverUrl } = useAuth();
   const [serverInput, setServerInput] = useState(window.location.origin);
+  const [confirmedServer, setConfirmedServer] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({});
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const normalizedServerInput = (() => {
-    const raw = serverInput.trim();
-    if (!raw) return "";
-    // Add protocol if missing for display fetch usage; do not mutate user visible value.
-    if (!/^https?:\/\//i.test(raw)) return `https://${raw}`;
-    return raw;
-  })();
+
   const {
     loading: reqLoading,
     error: reqError,
     required,
     registrationEnabled,
-  } = useRegistrationRequirements(
-    serverInput.trim() ? serverInput.trim() : undefined,
-  );
+    availableAuthenticationMethods,
+  } = useRegistrationRequirements(confirmedServer || undefined);
+
+  const basicAuthAvailable = availableAuthenticationMethods.includes("basic");
+  const ssoAvailable = availableAuthenticationMethods.includes("sso");
 
   const onInput: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     const { name, value } = e.target;
@@ -54,11 +51,28 @@ export function Register() {
     setMsg(null);
   };
 
+  const handleContinue = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!serverInput.trim()) return;
+    let normalized = serverInput.trim();
+    if (!/^https?:\/\//i.test(normalized)) normalized = `https://${normalized}`;
+    setServerInput(normalized);
+    setConfirmedServer(normalized);
+    setMsg(null);
+  };
+
+  const handleChangeServer = () => {
+    setConfirmedServer(null);
+    setMsg(null);
+    setSuccess(false);
+  };
+
   const canSubmit = () => {
-    if (!serverInput.trim()) return false; // need server first
-    if (reqLoading) return false; // must wait
-    if (reqError) return false; // do not allow defaults when fetch failed
-    if (registrationEnabled === false) return false; // disabled by server
+    if (!confirmedServer) return false;
+    if (reqLoading) return false;
+    if (reqError) return false;
+    if (registrationEnabled === false) return false;
+    if (!basicAuthAvailable) return false;
     const mandatory = Array.from(required);
     if (
       mandatory.includes("password") &&
@@ -77,7 +91,7 @@ export function Register() {
     async (e: React.FormEvent) => {
       e.preventDefault();
       if (!canSubmit() || submitting) return;
-      const chosenServer = serverInput.trim() || serverUrl;
+      const chosenServer = confirmedServer;
       if (!chosenServer) {
         setMsg("Missing server URL");
         return;
@@ -112,7 +126,6 @@ export function Register() {
             `Register failed (${res.status}): ${txt || res.statusText}`,
           );
         }
-        // we don't strictly need the response, but we can parse for messaging
         await res.json().catch(() => ({}));
         setSuccess(true);
         setMsg("Registration successful. You can now sign in.");
@@ -122,11 +135,11 @@ export function Register() {
         setSubmitting(false);
       }
     },
-    [form, serverInput, serverUrl, submitting],
+    [form, confirmedServer, submitting, canSubmit],
   );
 
   const isInvalid = (field: string) => {
-    if (reqError || reqLoading || !serverInput.trim()) return false; // don't validate until requirements loaded
+    if (reqError || reqLoading || !confirmedServer) return false;
     const isReq =
       field === "repeat_password"
         ? required.has("password")
@@ -138,225 +151,273 @@ export function Register() {
 
   return (
     <form
-      onSubmit={handleSubmit}
+      onSubmit={confirmedServer ? handleSubmit : handleContinue}
       className="grid w-full max-w-sm grid-cols-1 gap-8"
     >
       <Logo variant="text" className="w-full" height="h-full" />
       <Heading>Create your account</Heading>
-      <Field>
-        <Label>
-          Server URL{" "}
-          <span className="text-rose-400" aria-hidden>
-            *
-          </span>
-        </Label>
-        <Input
-          name="server"
-          placeholder="example.com or https://example.com"
-          value={serverInput}
-          onChange={onServerInput}
-          className={
-            !serverInput.trim() && touched["server"]
-              ? "ring-1 ring-rose-500"
-              : undefined
-          }
-        />
-      </Field>
-      {!serverInput.trim() && (
-        <Text className="text-xs text-fg-muted -mt-4">
-          Enter a server URL to continue with registration.
-        </Text>
+
+      {!confirmedServer && (
+        <>
+          <Field>
+            <Label>
+              Server URL{" "}
+              <span className="text-rose-400" aria-hidden>
+                *
+              </span>
+            </Label>
+            <Input
+              name="server"
+              placeholder="example.com or https://example.com"
+              value={serverInput}
+              onChange={onServerInput}
+              autoFocus
+            />
+          </Field>
+          <Button type="submit" className="w-full">
+            Continue
+          </Button>
+        </>
       )}
-      {serverInput.trim() && registrationEnabled === false && (
-        <Text className="text-xs text-rose-400 -mt-4">
-          Registration is currently disabled on this server.
-        </Text>
-      )}
-      {serverInput.trim() && reqError && !reqLoading && (
-        <Text className="text-xs text-rose-400 -mt-4">
-          Failed to load registration requirements. Cannot proceed.
-        </Text>
-      )}
-      {serverInput.trim() &&
-        !reqLoading &&
-        registrationEnabled !== false &&
-        !reqError && (
-          <>
-            <Field>
-              <Label>
-                Username{" "}
-                {!reqLoading && required.has("username") && (
-                  <span className="text-rose-400" aria-hidden>
-                    *
-                  </span>
-                )}
-              </Label>
+
+      {confirmedServer && (
+        <>
+          <Field>
+            <Label>Server URL</Label>
+            <div data-slot="control" className="flex gap-2">
               <Input
-                aria-required
-                name="username"
-                autoComplete="username"
-                value={form.username ?? ""}
-                onChange={onInput}
-                className={
-                  isInvalid("username") ? "ring-1 ring-rose-500" : undefined
-                }
+                name="server_display"
+                value={confirmedServer}
+                disabled
+                className="flex-1"
               />
-            </Field>
-            <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 sm:gap-4">
-              <Field>
-                <Label>
-                  First name{" "}
-                  {!reqLoading && required.has("first_name") && (
-                    <span className="text-rose-400" aria-hidden>
-                      *
-                    </span>
-                  )}
-                </Label>
-                <Input
-                  aria-required
-                  name="first_name"
-                  autoComplete="given-name"
-                  value={form.first_name ?? ""}
-                  onChange={onInput}
-                  className={
-                    isInvalid("first_name") ? "ring-1 ring-rose-500" : undefined
-                  }
-                />
-              </Field>
-              <Field>
-                <Label>
-                  Last name{" "}
-                  {!reqLoading && required.has("last_name") && (
-                    <span className="text-rose-400" aria-hidden>
-                      *
-                    </span>
-                  )}
-                </Label>
-                <Input
-                  aria-required
-                  name="last_name"
-                  autoComplete="family-name"
-                  value={form.last_name ?? ""}
-                  onChange={onInput}
-                  className={
-                    isInvalid("last_name") ? "ring-1 ring-rose-500" : undefined
-                  }
-                />
-              </Field>
+              <Button
+                type="button"
+                onClick={handleChangeServer}
+                className="shrink-0 bg-gray-200 text-gray-800 hover:bg-gray-300"
+              >
+                Change
+              </Button>
             </div>
-            <Field>
-              <Label>
-                Email{" "}
-                {!reqLoading && required.has("email") && (
-                  <span className="text-rose-400" aria-hidden>
-                    *
-                  </span>
-                )}
-              </Label>
-              <Input
-                aria-required
-                type="email"
-                name="email"
-                autoComplete="email"
-                value={form.email ?? ""}
-                onChange={onInput}
-                className={
-                  isInvalid("email") ? "ring-1 ring-rose-500" : undefined
-                }
-              />
-            </Field>
-            <Field>
-              <Label>
-                Birth date{" "}
-                {!reqLoading && required.has("birth_date") && (
-                  <span className="text-rose-400" aria-hidden>
-                    *
-                  </span>
-                )}
-              </Label>
-              <Input
-                aria-required={required.has("birth_date") ? true : undefined}
-                type="date"
-                name="birth_date"
-                value={form.birth_date ?? ""}
-                onChange={onInput}
-                className={
-                  isInvalid("birth_date") ? "ring-1 ring-rose-500" : undefined
-                }
-              />
-            </Field>
-            <Field>
-              <Label>
-                Password{" "}
-                {!reqLoading && required.has("password") && (
-                  <span className="text-rose-400" aria-hidden>
-                    *
-                  </span>
-                )}
-              </Label>
-              <Input
-                aria-required
-                type="password"
-                name="password"
-                autoComplete="new-password"
-                value={form.password ?? ""}
-                onChange={onInput}
-                className={
-                  isInvalid("password") ? "ring-1 ring-rose-500" : undefined
-                }
-              />
-            </Field>
-            <Field>
-              <Label>
-                Repeat password{" "}
-                {!reqLoading && required.has("password") && (
-                  <span className="text-rose-400" aria-hidden>
-                    *
-                  </span>
-                )}
-              </Label>
-              <Input
-                aria-required
-                type="password"
-                name="repeat_password"
-                autoComplete="new-password"
-                value={form.repeat_password ?? ""}
-                onChange={onInput}
-                className={
-                  isInvalid("repeat_password") ||
-                  (touched.repeat_password &&
-                    form.password &&
-                    form.repeat_password &&
-                    form.password !== form.repeat_password)
-                    ? "ring-1 ring-rose-500"
-                    : undefined
-                }
-              />
-            </Field>
-            {/* Requirements fully loaded; no intermediate loading state UI since fields are hidden until ready */}
-            {form.password &&
-              form.repeat_password &&
-              form.password !== form.repeat_password && (
-                <Text className="text-xs text-rose-400 -mt-6">
-                  Passwords do not match
+          </Field>
+
+          {reqLoading && <Text>Connecting to server...</Text>}
+
+          {reqError && (
+            <Text className="text-xs text-rose-400 -mt-4">
+              Failed to connect to server. Please check the URL.
+            </Text>
+          )}
+
+          {!reqLoading && !reqError && registrationEnabled === false && (
+            <Text className="text-xs text-rose-400 -mt-4">
+              Registration is currently disabled on this server.
+            </Text>
+          )}
+
+          {!reqLoading && !reqError && registrationEnabled !== false && (
+            <>
+              {!basicAuthAvailable && (
+                <Text className="text-xs text-rose-400 -mt-4" role="alert">
+                  {ssoAvailable
+                    ? "Registration via username/password is disabled. Please sign in with SSO."
+                    : "Registration is not available."}
                 </Text>
               )}
-            {msg && (
-              <Text
-                className={`text-xs ${success ? "text-emerald-400" : "text-rose-400"} -mt-4`}
-              >
-                {msg}
-              </Text>
-            )}
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={!canSubmit() || submitting}
-            >
-              {submitting ? "Creating account…" : "Create account"}
-            </Button>
-          </>
-        )}
+              {basicAuthAvailable && (
+                <>
+                  <Field>
+                    <Label>
+                      Username{" "}
+                      {!reqLoading && required.has("username") && (
+                        <span className="text-rose-400" aria-hidden>
+                          *
+                        </span>
+                      )}
+                    </Label>
+                    <Input
+                      aria-required
+                      name="username"
+                      autoComplete="username"
+                      value={form.username ?? ""}
+                      onChange={onInput}
+                      className={
+                        isInvalid("username")
+                          ? "ring-1 ring-rose-500"
+                          : undefined
+                      }
+                    />
+                  </Field>
+                  <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 sm:gap-4">
+                    <Field>
+                      <Label>
+                        First name{" "}
+                        {!reqLoading && required.has("first_name") && (
+                          <span className="text-rose-400" aria-hidden>
+                            *
+                          </span>
+                        )}
+                      </Label>
+                      <Input
+                        aria-required
+                        name="first_name"
+                        autoComplete="given-name"
+                        value={form.first_name ?? ""}
+                        onChange={onInput}
+                        className={
+                          isInvalid("first_name")
+                            ? "ring-1 ring-rose-500"
+                            : undefined
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <Label>
+                        Last name{" "}
+                        {!reqLoading && required.has("last_name") && (
+                          <span className="text-rose-400" aria-hidden>
+                            *
+                          </span>
+                        )}
+                      </Label>
+                      <Input
+                        aria-required
+                        name="last_name"
+                        autoComplete="family-name"
+                        value={form.last_name ?? ""}
+                        onChange={onInput}
+                        className={
+                          isInvalid("last_name")
+                            ? "ring-1 ring-rose-500"
+                            : undefined
+                        }
+                      />
+                    </Field>
+                  </div>
+                  <Field>
+                    <Label>
+                      Email{" "}
+                      {!reqLoading && required.has("email") && (
+                        <span className="text-rose-400" aria-hidden>
+                          *
+                        </span>
+                      )}
+                    </Label>
+                    <Input
+                      aria-required
+                      type="email"
+                      name="email"
+                      autoComplete="email"
+                      value={form.email ?? ""}
+                      onChange={onInput}
+                      className={
+                        isInvalid("email") ? "ring-1 ring-rose-500" : undefined
+                      }
+                    />
+                  </Field>
+                  <Field>
+                    <Label>
+                      Birth date{" "}
+                      {!reqLoading && required.has("birth_date") && (
+                        <span className="text-rose-400" aria-hidden>
+                          *
+                        </span>
+                      )}
+                    </Label>
+                    <Input
+                      aria-required={
+                        required.has("birth_date") ? true : undefined
+                      }
+                      type="date"
+                      name="birth_date"
+                      value={form.birth_date ?? ""}
+                      onChange={onInput}
+                      className={
+                        isInvalid("birth_date")
+                          ? "ring-1 ring-rose-500"
+                          : undefined
+                      }
+                    />
+                  </Field>
+                  <Field>
+                    <Label>
+                      Password{" "}
+                      {!reqLoading && required.has("password") && (
+                        <span className="text-rose-400" aria-hidden>
+                          *
+                        </span>
+                      )}
+                    </Label>
+                    <Input
+                      aria-required
+                      type="password"
+                      name="password"
+                      autoComplete="new-password"
+                      value={form.password ?? ""}
+                      onChange={onInput}
+                      className={
+                        isInvalid("password")
+                          ? "ring-1 ring-rose-500"
+                          : undefined
+                      }
+                    />
+                  </Field>
+                  <Field>
+                    <Label>
+                      Repeat password{" "}
+                      {!reqLoading && required.has("password") && (
+                        <span className="text-rose-400" aria-hidden>
+                          *
+                        </span>
+                      )}
+                    </Label>
+                    <Input
+                      aria-required
+                      type="password"
+                      name="repeat_password"
+                      autoComplete="new-password"
+                      value={form.repeat_password ?? ""}
+                      onChange={onInput}
+                      className={
+                        isInvalid("repeat_password") ||
+                        (touched.repeat_password &&
+                          form.password &&
+                          form.repeat_password &&
+                          form.password !== form.repeat_password)
+                          ? "ring-1 ring-rose-500"
+                          : undefined
+                      }
+                    />
+                  </Field>
+                  {form.password &&
+                    form.repeat_password &&
+                    form.password !== form.repeat_password && (
+                      <Text className="text-xs text-rose-400 -mt-6">
+                        Passwords do not match
+                      </Text>
+                    )}
+                </>
+              )}
+              {msg && (
+                <Text
+                  className={`text-xs ${success ? "text-emerald-400" : "text-rose-400"} -mt-4`}
+                >
+                  {msg}
+                </Text>
+              )}
+              {!success && basicAuthAvailable && (
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={!canSubmit() || submitting}
+                >
+                  {submitting ? "Creating account…" : "Create account"}
+                </Button>
+              )}
+            </>
+          )}
+        </>
+      )}
       <Text>
         Already have an account? {""}
         <TextLink href="/">
