@@ -6,9 +6,7 @@
       "type": "shell",
       "isBackground": true,
       "command": "yarn",
-      "args": [
-        "dev"
-      ],
+      "args": ["dev"]
     },
     {
       "label": "start-web-dev-server",

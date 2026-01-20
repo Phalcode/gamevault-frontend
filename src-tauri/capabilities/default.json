@@ -18,10 +18,6 @@
     "fs:allow-home-write-recursive"
   ],
   "scope": {
-    "allow": [
-      "$HOME/**",
-      "$DOWNLOAD/**",
-      "**"
-    ]
+    "allow": ["$HOME/**", "$DOWNLOAD/**", "**"]
   }
 }
