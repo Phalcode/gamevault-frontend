@@ -220,7 +220,7 @@ export function Register() {
               {!basicAuthAvailable && (
                 <Text className="text-xs text-rose-400 -mt-4" role="alert">
                   {ssoAvailable
-                    ? "Registration via username/password is disabled. Please sign in with SSO."
+                    ? "Registration via username and password is disabled on this server. Please sign in via SSO. Your account should be created automatically."
                     : "Registration is not available."}
                 </Text>
               )}
