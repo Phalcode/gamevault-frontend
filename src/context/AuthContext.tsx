@@ -27,7 +27,10 @@ interface AuthContextValue {
     args: LoginArgs,
   ) => Promise<{ auth: AuthTokens; user: GamevaultUser }>;
   /** Directly initialize auth state from already obtained tokens (e.g. SSO redirect). */
-  loginWithTokens: (server: string, tokens: AuthTokens) => Promise<{ auth: AuthTokens; user: GamevaultUser }>;
+  loginWithTokens: (
+    server: string,
+    tokens: AuthTokens,
+  ) => Promise<{ auth: AuthTokens; user: GamevaultUser }>;
   logout: () => void;
   authFetch: (input: string, init?: RequestInit) => Promise<Response>;
   refreshCurrentUser: () => Promise<GamevaultUser | null>;

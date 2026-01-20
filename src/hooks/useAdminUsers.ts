@@ -1,7 +1,9 @@
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useRef, useState } from "react";
 // Local helper to normalize user objects if backend changes shape; currently identity
-function normalizeUser<T>(u: T): T { return u; }
+function normalizeUser<T>(u: T): T {
+  return u;
+}
 import { GamevaultUser, GamevaultUserRoleEnum } from "../api";
 
 export interface UseAdminUsersResult {

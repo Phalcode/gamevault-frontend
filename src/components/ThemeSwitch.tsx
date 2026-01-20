@@ -10,7 +10,7 @@ export default function ThemeSwitch({ className }: { className?: string }) {
     element:
       typeof document !== "undefined" ? document.documentElement : undefined,
   });
-  
+
   return (
     <SwitchGroup className={className}>
       <SwitchField>

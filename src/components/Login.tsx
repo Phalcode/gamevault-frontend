@@ -329,7 +329,8 @@ export function Login() {
               )}
               {noAuthAvailable && (
                 <div className="text-sm text-rose-500" role="alert">
-                  No authentication methods are currently available on this server.
+                  No authentication methods are currently available on this
+                  server.
                 </div>
               )}
               {error && (

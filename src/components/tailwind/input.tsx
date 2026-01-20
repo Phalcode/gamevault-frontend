@@ -109,7 +109,7 @@ export const Input = forwardRef(function Input(
           className={clsx([
             "absolute inset-y-0 right-0 flex items-center pr-2",
             "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
-            "focus:outline-hidden"
+            "focus:outline-hidden",
           ])}
           aria-label="Clear input"
           tabIndex={-1}

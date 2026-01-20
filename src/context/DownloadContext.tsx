@@ -129,7 +129,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       const base = serverUrl.replace(/\/$/, "");
       const url = `${base}/api/games/${gameId}/download`;
       const isDesktop = isTauriApp();
-      console.log('Is Tauri Desktop App:', isDesktop);
+      console.log("Is Tauri Desktop App:", isDesktop);
       const ac = new AbortController();
       const entry: ActiveDownload = {
         gameId,
@@ -147,39 +147,43 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       try {
         // Handle Tauri-specific downloads
         if (isDesktop) {
-          console.log('=== Starting Tauri Download ===');
-          const downloadPath = localStorage.getItem('tauri_download_path');
-          console.log('Tauri download path from localStorage:', downloadPath);
+          console.log("=== Starting Tauri Download ===");
+          const downloadPath = localStorage.getItem("tauri_download_path");
+          console.log("Tauri download path from localStorage:", downloadPath);
           if (!downloadPath) {
-            updateDownload(gameId, { 
-              status: "error", 
-              error: "No download location configured. Please set one in Settings." 
+            updateDownload(gameId, {
+              status: "error",
+              error:
+                "No download location configured. Please set one in Settings.",
             });
             return;
           }
 
-          console.log('Importing Tauri modules...');
-          const { create } = await import('@tauri-apps/plugin-fs');
-          const { join } = await import('@tauri-apps/api/path');
-          
-          console.log('Joining paths:', { downloadPath, filename });
+          console.log("Importing Tauri modules...");
+          const { create } = await import("@tauri-apps/plugin-fs");
+          const { join } = await import("@tauri-apps/api/path");
+
+          console.log("Joining paths:", { downloadPath, filename });
           const filePath = await join(downloadPath, filename);
-          console.log('Full file path:', filePath);
-          console.log('File path type:', typeof filePath);
-          console.log('File path length:', filePath.length);
-          
+          console.log("Full file path:", filePath);
+          console.log("File path type:", typeof filePath);
+          console.log("File path length:", filePath.length);
+
           // Create the file for writing
-          console.log('Attempting to create file...');
+          console.log("Attempting to create file...");
           let file;
           try {
             file = await create(filePath);
-            console.log('File created successfully, file object:', file);
+            console.log("File created successfully, file object:", file);
           } catch (createError) {
-            console.error('Error creating file:', createError);
-            console.error('Error details:', JSON.stringify(createError, null, 2));
+            console.error("Error creating file:", createError);
+            console.error(
+              "Error details:",
+              JSON.stringify(createError, null, 2),
+            );
             throw createError;
           }
-          
+
           const res = await authFetch(url, {
             method: "GET",
             signal: ac.signal,
@@ -190,17 +194,17 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             throw new Error(`HTTP ${res.status}`);
           }
           const total = Number(res.headers.get("Content-Length")) || 0;
-          console.log('Total download size:', total);
+          console.log("Total download size:", total);
           if (total > 0) updateDownload(gameId, { total });
-          
+
           const reader = res.body?.getReader();
           if (!reader) {
             await file.close();
             throw new Error("Streaming not supported");
           }
-          
+
           let received = 0;
-          
+
           try {
             while (true) {
               const { done, value } = await reader.read();
@@ -208,7 +212,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               if (value) {
                 // Write chunk to file immediately
                 await file.write(value);
-                
+
                 received += value.length;
                 const progressDecimal = total > 0 ? received / total : 0;
                 const progress = progressDecimal * 100; // Convert to percentage
@@ -221,17 +225,19 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                 if (now - last > UI_THROTTLE_MS || progressDecimal === 1) {
                   lastUpdateRef.current[gameId] = now;
                   updateDownload(gameId, { received, progress, speedBps });
-                  console.log(`Progress: ${progress.toFixed(1)}%, Received: ${received}/${total}`);
+                  console.log(
+                    `Progress: ${progress.toFixed(1)}%, Received: ${received}/${total}`,
+                  );
                 }
               }
             }
-            
-            console.log('Download complete, closing file...');
+
+            console.log("Download complete, closing file...");
             await file.close();
-            console.log('File closed successfully');
+            console.log("File closed successfully");
             updateDownload(gameId, { status: "completed", progress: 100 });
           } catch (error) {
-            console.error('Error during download:', error);
+            console.error("Error during download:", error);
             await file.close();
             throw error;
           }
@@ -241,8 +247,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         // Handle non-Tauri downloads (web browser)
         if (!isDesktop) {
           try {
-            const downloadSpeed = localStorage.getItem("download_speed_limit_kb");
-            const downloadSpeedBytes = parseInt(downloadSpeed||"0", 10);   
+            const downloadSpeed = localStorage.getItem(
+              "download_speed_limit_kb",
+            );
+            const downloadSpeedBytes = parseInt(downloadSpeed || "0", 10);
             const response = await authFetch(url, {
               method: "GET",
               signal: ac.signal,
@@ -263,8 +271,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               });
               return;
             }
-          } catch (_) {
-          }
+          } catch (_) {}
         }
         let writer: {
           write(data: any): Promise<void>;

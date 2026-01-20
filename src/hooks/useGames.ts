@@ -1,4 +1,7 @@
-import { GamevaultGame, GamevaultGameTypeEnum } from "@/api/models/GamevaultGame";
+import {
+  GamevaultGame,
+  GamevaultGameTypeEnum,
+} from "@/api/models/GamevaultGame";
 import { ProgressStateEnum } from "@/api/models/Progress";
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -63,11 +66,23 @@ export function useGames({
   const abortRef = useRef<AbortController | null>(null);
 
   // Serialize arrays to stable strings to use as dependencies (prevent re-fetching when array reference changes but contents are same)
-  const gameTypesKey = useMemo(() => JSON.stringify(gameTypes.slice().sort()), [gameTypes]);
+  const gameTypesKey = useMemo(
+    () => JSON.stringify(gameTypes.slice().sort()),
+    [gameTypes],
+  );
   const tagsKey = useMemo(() => JSON.stringify(tags.slice().sort()), [tags]);
-  const genresKey = useMemo(() => JSON.stringify(genres.slice().sort()), [genres]);
-  const developersKey = useMemo(() => JSON.stringify(developers.slice().sort()), [developers]);
-  const publishersKey = useMemo(() => JSON.stringify(publishers.slice().sort()), [publishers]);
+  const genresKey = useMemo(
+    () => JSON.stringify(genres.slice().sort()),
+    [genres],
+  );
+  const developersKey = useMemo(
+    () => JSON.stringify(developers.slice().sort()),
+    [developers],
+  );
+  const publishersKey = useMemo(
+    () => JSON.stringify(publishers.slice().sort()),
+    [publishers],
+  );
 
   // Store current array values in refs so callback doesn't depend on array references
   const gameTypesRef = useRef(gameTypes);
@@ -119,17 +134,26 @@ export function useGames({
       // Genre filter (use ref for current value)
       const currentGenres = genresRef.current;
       if (currentGenres.length > 0) {
-        params.set("filter.metadata.genres.name", `$in:${currentGenres.join(",")}`);
+        params.set(
+          "filter.metadata.genres.name",
+          `$in:${currentGenres.join(",")}`,
+        );
       }
       // Developer filter (use ref for current value)
       const currentDevelopers = developersRef.current;
       if (currentDevelopers.length > 0) {
-        params.set("filter.metadata.developers.name", `$in:${currentDevelopers.join(",")}`);
+        params.set(
+          "filter.metadata.developers.name",
+          `$in:${currentDevelopers.join(",")}`,
+        );
       }
       // Publisher filter (use ref for current value)
       const currentPublishers = publishersRef.current;
       if (currentPublishers.length > 0) {
-        params.set("filter.metadata.publishers.name", `$in:${currentPublishers.join(",")}`);
+        params.set(
+          "filter.metadata.publishers.name",
+          `$in:${currentPublishers.join(",")}`,
+        );
       }
       // Game state filter
       if (gameState && userId != null) {
@@ -138,7 +162,10 @@ export function useGames({
       }
       // Release date range filter
       if (releaseDateFrom && releaseDateTo) {
-        params.set("filter.metadata.release_date", `$btw:${releaseDateFrom},${releaseDateTo}`);
+        params.set(
+          "filter.metadata.release_date",
+          `$btw:${releaseDateFrom},${releaseDateTo}`,
+        );
       } else if (releaseDateFrom) {
         params.set("filter.metadata.release_date", `$gte:${releaseDateFrom}`);
       } else if (releaseDateTo) {
@@ -163,7 +190,25 @@ export function useGames({
     } finally {
       setLoading(false);
     }
-  }, [serverUrl, authFetch, search, sortBy, order, limit, bookmarkFilter, user, gameTypesKey, tagsKey, genresKey, developersKey, publishersKey, gameState, releaseDateFrom, releaseDateTo, earlyAccess]);
+  }, [
+    serverUrl,
+    authFetch,
+    search,
+    sortBy,
+    order,
+    limit,
+    bookmarkFilter,
+    user,
+    gameTypesKey,
+    tagsKey,
+    genresKey,
+    developersKey,
+    publishersKey,
+    gameState,
+    releaseDateFrom,
+    releaseDateTo,
+    earlyAccess,
+  ]);
 
   const loadMore = useCallback(async () => {
     if (!serverUrl || !next || loading) return;

@@ -403,7 +403,9 @@ export default function Administration() {
                   updateUser(currentEditingUser, {
                     ...payload,
                     // Convert birth_date string|null to Date if present, otherwise undefined to satisfy typing
-                    birth_date: payload.birth_date ? new Date(payload.birth_date) : undefined,
+                    birth_date: payload.birth_date
+                      ? new Date(payload.birth_date)
+                      : undefined,
                   })
                 }
                 onUserUpdated={(updated) => {

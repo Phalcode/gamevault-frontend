@@ -5,7 +5,10 @@ import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useDownloads } from "@/context/DownloadContext";
 import { getGameCoverMediaId } from "@/hooks/useGames";
 import { CloudArrowDownIcon } from "@heroicons/react/16/solid";
-import { StarIcon as StarSolid, Cog8ToothIcon } from "@heroicons/react/24/solid";
+import {
+  StarIcon as StarSolid,
+  Cog8ToothIcon,
+} from "@heroicons/react/24/solid";
 import { StarIcon as StarOutline } from "@heroicons/react/24/outline";
 import { Button } from "@tw/button";
 import { GameSettings } from "@/components/admin/GameSettings";
@@ -99,10 +102,10 @@ export function GameCard({ game }: { game: GamevaultGame }) {
       e.stopPropagation();
       if (!serverUrl) return;
       startDownload(game.id, filename);
-      
+
       // Show global alert notification
       showAlert({
-        title: `Added ${localGame.metadata?.title || localGame.title} to the download queue`
+        title: `Added ${localGame.metadata?.title || localGame.title} to the download queue`,
       });
     },
     [serverUrl, startDownload, game.id, filename, showAlert, localGame],
@@ -113,29 +116,29 @@ export function GameCard({ game }: { game: GamevaultGame }) {
       e.preventDefault();
       e.stopPropagation();
       if (!serverUrl) return;
-      
-      console.log('=== handleTauriDownload called ===');
-      console.log('Game ID:', game.id, 'Filename:', filename);
-      
+
+      console.log("=== handleTauriDownload called ===");
+      console.log("Game ID:", game.id, "Filename:", filename);
+
       try {
         // Get download path from localStorage
-        const downloadPath = localStorage.getItem('tauri_download_path');
-        console.log('Download path check:', downloadPath);
+        const downloadPath = localStorage.getItem("tauri_download_path");
+        console.log("Download path check:", downloadPath);
         if (!downloadPath) {
-          alert('Please select a download location in Settings first.');
+          alert("Please select a download location in Settings first.");
           return;
         }
 
         // Start download tracking
-        console.log('Starting download...');
+        console.log("Starting download...");
         startDownload(game.id, filename);
-        
+
         // Show global alert notification
         showAlert({
-          title: `Added ${localGame.metadata?.title || localGame.title} to the download queue`
+          title: `Added ${localGame.metadata?.title || localGame.title} to the download queue`,
         });
       } catch (error) {
-        console.error('Error starting Tauri download:', error);
+        console.error("Error starting Tauri download:", error);
       }
     },
     [serverUrl, startDownload, game.id, filename, showAlert, localGame],
@@ -153,129 +156,130 @@ export function GameCard({ game }: { game: GamevaultGame }) {
 
   const gameViewUrl = `/library/${game.id}`;
 
-  const handleOpenSettings = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setSettingsOpen(true);
-    },
-    [],
-  );
+  const handleOpenSettings = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSettingsOpen(true);
+  }, []);
 
   return (
     <>
-    <Link
-      to={gameViewUrl}
-      className={clsx(
-        "group flex flex-col rounded-xl bg-zinc-100 dark:bg-zinc-800 shadow-sm ring-1 ring-zinc-950/10 dark:ring-white/5 overflow-hidden focus:outline-none focus:ring-2 focus:ring-indigo-500",
-        "transition-colors hover:bg-zinc-200/60 dark:hover:bg-zinc-700/70 cursor-pointer",
-      )}
-    >
-      <div className="relative aspect-[3/4] w-full bg-bg-muted flex items-center justify-center overflow-hidden">
-        {coverId ? (
-          <Media
-            media={{
-              id: typeof coverId === 'number' ? coverId : Number(coverId) || 0,
-              created_at: new Date(0),
-              entity_version: 0,
-            } as any}
-            size={300}
-            className="h-full w-full object-contain rounded-none"
-            square
-            alt={localGame.title}
-          />
-        ) : (
-          <div className="text-xs text-fg-muted">
-            No Cover
-          </div>
+      <Link
+        to={gameViewUrl}
+        className={clsx(
+          "group flex flex-col rounded-xl bg-zinc-100 dark:bg-zinc-800 shadow-sm ring-1 ring-zinc-950/10 dark:ring-white/5 overflow-hidden focus:outline-none focus:ring-2 focus:ring-indigo-500",
+          "transition-colors hover:bg-zinc-200/60 dark:hover:bg-zinc-700/70 cursor-pointer",
         )}
-        {/* Top-right bookmark toggle */}
-        <button
-          type="button"
-          onClick={toggleBookmark}
+      >
+        <div className="relative aspect-[3/4] w-full bg-bg-muted flex items-center justify-center overflow-hidden">
+          {coverId ? (
+            <Media
+              media={
+                {
+                  id:
+                    typeof coverId === "number"
+                      ? coverId
+                      : Number(coverId) || 0,
+                  created_at: new Date(0),
+                  entity_version: 0,
+                } as any
+              }
+              size={300}
+              className="h-full w-full object-contain rounded-none"
+              square
+              alt={localGame.title}
+            />
+          ) : (
+            <div className="text-xs text-fg-muted">No Cover</div>
+          )}
+          {/* Top-right bookmark toggle */}
+          <button
+            type="button"
+            onClick={toggleBookmark}
             aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
             aria-pressed={bookmarked}
-          disabled={!currentUserId || bookmarkBusy}
-          className={clsx(
-            "absolute top-1 right-1 h-8 w-8 flex items-center justify-center rounded-md border shadow-sm backdrop-blur-sm transition-colors",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-            bookmarked
-              ? "bg-yellow-400/20 border-yellow-400"
-              : "bg-zinc-900/40 dark:bg-zinc-700/50 border-white/20 hover:bg-zinc-800/60 dark:hover:bg-zinc-600/60",
-          )}
-        >
-          {bookmarked ? (
-            <StarSolid className="h-5 w-5 text-yellow-400" />
-          ) : (
-            <StarOutline className="h-5 w-5 text-white" />
-          )}
-        </button>
-        {/* Top-left settings button */}
-        <button
-          type="button"
-          onClick={handleOpenSettings}
-          aria-label="Settings"
-          className="absolute top-1 left-1 h-8 w-8 flex items-center justify-center rounded-md border shadow-sm backdrop-blur-sm transition-colors bg-zinc-900/40 dark:bg-zinc-700/50 border-white/20 hover:bg-zinc-800/60 dark:hover:bg-zinc-600/60"
-          title="Settings"
-        >
-          <Cog8ToothIcon className="h-5 w-5 text-white" />
-        </button>
-        {/* Bottom-right download actions */}
-        <div className="absolute bottom-0 right-0 p-1 z-10 flex justify-end opacity-85">
-          {isTauri ? (
-            <Button
-              color="zinc"
-              aria-label="Download"
-              className="flex justify-center h-8 text-md font-medium items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm"
-              onClick={handleTauriDownload}
-            >
-              <CloudArrowDownIcon className="w-6 h-6 fill-white" />
-            </Button>
-          ) : (
-            <Dropdown>
-              <DropdownButton
-                as={Button}
+            disabled={!currentUserId || bookmarkBusy}
+            className={clsx(
+              "absolute top-1 right-1 h-8 w-8 flex items-center justify-center rounded-md border shadow-sm backdrop-blur-sm transition-colors",
+              "disabled:opacity-50 disabled:cursor-not-allowed",
+              bookmarked
+                ? "bg-yellow-400/20 border-yellow-400"
+                : "bg-zinc-900/40 dark:bg-zinc-700/50 border-white/20 hover:bg-zinc-800/60 dark:hover:bg-zinc-600/60",
+            )}
+          >
+            {bookmarked ? (
+              <StarSolid className="h-5 w-5 text-yellow-400" />
+            ) : (
+              <StarOutline className="h-5 w-5 text-white" />
+            )}
+          </button>
+          {/* Top-left settings button */}
+          <button
+            type="button"
+            onClick={handleOpenSettings}
+            aria-label="Settings"
+            className="absolute top-1 left-1 h-8 w-8 flex items-center justify-center rounded-md border shadow-sm backdrop-blur-sm transition-colors bg-zinc-900/40 dark:bg-zinc-700/50 border-white/20 hover:bg-zinc-800/60 dark:hover:bg-zinc-600/60"
+            title="Settings"
+          >
+            <Cog8ToothIcon className="h-5 w-5 text-white" />
+          </button>
+          {/* Bottom-right download actions */}
+          <div className="absolute bottom-0 right-0 p-1 z-10 flex justify-end opacity-85">
+            {isTauri ? (
+              <Button
                 color="zinc"
                 aria-label="Download"
                 className="flex justify-center h-8 text-md font-medium items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm"
-                onClick={(e: React.MouseEvent) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
+                onClick={handleTauriDownload}
               >
                 <CloudArrowDownIcon className="w-6 h-6 fill-white" />
-              </DropdownButton>
-              <DropdownMenu className="min-w-48" anchor="top end">
-                <DropdownItem onClick={handleDirectDownload}>
-                  <DropdownLabel>Direct Download</DropdownLabel>
-                </DropdownItem>
-                <DropdownItem onClick={handleClientDownload}>
-                  <DropdownLabel>Download via GameVault Client</DropdownLabel>
-                </DropdownItem>
-              </DropdownMenu>
-            </Dropdown>
+              </Button>
+            ) : (
+              <Dropdown>
+                <DropdownButton
+                  as={Button}
+                  color="zinc"
+                  aria-label="Download"
+                  className="flex justify-center h-8 text-md font-medium items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm"
+                  onClick={(e: React.MouseEvent) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                >
+                  <CloudArrowDownIcon className="w-6 h-6 fill-white" />
+                </DropdownButton>
+                <DropdownMenu className="min-w-48" anchor="top end">
+                  <DropdownItem onClick={handleDirectDownload}>
+                    <DropdownLabel>Direct Download</DropdownLabel>
+                  </DropdownItem>
+                  <DropdownItem onClick={handleClientDownload}>
+                    <DropdownLabel>Download via GameVault Client</DropdownLabel>
+                  </DropdownItem>
+                </DropdownMenu>
+              </Dropdown>
+            )}
+          </div>
+        </div>
+        <div className="p-2 pt-2">
+          <h3 className="text-sm font-medium truncate" title={localGame.title}>
+            {localGame.metadata?.title || localGame.title}
+          </h3>
+          {(localGame as any).sort_title &&
+            (localGame as any).sort_title !== localGame.title && (
+              <p
+                className="mt-0.5 text-xs text-fg-muted truncate"
+                title={localGame.title}
+              >
+                {localGame.title}
+              </p>
+            )}
+          {formattedSize && (
+            <p className="mt-0.5 text-xs text-fg-muted" title={formattedSize}>
+              {formattedSize}
+            </p>
           )}
         </div>
-      </div>
-      <div className="p-2 pt-2">
-        <h3 className="text-sm font-medium truncate" title={localGame.title}>
-          {localGame.metadata?.title || localGame.title}
-        </h3>
-        {(localGame as any).sort_title && (localGame as any).sort_title !== localGame.title && (
-          <p
-            className="mt-0.5 text-xs text-fg-muted truncate"
-            title={localGame.title}
-          >
-            {localGame.title}
-          </p>
-        )}
-        {formattedSize && (
-          <p className="mt-0.5 text-xs text-fg-muted" title={formattedSize}>
-            {formattedSize}
-          </p>
-        )}
-      </div>
-    </Link>
+      </Link>
       {settingsOpen && (
         <GameSettings
           game={game}

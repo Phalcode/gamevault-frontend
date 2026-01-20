@@ -57,7 +57,7 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
     const next = queueRef.current.shift() || null;
     activeRef.current = next;
     forceRerender({});
-    
+
     // Auto-close after 4 seconds for toast notifications only
     if (next && !next.description && !next.negativeText) {
       if (autoCloseTimerRef.current) {
@@ -71,19 +71,22 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-  const handleClose = useCallback((result: boolean) => {
-    if (activeRef.current) {
-      activeRef.current.resolve(result);
-      activeRef.current = null;
-      if (autoCloseTimerRef.current) {
-        window.clearTimeout(autoCloseTimerRef.current);
-        autoCloseTimerRef.current = null;
+  const handleClose = useCallback(
+    (result: boolean) => {
+      if (activeRef.current) {
+        activeRef.current.resolve(result);
+        activeRef.current = null;
+        if (autoCloseTimerRef.current) {
+          window.clearTimeout(autoCloseTimerRef.current);
+          autoCloseTimerRef.current = null;
+        }
+        forceRerender({});
+        // small timeout ensures state commit before pulling next
+        setTimeout(() => dequeue(), 0);
       }
-      forceRerender({});
-      // small timeout ensures state commit before pulling next
-      setTimeout(() => dequeue(), 0);
-    }
-  }, [dequeue]);
+    },
+    [dequeue],
+  );
 
   const showAlert = useCallback<AlertDialogContextValue["showAlert"]>(
     ({ title, description, affirmativeText = "Confirm", negativeText }) => {
@@ -106,9 +109,10 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
   const value: AlertDialogContextValue = { showAlert };
 
   const active = activeRef.current;
-  
+
   // Use modal variant for confirmation dialogs (with description/negativeText), toast for simple notifications
-  const isConfirmationDialog = active && (active.description || active.negativeText);
+  const isConfirmationDialog =
+    active && (active.description || active.negativeText);
   const variant = isConfirmationDialog ? "modal" : "toast";
 
   return (

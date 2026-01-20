@@ -11,22 +11,18 @@ import {
 } from "@heroicons/react/24/outline";
 
 export default function Downloads() {
-  const {
-    downloads,
-    cancelDownload,
-    formatBytes,
-    formatSpeed,
-  } = useDownloads();
+  const { downloads, cancelDownload, formatBytes, formatSpeed } =
+    useDownloads();
 
   const downloadArray = Object.values(downloads);
   const activeDownloads = downloadArray.filter(
-    (d) => d.status === "downloading"
+    (d) => d.status === "downloading",
   );
   const completedDownloads = downloadArray.filter(
-    (d) => d.status === "completed"
+    (d) => d.status === "completed",
   );
   const failedDownloads = downloadArray.filter(
-    (d) => d.status === "error" || d.status === "aborted"
+    (d) => d.status === "error" || d.status === "aborted",
   );
 
   return (
@@ -63,7 +59,9 @@ export default function Downloads() {
                     <div className="flex items-center gap-2 mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                       <span>
                         {formatBytes(download.received)} /{" "}
-                        {download.total ? formatBytes(download.total) : "Unknown"}
+                        {download.total
+                          ? formatBytes(download.total)
+                          : "Unknown"}
                       </span>
                       {download.speedBps !== undefined && (
                         <>
@@ -118,7 +116,9 @@ export default function Downloads() {
                       {download.filename}
                     </h3>
                     <div className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-                      {download.total ? formatBytes(download.total) : "Unknown size"}
+                      {download.total
+                        ? formatBytes(download.total)
+                        : "Unknown size"}
                     </div>
                   </div>
                   <Badge color="green">Completed</Badge>

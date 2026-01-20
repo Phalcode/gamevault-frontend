@@ -38,11 +38,11 @@ export default function Community() {
           headers: { Accept: "application/json" },
         });
         if (!res.ok) throw new Error(`Failed to load users (${res.status})`);
-  const arr: GamevaultUser[] = await res.json();
-  if (cancelled) return;
-  // Exclude soft-deleted users (deleted_at present)
-  const active = arr.filter(u => !(u as any).deleted_at);
-  setUsers(active);
+        const arr: GamevaultUser[] = await res.json();
+        if (cancelled) return;
+        // Exclude soft-deleted users (deleted_at present)
+        const active = arr.filter((u) => !(u as any).deleted_at);
+        setUsers(active);
         // Default selection: logged-in user's username; else first user's username
         const loggedUsername = loggedIn?.username ?? null;
         const preferred =
@@ -167,7 +167,9 @@ export default function Community() {
               </div>
             )}
             <div className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs border-zinc-300/60 text-zinc-700 dark:border-zinc-700/60 dark:text-zinc-200">
-              {current?.role != null ? (ROLE_LABELS[Number(current.role)] ?? current.role) : ""}
+              {current?.role != null
+                ? (ROLE_LABELS[Number(current.role)] ?? current.role)
+                : ""}
             </div>
           </div>
         </div>
@@ -312,10 +314,7 @@ export default function Community() {
                           )}
                         </Link>
                       ) : (
-                        <div
-                          className="shrink-0 rounded-lg"
-                          title={title}
-                        >
+                        <div className="shrink-0 rounded-lg" title={title}>
                           {coverId ? (
                             <Media
                               media={{ id: coverId } as any}
