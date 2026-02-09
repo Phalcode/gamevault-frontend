@@ -6,46 +6,79 @@ on:
       - develop
 
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
+  tauri:
+    name: Build Tauri (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            zip_name: gamevault-tauri-linux.zip
+          - os: windows-latest
+            platform: windows
+            zip_name: gamevault-tauri-windows.zip
+          - os: macos-latest
+            platform: macos
+            zip_name: gamevault-tauri-macos.zip
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+
+      # Linux system deps
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: latest
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
 
-      - name: Build
-        run: pnpm run build
+      - name: Build Tauri
+        run: pnpm tauri build
 
-      - name: Zip dist folder
+      # Zip for Linux & macOS
+      - name: Zip bundle (Linux/macOS)
+        if: matrix.os != 'windows-latest'
         run: |
-          zip -r gamevault-frontend.zip dist/*
+          cd src-tauri/target/release/bundle
+          zip -r ${{ matrix.zip_name }} .
+          mv ${{ matrix.zip_name }} $GITHUB_WORKSPACE/
 
-      - name: Upload gamevault-frontend.zip to unstable release
+      # Zip for Windows
+      - name: Zip bundle (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd src-tauri/target/release/bundle
+          powershell Compress-Archive -Path * -DestinationPath $env:GITHUB_WORKSPACE\${{ matrix.zip_name }}
+
+      - name: Upload to unstable release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: gamevault-frontend.zip
-          asset_name: gamevault-frontend.zip
+          file: ${{ matrix.zip_name }}
+          asset_name: ${{ matrix.zip_name }}
           tag: unstable
           overwrite: true
           prerelease: true
-#  sonarcloud:
-#    name: SonarCloud
-#    runs-on: ubuntu-latest
-#    steps:
-#      - uses: actions/checkout@v3
-#        with:
-#          fetch-depth: 0
-#
-#      - name: SonarCloud Scan
-#        uses: SonarSource/sonarcloud-github-action@master
-#        env:
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
