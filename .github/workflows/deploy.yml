@@ -11,7 +11,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+
+      - name: Lint
+        run: npx eslint .
+
+      - name: Build
+        run: pnpm run build
+
   release:
+    needs: lint
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     outputs:
@@ -68,8 +93,8 @@ jobs:
 
   tauri:
     name: Build Tauri (${{ matrix.platform }})
-    needs: release
-    if: ${{ !cancelled() && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
+    needs: [lint, release]
+    if: ${{ !cancelled() && needs.lint.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
 
     strategy:
