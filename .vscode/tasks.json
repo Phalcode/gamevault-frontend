@@ -5,8 +5,34 @@
       "label": "ui:dev",
       "type": "shell",
       "isBackground": true,
-      "command": "yarn",
-      "args": ["dev"]
+      "command": "pnpm",
+      "args": ["dev"],
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE.*preparing",
+          "endsPattern": "(Local|Network):.*"
+        }
+      }
+    },
+    {
+      "label": "build-tauri-debug",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["build"],
+      "options": {
+        "cwd": "${workspaceFolder}/src-tauri"
+      },
+      "problemMatcher": "$rustc"
+    },
+    {
+      "label": "build-and-start-tauri",
+      "dependsOn": ["ui:dev", "build-tauri-debug"],
+      "dependsOrder": "sequence"
     },
     {
       "label": "start-web-dev-server",

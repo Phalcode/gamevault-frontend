@@ -2,28 +2,56 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug Tauri App",
-      "type": "msedge",
-      "port": 9222,
+      "name": "Start Tauri Dev (WebView2 remote debug)",
+      "type": "node",
       "request": "launch",
-      "runtimeExecutable": "${workspaceFolder}/src-tauri/target/debug/app.exe",
-      "useWebView": true,
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["run", "tauridev"],
+      "env": {
+        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--remote-debugging-port=9222"
+      },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Attach Tauri WebView (Edge)",
+      "type": "msedge",
+      "request": "attach",
+      "port": 9222,
       "webRoot": "${workspaceFolder}",
-      "preLaunchTask": "ui:dev"
+      "sourceMaps": true,
+      "timeout": 60000,
+      "restart": true,
+      "sourceMapPathOverrides": {
+        "/src/*": "${workspaceFolder}/src/*",
+        "vite:///*": "${workspaceFolder}/*",
+        "http://localhost:5173/*": "${workspaceFolder}/*",
+        "/*": "${workspaceFolder}/*"
+      }
     },
     {
       "name": "Debug Web (Edge)",
       "type": "msedge",
       "request": "launch",
       "url": "http://localhost:5173",
-      "webRoot": "${workspaceFolder}/src",
+      "webRoot": "${workspaceFolder}",
       "preLaunchTask": "start-web-dev-server",
       "userDataDir": "${workspaceFolder}/.vscode-edge-profile",
       "sourceMaps": true,
       "sourceMapPathOverrides": {
-        "webpack:///./src/*": "${webRoot}/*"
+        "/src/*": "${workspaceFolder}/src/*",
+        "vite:///*": "${workspaceFolder}/*",
+        "http://localhost:5173/*": "${workspaceFolder}/*",
+        "/*": "${workspaceFolder}/*"
       }
     }
   ],
-  "compounds": []
+  "compounds": [
+    {
+      "name": "Debug Tauri App",
+      "configurations": ["Start Tauri Dev (WebView2 remote debug)", "Attach Tauri WebView (Edge)"],
+      "stopAll": true
+    }
+  ]
 }
