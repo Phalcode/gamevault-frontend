@@ -5,6 +5,10 @@ on:
     branches:
       - develop
 
+concurrency:
+  group: deploy-develop-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tauri:
     name: Build Tauri (${{ matrix.platform }})
@@ -26,9 +30,8 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # Linux system deps
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -42,15 +45,19 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: latest
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
@@ -58,7 +65,6 @@ jobs:
       - name: Build Tauri
         run: pnpm tauri build
 
-      # Zip for Linux & macOS
       - name: Zip bundle (Linux/macOS)
         if: matrix.os != 'windows-latest'
         run: |
@@ -66,7 +72,6 @@ jobs:
           zip -r ${{ matrix.zip_name }} .
           mv ${{ matrix.zip_name }} $GITHUB_WORKSPACE/
 
-      # Zip for Windows
       - name: Zip bundle (Windows)
         if: matrix.os == 'windows-latest'
         run: |
