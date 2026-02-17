@@ -12,6 +12,7 @@ import {
 import { StarIcon as StarOutline } from "@heroicons/react/24/outline";
 import { Button } from "@tw/button";
 import { GameSettings } from "@/components/admin/GameSettings";
+import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { isTauriApp } from "@/utils/tauri";
 import { Alert, AlertTitle } from "@tw/alert";
 import {
@@ -24,6 +25,7 @@ import {
 import clsx from "clsx";
 import { useCallback, useMemo, useState, useEffect } from "react";
 import { Link } from "react-router";
+import { GameVersionEntity } from "@/api/models/GameVersionEntity";
 
 export function GameCard({ game }: { game: GamevaultGame }) {
   const { serverUrl, user, authFetch } = useAuth();
@@ -40,6 +42,11 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [localGame, setLocalGame] = useState<GamevaultGame>(game);
+  const [versionDialogOpen, setVersionDialogOpen] = useState(false);
+  const [selectableVersions, setSelectableVersions] = useState<GameVersionEntity[]>([]);
+  const [pendingDownloadAction, setPendingDownloadAction] = useState<
+    "direct" | "tauri" | "client" | null
+  >(null);
 
   const coverId = getGameCoverMediaId(localGame) as number | string | null;
 
@@ -73,10 +80,6 @@ export function GameCard({ game }: { game: GamevaultGame }) {
 
   const isTauri = isTauriApp();
 
-  const filename = (() => {
-    return `${localGame.title}.zip`;
-  })();
-
   const rawSize = localGame.size;
 
   const formatBytes = useCallback((bytes?: number) => {
@@ -96,19 +99,83 @@ export function GameCard({ game }: { game: GamevaultGame }) {
     typeof rawSize === "number" ? rawSize : Number(rawSize),
   );
 
+  const resolveVersions = useCallback(async (): Promise<GameVersionEntity[]> => {
+    if (Array.isArray(localGame.versions) && localGame.versions.length > 0) {
+      return localGame.versions;
+    }
+    if (!serverUrl) return [];
+
+    const base = serverUrl.replace(/\/+$/, "");
+    const res = await authFetch(`${base}/api/games/${game.id}`, {
+      method: "GET",
+    });
+    if (!res.ok) return [];
+    const fullGame = (await res.json()) as GamevaultGame;
+    const fullVersions = Array.isArray(fullGame.versions) ? fullGame.versions : [];
+    if (fullVersions.length > 0) {
+      setLocalGame((prev) => ({ ...prev, versions: fullVersions }));
+    }
+    return fullVersions;
+  }, [localGame.versions, serverUrl, authFetch, game.id]);
+
+  const executeDownloadAction = useCallback(
+    (action: "direct" | "tauri" | "client", selectedVersion: GameVersionEntity) => {
+      const resolvedTitle = localGame.metadata?.title || localGame.title;
+      const selectedFilename = `${resolvedTitle}.zip`;
+
+      if (action === "client") {
+        const url = `gamevault://install?gameid=${game.id}&versionid=${selectedVersion.id}`;
+        window.location.href = url;
+        return;
+      }
+
+      startDownload({
+        gameId: game.id,
+        versionId: selectedVersion.id,
+        versionName: selectedVersion.version,
+        gameTitle: resolvedTitle,
+        filename: selectedFilename,
+      });
+
+      showAlert({
+        title: `Added ${resolvedTitle} to the download queue`,
+      });
+    },
+    [game.id, localGame, showAlert, startDownload],
+  );
+
+  const selectVersionAndRun = useCallback(
+    async (action: "direct" | "tauri" | "client") => {
+      const versions = await resolveVersions();
+
+      if (!versions.length) {
+        showAlert({
+          title: "No downloadable version found",
+          description: "This game currently has no available version to download.",
+        });
+        return;
+      }
+
+      if (versions.length === 1) {
+        executeDownloadAction(action, versions[0]);
+        return;
+      }
+
+      setSelectableVersions(versions);
+      setPendingDownloadAction(action);
+      setVersionDialogOpen(true);
+    },
+    [resolveVersions, showAlert, executeDownloadAction],
+  );
+
   const handleDirectDownload = useCallback(
-    (e: React.MouseEvent) => {
+    async (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       if (!serverUrl) return;
-      startDownload(game.id, filename);
-
-      // Show global alert notification
-      showAlert({
-        title: `Added ${localGame.metadata?.title || localGame.title} to the download queue`,
-      });
+      await selectVersionAndRun("direct");
     },
-    [serverUrl, startDownload, game.id, filename, showAlert, localGame],
+    [serverUrl, selectVersionAndRun],
   );
 
   const handleTauriDownload = useCallback(
@@ -118,7 +185,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
       if (!serverUrl) return;
 
       console.log("=== handleTauriDownload called ===");
-      console.log("Game ID:", game.id, "Filename:", filename);
+      console.log("Game ID:", game.id);
 
       try {
         // Get download path from localStorage
@@ -129,29 +196,33 @@ export function GameCard({ game }: { game: GamevaultGame }) {
           return;
         }
 
-        // Start download tracking
         console.log("Starting download...");
-        startDownload(game.id, filename);
-
-        // Show global alert notification
-        showAlert({
-          title: `Added ${localGame.metadata?.title || localGame.title} to the download queue`,
-        });
+        await selectVersionAndRun("tauri");
       } catch (error) {
         console.error("Error starting Tauri download:", error);
       }
     },
-    [serverUrl, startDownload, game.id, filename, showAlert, localGame],
+    [serverUrl, selectVersionAndRun],
   );
 
   const handleClientDownload = useCallback(
-    (e: React.MouseEvent) => {
+    async (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      const url = `gamevault://install?gameid=${game.id}`;
-      window.location.href = url;
+      await selectVersionAndRun("client");
     },
-    [game.id],
+    [selectVersionAndRun],
+  );
+
+  const handleVersionSelect = useCallback(
+    (selectedVersion: GameVersionEntity) => {
+      if (!pendingDownloadAction) return;
+      executeDownloadAction(pendingDownloadAction, selectedVersion);
+      setVersionDialogOpen(false);
+      setPendingDownloadAction(null);
+      setSelectableVersions([]);
+    },
+    [pendingDownloadAction, executeDownloadAction],
   );
 
   const gameViewUrl = `/library/${game.id}`;
@@ -287,6 +358,17 @@ export function GameCard({ game }: { game: GamevaultGame }) {
           onGameUpdated={(updatedGame) => setLocalGame(updatedGame)}
         />
       )}
+      <VersionSelectDialog
+        open={versionDialogOpen}
+        gameTitle={localGame.metadata?.title || localGame.title || "Game"}
+        versions={selectableVersions}
+        onClose={() => {
+          setVersionDialogOpen(false);
+          setPendingDownloadAction(null);
+          setSelectableVersions([]);
+        }}
+        onSelect={handleVersionSelect}
+      />
     </>
   );
 }

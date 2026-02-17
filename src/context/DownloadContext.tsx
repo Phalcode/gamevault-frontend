@@ -12,6 +12,7 @@ import { isTauriApp } from "@/utils/tauri";
 
 export interface ActiveDownload {
   gameId: number;
+  versionId: number;
   filename: string;
   received: number;
   total: number | null;
@@ -26,7 +27,13 @@ export interface ActiveDownload {
 
 interface DownloadContextValue {
   downloads: Record<number, ActiveDownload>;
-  startDownload: (gameId: number, filename: string) => void;
+  startDownload: (params: {
+    gameId: number;
+    versionId: number;
+    versionName?: string;
+    gameTitle: string;
+    filename: string;
+  }) => void;
   cancelDownload: (gameId: number) => void;
   speedLimitKB: number;
   setSpeedLimitKB: (v: number) => void;
@@ -123,16 +130,24 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const lastUpdateRef = useRef<Record<number, number>>({});
 
   const startDownload = useCallback(
-    async (gameId: number, filename: string) => {
+    async ({ gameId, versionId, versionName, gameTitle, filename }: {
+      gameId: number;
+      versionId: number;
+      versionName?: string;
+      gameTitle: string;
+      filename: string;
+    }) => {
       if (!serverUrl) return;
       if (downloads[gameId]?.status === "downloading") return;
       const base = serverUrl.replace(/\/$/, "");
-      const url = `${base}/api/games/${gameId}/download`;
+      const url = `${base}/api/game/${gameId}/versions/${versionId}`;
       const isDesktop = isTauriApp();
+      let tauriFilePath: string | null = null;
       console.log("Is Tauri Desktop App:", isDesktop);
       const ac = new AbortController();
       const entry: ActiveDownload = {
         gameId,
+        versionId,
         filename,
         received: 0,
         total: null,
@@ -160,11 +175,49 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           }
 
           console.log("Importing Tauri modules...");
-          const { create } = await import("@tauri-apps/plugin-fs");
+          const { create, mkdir } = await import("@tauri-apps/plugin-fs");
           const { join } = await import("@tauri-apps/api/path");
 
-          console.log("Joining paths:", { downloadPath, filename });
-          const filePath = await join(downloadPath, filename);
+          const sanitizeFolderName = (value: string) =>
+            (value || "")
+              .replace(/[\\/:*?"<>|]/g, "_")
+              .replace(/\s+/g, " ")
+              .trim();
+
+          const gameFolderName =
+            sanitizeFolderName(gameTitle) || `Game-${gameId}`;
+          const versionFolderName = `(${versionId}) ${versionName ?? ""}`.trimEnd();
+
+          const gameVaultRoot = await join(downloadPath, "GameVault");
+          const downloadsVersionFolder = await join(
+            gameVaultRoot,
+            "Downloads",
+            gameFolderName,
+            "Versions",
+            versionFolderName,
+          );
+          const extractionsVersionFolder = await join(
+            gameVaultRoot,
+            "Extractions",
+            gameFolderName,
+            "Versions",
+            versionFolderName,
+          );
+          const installationsVersionFolder = await join(
+            gameVaultRoot,
+            "Installations",
+            gameFolderName,
+            "Versions",
+            versionFolderName,
+          );
+
+          await mkdir(downloadsVersionFolder, { recursive: true });
+          await mkdir(extractionsVersionFolder, { recursive: true });
+          await mkdir(installationsVersionFolder, { recursive: true });
+
+          console.log("Joining paths:", { downloadsVersionFolder, filename });
+          const filePath = await join(downloadsVersionFolder, filename);
+          tauriFilePath = filePath;
           console.log("Full file path:", filePath);
           console.log("File path type:", typeof filePath);
           console.log("File path length:", filePath.length);
@@ -343,6 +396,16 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         }
         updateDownload(gameId, { status: "completed", progress: 100 });
       } catch (err: any) {
+        if (isDesktop && tauriFilePath) {
+          try {
+            const { exists, remove } = await import("@tauri-apps/plugin-fs");
+            if (await exists(tauriFilePath)) {
+              await remove(tauriFilePath);
+            }
+          } catch (cleanupError) {
+            console.warn("Could not remove partial download:", cleanupError);
+          }
+        }
         if (err?.name === "AbortError") {
           updateDownload(gameId, { status: "aborted" });
         } else {

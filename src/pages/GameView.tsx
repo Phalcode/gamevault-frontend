@@ -8,6 +8,8 @@ import { Button } from "@tw/button";
 import { Listbox, ListboxOption, ListboxLabel } from "@tw/listbox";
 import Card from "@/components/Card";
 import { useDownloads } from "@/context/DownloadContext";
+import { GameVersionEntity } from "@/api/models/GameVersionEntity";
+import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import {
   useEffect,
   useMemo,
@@ -62,6 +64,11 @@ export default function GameView() {
   const [progressUpdating, setProgressUpdating] = useState(false);
   const insertedPlaceholderRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [versionDialogOpen, setVersionDialogOpen] = useState(false);
+  const [pendingDownloadAction, setPendingDownloadAction] = useState<
+    "direct" | "tauri" | "client" | null
+  >(null);
+  const [selectableVersions, setSelectableVersions] = useState<GameVersionEntity[]>([]);
   const isTauri = isTauriApp();
 
   useEffect(() => {
@@ -257,15 +264,78 @@ export default function GameView() {
     });
   }, [showAlert]);
 
+  const resolveVersions = useCallback(async (): Promise<GameVersionEntity[]> => {
+    if (game && Array.isArray(game.versions) && game.versions.length > 0) {
+      return game.versions;
+    }
+    if (!serverUrl || !numericId || Number.isNaN(numericId)) return [];
+    const base = serverUrl.replace(/\/+$/, "");
+    const res = await authFetch(`${base}/api/games/${numericId}`, {
+      method: "GET",
+    });
+    if (!res.ok) return [];
+    const fullGame = (await res.json()) as GamevaultGame;
+    const fullVersions = Array.isArray(fullGame.versions) ? fullGame.versions : [];
+    if (fullVersions.length > 0) {
+      setGame((prev) => (prev ? { ...prev, versions: fullVersions } : prev));
+    }
+    return fullVersions;
+  }, [game, serverUrl, numericId, authFetch]);
+
+  const executeDownloadAction = useCallback(
+    (action: "direct" | "tauri" | "client", selectedVersion: GameVersionEntity) => {
+      if (!game) return;
+      const resolvedTitle = title || game.title;
+      const selectedFilename = `${resolvedTitle}.zip`;
+
+      if (action === "client") {
+        window.location.href = `gamevault://install?gameid=${game.id}&versionid=${selectedVersion.id}`;
+        return;
+      }
+
+      startDownload({
+        gameId: game.id,
+        versionId: selectedVersion.id,
+        versionName: selectedVersion.version,
+        gameTitle: resolvedTitle,
+        filename: selectedFilename,
+      });
+
+      showAlert({
+        title: `Added ${resolvedTitle} to the download queue`,
+      });
+    },
+    [game, title, startDownload, showAlert],
+  );
+
+  const selectVersionAndRun = useCallback(
+    async (action: "direct" | "tauri" | "client") => {
+      const versions = await resolveVersions();
+
+      if (!versions.length) {
+        showAlert({
+          title: "No downloadable version found",
+          description: "This game currently has no available version to download.",
+        });
+        return;
+      }
+
+      if (versions.length === 1) {
+        executeDownloadAction(action, versions[0]);
+        return;
+      }
+
+      setSelectableVersions(versions);
+      setPendingDownloadAction(action);
+      setVersionDialogOpen(true);
+    },
+    [resolveVersions, showAlert, executeDownloadAction],
+  );
+
   const handleDirectDownload = useCallback(() => {
     if (!game) return;
-    startDownload(game.id, `${title || game.title}.zip`);
-
-    // Show global alert notification
-    showAlert({
-      title: `Added ${title || game.title} to the download queue`,
-    });
-  }, [game, startDownload, title, showAlert]);
+    void selectVersionAndRun("direct");
+  }, [game, selectVersionAndRun]);
 
   const handleTauriDownload = useCallback(async () => {
     if (!game) return;
@@ -278,22 +348,27 @@ export default function GameView() {
         return;
       }
 
-      // Start download tracking
-      startDownload(game.id, `${title || game.title}.zip`);
-
-      // Show global alert notification
-      showAlert({
-        title: `Added ${title || game.title} to the download queue`,
-      });
+      await selectVersionAndRun("tauri");
     } catch (error) {
       console.error("Error starting Tauri download:", error);
     }
-  }, [game, startDownload, title, showAlert]);
+  }, [game, selectVersionAndRun]);
 
   const handleClientDownload = useCallback(() => {
     if (!game) return;
-    window.location.href = `gamevault://install?gameid=${game.id}`;
-  }, [game]);
+    void selectVersionAndRun("client");
+  }, [game, selectVersionAndRun]);
+
+  const handleVersionSelect = useCallback(
+    (selectedVersion: GameVersionEntity) => {
+      if (!pendingDownloadAction) return;
+      executeDownloadAction(pendingDownloadAction, selectedVersion);
+      setVersionDialogOpen(false);
+      setPendingDownloadAction(null);
+      setSelectableVersions([]);
+    },
+    [pendingDownloadAction, executeDownloadAction],
+  );
 
   const PROGRESS_LABEL: Record<string, string> = {
     UNPLAYED: "Unplayed",
@@ -884,6 +959,17 @@ export default function GameView() {
           onGameUpdated={(updatedGame) => setGame(updatedGame)}
         />
       )}
+      <VersionSelectDialog
+        open={versionDialogOpen}
+        gameTitle={title || game?.title || "Game"}
+        versions={selectableVersions}
+        onClose={() => {
+          setVersionDialogOpen(false);
+          setPendingDownloadAction(null);
+          setSelectableVersions([]);
+        }}
+        onSelect={handleVersionSelect}
+      />
     </div>
   );
 }

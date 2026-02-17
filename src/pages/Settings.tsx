@@ -73,6 +73,24 @@ export default function Settings() {
         );
         setDownloadPath(selected);
         localStorage.setItem(DOWNLOAD_PATH_KEY, selected);
+
+        try {
+          const { mkdir } = await import("@tauri-apps/plugin-fs");
+          const { join } = await import("@tauri-apps/api/path");
+          const gameVaultRoot = await join(selected, "GameVault");
+          await mkdir(await join(gameVaultRoot, "Downloads"), {
+            recursive: true,
+          });
+          await mkdir(await join(gameVaultRoot, "Extractions"), {
+            recursive: true,
+          });
+          await mkdir(await join(gameVaultRoot, "Installations"), {
+            recursive: true,
+          });
+        } catch (folderError) {
+          console.error("Failed to create GameVault folder structure:", folderError);
+        }
+
         console.log("Download path saved to localStorage");
         console.log(
           "Verifying saved path:",
