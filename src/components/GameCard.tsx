@@ -169,9 +169,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   );
 
   const handleDirectDownload = useCallback(
-    async (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+    async () => {
       if (!serverUrl) return;
       await selectVersionAndRun("direct");
     },
@@ -206,9 +204,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   );
 
   const handleClientDownload = useCallback(
-    async (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+    async () => {
       await selectVersionAndRun("client");
     },
     [selectVersionAndRun],
@@ -320,10 +316,22 @@ export function GameCard({ game }: { game: GamevaultGame }) {
                   <CloudArrowDownIcon className="w-6 h-6 fill-white" />
                 </DropdownButton>
                 <DropdownMenu className="min-w-48" anchor="top end">
-                  <DropdownItem onClick={handleDirectDownload}>
+                  <DropdownItem
+                    onClick={(e: React.MouseEvent) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void handleDirectDownload();
+                    }}
+                  >
                     <DropdownLabel>Direct Download</DropdownLabel>
                   </DropdownItem>
-                  <DropdownItem onClick={handleClientDownload}>
+                  <DropdownItem
+                    onClick={(e: React.MouseEvent) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void handleClientDownload();
+                    }}
+                  >
                     <DropdownLabel>Download via GameVault Client</DropdownLabel>
                   </DropdownItem>
                 </DropdownMenu>
