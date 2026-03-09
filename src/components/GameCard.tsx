@@ -25,7 +25,7 @@ import {
 import clsx from "clsx";
 import { useCallback, useMemo, useState, useEffect } from "react";
 import { Link } from "react-router";
-import { GameVersionEntity } from "@/api/models/GameVersionEntity";
+import { GameVersion } from "@/api/models/GameVersion";
 
 export function GameCard({ game }: { game: GamevaultGame }) {
   const { serverUrl, user, authFetch } = useAuth();
@@ -43,7 +43,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [localGame, setLocalGame] = useState<GamevaultGame>(game);
   const [versionDialogOpen, setVersionDialogOpen] = useState(false);
-  const [selectableVersions, setSelectableVersions] = useState<GameVersionEntity[]>([]);
+  const [selectableVersions, setSelectableVersions] = useState<GameVersion[]>([]);
   const [pendingDownloadAction, setPendingDownloadAction] = useState<
     "direct" | "tauri" | "client" | null
   >(null);
@@ -99,7 +99,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
     typeof rawSize === "number" ? rawSize : Number(rawSize),
   );
 
-  const resolveVersions = useCallback(async (): Promise<GameVersionEntity[]> => {
+  const resolveVersions = useCallback(async (): Promise<GameVersion[]> => {
     if (Array.isArray(localGame.versions) && localGame.versions.length > 0) {
       return localGame.versions;
     }
@@ -119,7 +119,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   }, [localGame.versions, serverUrl, authFetch, game.id]);
 
   const executeDownloadAction = useCallback(
-    (action: "direct" | "tauri" | "client", selectedVersion: GameVersionEntity) => {
+    (action: "direct" | "tauri" | "client", selectedVersion: GameVersion) => {
       const resolvedTitle = localGame.metadata?.title || localGame.title;
       const filePathFallback = selectedVersion.file_path
         ? selectedVersion.file_path.split(/[/\\]/).pop()
@@ -141,6 +141,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
         versionName: selectedVersion.version,
         gameTitle: resolvedTitle,
         gameMetadata: localGame.metadata,
+        gameType: (selectedVersion.type || localGame.type) as any,
         filename: selectedFilename,
       });
 
@@ -218,7 +219,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   );
 
   const handleVersionSelect = useCallback(
-    (selectedVersion: GameVersionEntity) => {
+    (selectedVersion: GameVersion) => {
       if (!pendingDownloadAction) return;
       executeDownloadAction(pendingDownloadAction, selectedVersion);
       setVersionDialogOpen(false);

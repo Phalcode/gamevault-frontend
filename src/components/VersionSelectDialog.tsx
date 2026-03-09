@@ -1,4 +1,4 @@
-import { GameVersionEntity } from "@/api/models/GameVersionEntity";
+import { GameVersion } from "@/api/models/GameVersion";
 import {
   Dialog,
   DialogActions,
@@ -21,8 +21,8 @@ import { useMemo, useState } from "react";
 interface VersionSelectDialogProps {
   open: boolean;
   gameTitle: string;
-  versions: GameVersionEntity[];
-  onSelect: (version: GameVersionEntity) => void;
+  versions: GameVersion[];
+  onSelect: (version: GameVersion) => void;
   onClose: () => void;
 }
 

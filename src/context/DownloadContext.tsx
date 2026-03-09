@@ -10,12 +10,23 @@ import {
 import { useAuth } from "./AuthContext";
 import { isTauriApp } from "@/utils/tauri";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
+import type { GameMetadata } from "@/api/models/GameMetadata";
+import type { GamevaultGameTypeEnum } from "@/api/models/GamevaultGame";
+
+type InstallationStatus =
+  | "idle"
+  | "copying"
+  | "launching"
+  | "running"
+  | "completed"
+  | "error";
 
 export interface ActiveDownload {
   gameId: number;
   versionId: number;
   gameTitle: string;
-  gameMetadata?: unknown;
+  gameMetadata?: GameMetadata;
+  gameType?: GamevaultGameTypeEnum;
   versionName?: string;
   filename: string;
   downloadDirectory?: string;
@@ -36,6 +47,11 @@ export interface ActiveDownload {
   extractionCurrentFile?: string;
   extractionError?: string;
   extractionPasswordRequired?: boolean;
+  installationStatus?: InstallationStatus;
+  installationProgress?: number | null;
+  installationCurrentFile?: string;
+  installationError?: string;
+  installationExitCode?: number | null;
   fileWriter?: { close(): Promise<void>; abort(): Promise<void> };
 }
 
@@ -46,7 +62,8 @@ interface DownloadContextValue {
     versionId: number;
     versionName?: string;
     gameTitle: string;
-    gameMetadata?: unknown;
+    gameMetadata?: GameMetadata;
+    gameType?: GamevaultGameTypeEnum;
     filename: string;
   }) => void;
   cancelDownload: (gameId: number) => void;
@@ -56,6 +73,13 @@ interface DownloadContextValue {
   retryDownload: (gameId: number) => void;
   openDownloadFolder: (gameId: number) => Promise<void>;
   extractArchive: (gameId: number, password?: string) => Promise<void>;
+  listInstallExecutables: (gameId: number) => Promise<string[]>;
+  copyInstallationFiles: (gameId: number) => Promise<void>;
+  launchInstallationExecutable: (
+    gameId: number,
+    installerRelativePath: string,
+  ) => Promise<void>;
+  resetInstallationState: (gameId: number) => void;
   speedLimitKB: number;
   setSpeedLimitKB: (v: number) => void;
   formatBytes: (bytes: number) => string;
@@ -69,6 +93,7 @@ const DownloadContext = createContext<DownloadContextValue | null>(null);
 const DEFAULT_GAME_VAULT_CONFIG: GameVaultConfig = {
   downloadfinished: false,
   extractionfinished: false,
+  installationfinished: false,
   downloadprogress: "",
 };
 
@@ -232,6 +257,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const lastConfigWriteRef = useRef<Record<number, number>>({});
   const tauriUnlistenRef = useRef<Record<number, () => void>>({});
   const tauriExtractUnlistenRef = useRef<Record<number, () => void>>({});
+  const tauriInstallCopyUnlistenRef = useRef<Record<number, () => void>>({});
+  const tauriInstallerUnlistenRef = useRef<Record<number, () => void>>({});
 
   const startDownload = useCallback(
     async ({
@@ -240,6 +267,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       versionName,
       gameTitle,
       gameMetadata,
+      gameType,
       filename,
       resumePosition,
     }: {
@@ -247,7 +275,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       versionId: number;
       versionName?: string;
       gameTitle: string;
-      gameMetadata?: unknown;
+      gameMetadata?: GameMetadata;
+      gameType?: GamevaultGameTypeEnum;
       filename: string;
       resumePosition?: number;
     }) => {
@@ -264,6 +293,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         versionId,
         gameTitle,
         gameMetadata,
+        gameType,
         versionName,
         filename,
         received: resumePosition && resumePosition > 0 ? resumePosition : 0,
@@ -273,6 +303,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         startedAt: performance.now(),
         status: "downloading",
         extractionStatus: "idle",
+        installationStatus: "idle",
       };
       setDownloads((prev) => ({ ...prev, [gameId]: entry }));
       speedSamplesRef.current[gameId] = [
@@ -322,15 +353,15 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           );
           const downloadsVersionFolder = await join(
             versionBaseFolder,
-            "Downloads",
+            "Download",
           );
           const extractionsVersionFolder = await join(
             versionBaseFolder,
-            "Extractions",
+            "Extraction",
           );
           const installationsVersionFolder = await join(
             versionBaseFolder,
-            "Installations",
+            "Installation",
           );
 
           await mkdir(downloadsVersionFolder, { recursive: true });
@@ -340,8 +371,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           await writeVersionConfig(versionBaseFolder, {
             gameid: gameId,
             versionid: versionId,
+            gametype: gameType,
             downloadfinished: false,
             extractionfinished: false,
+            installationfinished: false,
             downloadprogress:
               resumePosition && resumePosition > 0
                 ? `${resumePosition}/0`
@@ -713,6 +746,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         versionName: d.versionName,
         gameTitle: d.gameTitle,
         gameMetadata: d.gameMetadata,
+        gameType: d.gameType,
         filename: d.filename,
         resumePosition: d.received > 0 ? d.received : 0,
       });
@@ -730,6 +764,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           await writeVersionConfig(d.versionDirectory, {
             downloadfinished: false,
             extractionfinished: false,
+            installationfinished: false,
             downloadprogress: "",
           });
         } catch (error) {
@@ -765,6 +800,16 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       if (stopExtractListener) {
         stopExtractListener();
         delete tauriExtractUnlistenRef.current[gameId];
+      }
+      const stopInstallCopyListener = tauriInstallCopyUnlistenRef.current[gameId];
+      if (stopInstallCopyListener) {
+        stopInstallCopyListener();
+        delete tauriInstallCopyUnlistenRef.current[gameId];
+      }
+      const stopInstallerListener = tauriInstallerUnlistenRef.current[gameId];
+      if (stopInstallerListener) {
+        stopInstallerListener();
+        delete tauriInstallerUnlistenRef.current[gameId];
       }
 
       delete speedSamplesRef.current[gameId];
@@ -805,6 +850,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         versionName: d.versionName,
         gameTitle: d.gameTitle,
         gameMetadata: d.gameMetadata,
+        gameType: d.gameType,
         filename: d.filename,
       });
     },
@@ -815,9 +861,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     async (gameId: number) => {
       if (!isTauriApp()) return;
       const d = downloads[gameId];
-      if (!d?.downloadDirectory) return;
+      if (!d?.versionDirectory) return;
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("open_in_file_explorer", { path: d.downloadDirectory });
+      await invoke("open_in_file_explorer", { path: d.versionDirectory });
     },
     [downloads],
   );
@@ -949,6 +995,247 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [downloads, updateDownload, writeVersionConfig],
   );
 
+  const resetInstallationState = useCallback(
+    (gameId: number) => {
+      updateDownload(gameId, {
+        installationStatus: "idle",
+        installationProgress: null,
+        installationCurrentFile: undefined,
+        installationError: undefined,
+        installationExitCode: null,
+      });
+    },
+    [updateDownload],
+  );
+
+  const listInstallExecutables = useCallback(
+    async (gameId: number) => {
+      if (!isTauriApp()) return [];
+      const d = downloads[gameId];
+      if (!d?.extractionDirectory) return [];
+      const { invoke } = await import("@tauri-apps/api/core");
+      return invoke<string[]>("list_install_executables", {
+        extractionPath: d.extractionDirectory,
+      });
+    },
+    [downloads],
+  );
+
+  const copyInstallationFiles = useCallback(
+    async (gameId: number) => {
+      if (!isTauriApp()) return;
+      const d = downloads[gameId];
+      if (!d?.extractionDirectory || !d.installationDirectory) return;
+
+      if (d.versionDirectory) {
+        await writeVersionConfig(d.versionDirectory, {
+          installationfinished: false,
+        });
+      }
+
+      updateDownload(gameId, {
+        installationStatus: "copying",
+        installationProgress: 0,
+        installationCurrentFile: undefined,
+        installationError: undefined,
+        installationExitCode: null,
+      });
+
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const { listen } = await import("@tauri-apps/api/event");
+
+        if (tauriInstallCopyUnlistenRef.current[gameId]) {
+          tauriInstallCopyUnlistenRef.current[gameId]();
+          delete tauriInstallCopyUnlistenRef.current[gameId];
+        }
+
+        const unlisten = await listen<any>("install-copy-progress", (event) => {
+          const payload = event.payload;
+          if (!payload || payload.gameId !== gameId) return;
+
+          if (payload.status === "copying") {
+            updateDownload(gameId, {
+              installationStatus: "copying",
+              installationProgress:
+                typeof payload.progress === "number"
+                  ? Math.max(0, Math.min(100, payload.progress))
+                  : null,
+              installationCurrentFile:
+                typeof payload.currentFile === "string" && payload.currentFile
+                  ? payload.currentFile
+                  : undefined,
+              installationError: undefined,
+            });
+            return;
+          }
+
+          if (payload.status === "completed") {
+            if (d.versionDirectory) {
+              void writeVersionConfig(d.versionDirectory, {
+                installationfinished: true,
+              });
+            }
+            updateDownload(gameId, {
+              installationStatus: "completed",
+              installationProgress: 100,
+              installationCurrentFile: undefined,
+              installationError: undefined,
+            });
+          } else if (payload.status === "error") {
+            updateDownload(gameId, {
+              installationStatus: "error",
+              installationProgress: null,
+              installationError:
+                (typeof payload.error === "string" && payload.error) ||
+                "Installation copy failed.",
+            });
+          }
+
+          const stop = tauriInstallCopyUnlistenRef.current[gameId];
+          if (stop) {
+            stop();
+            delete tauriInstallCopyUnlistenRef.current[gameId];
+          }
+        });
+
+        tauriInstallCopyUnlistenRef.current[gameId] = unlisten;
+
+        await invoke("copy_installation_files", {
+          gameId,
+          sourcePath: d.extractionDirectory,
+          destinationPath: d.installationDirectory,
+        });
+      } catch (err) {
+        const stop = tauriInstallCopyUnlistenRef.current[gameId];
+        if (stop) {
+          stop();
+          delete tauriInstallCopyUnlistenRef.current[gameId];
+        }
+        updateDownload(gameId, {
+          installationStatus: "error",
+          installationProgress: null,
+          installationError: String(err),
+        });
+      }
+    },
+    [downloads, updateDownload],
+  );
+
+  const launchInstallationExecutable = useCallback(
+    async (gameId: number, installerRelativePath: string) => {
+      if (!isTauriApp()) return;
+      const d = downloads[gameId];
+      if (!d?.extractionDirectory || !d.installationDirectory) return;
+
+      if (d.versionDirectory) {
+        await writeVersionConfig(d.versionDirectory, {
+          installationfinished: false,
+        });
+      }
+
+      updateDownload(gameId, {
+        installationStatus: "launching",
+        installationProgress: null,
+        installationCurrentFile: installerRelativePath,
+        installationError: undefined,
+        installationExitCode: null,
+      });
+
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const { listen } = await import("@tauri-apps/api/event");
+
+        if (tauriInstallerUnlistenRef.current[gameId]) {
+          tauriInstallerUnlistenRef.current[gameId]();
+          delete tauriInstallerUnlistenRef.current[gameId];
+        }
+
+        const unlisten = await listen<any>("installer-status", (event) => {
+          const payload = event.payload;
+          if (!payload || payload.gameId !== gameId) return;
+
+          if (payload.status === "launching") {
+            updateDownload(gameId, {
+              installationStatus: "launching",
+              installationCurrentFile:
+                typeof payload.currentFile === "string" && payload.currentFile
+                  ? payload.currentFile
+                  : installerRelativePath,
+              installationError: undefined,
+            });
+            return;
+          }
+
+          if (payload.status === "running") {
+            updateDownload(gameId, {
+              installationStatus: "running",
+              installationCurrentFile:
+                typeof payload.currentFile === "string" && payload.currentFile
+                  ? payload.currentFile
+                  : installerRelativePath,
+              installationError: undefined,
+            });
+            return;
+          }
+
+          if (payload.status === "completed") {
+            if (d.versionDirectory) {
+              void writeVersionConfig(d.versionDirectory, {
+                installationfinished: true,
+              });
+            }
+            updateDownload(gameId, {
+              installationStatus: "completed",
+              installationCurrentFile: undefined,
+              installationError: undefined,
+              installationExitCode:
+                typeof payload.exitCode === "number" ? payload.exitCode : 0,
+            });
+          } else if (payload.status === "error") {
+            updateDownload(gameId, {
+              installationStatus: "error",
+              installationError:
+                (typeof payload.error === "string" && payload.error) ||
+                "Installer exited with an error.",
+              installationExitCode:
+                typeof payload.exitCode === "number"
+                  ? payload.exitCode
+                  : null,
+            });
+          }
+
+          const stop = tauriInstallerUnlistenRef.current[gameId];
+          if (stop) {
+            stop();
+            delete tauriInstallerUnlistenRef.current[gameId];
+          }
+        });
+
+        tauriInstallerUnlistenRef.current[gameId] = unlisten;
+
+        await invoke("launch_installation_executable", {
+          gameId,
+          extractionPath: d.extractionDirectory,
+          installerRelativePath,
+          installationPath: d.installationDirectory,
+        });
+      } catch (err) {
+        const stop = tauriInstallerUnlistenRef.current[gameId];
+        if (stop) {
+          stop();
+          delete tauriInstallerUnlistenRef.current[gameId];
+        }
+        updateDownload(gameId, {
+          installationStatus: "error",
+          installationError: String(err),
+          installationExitCode: null,
+        });
+      }
+    },
+    [downloads, updateDownload],
+  );
+
   const setSpeedLimitKB = useCallback((v: number) => {
     const val = Math.max(0, v || 0);
     setSpeedLimitKBState(val);
@@ -1000,6 +1287,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             versionId: Number(card.versionId || 0),
             gameTitle: String(card.gameTitle || "Unknown Game"),
             gameMetadata: card.gameMetadata,
+            gameType: card.gameType
+              ? (String(card.gameType) as GamevaultGameTypeEnum)
+              : undefined,
             versionName: String(card.versionName || ""),
             filename: String(card.filename || "download.bin"),
             downloadDirectory: String(card.downloadDirectory || ""),
@@ -1035,6 +1325,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               card.extractionProgress !== null
                 ? Number(card.extractionProgress)
                 : null,
+            installationStatus: card.installationFinished
+              ? "completed"
+              : "idle",
+            installationProgress: card.installationFinished ? 100 : null,
+            installationCurrentFile: undefined,
+            installationError: undefined,
+            installationExitCode: card.installationFinished ? 0 : null,
           };
         }
 
@@ -1106,6 +1403,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     retryDownload,
     openDownloadFolder,
     extractArchive,
+    listInstallExecutables,
+    copyInstallationFiles,
+    launchInstallationExecutable,
+    resetInstallationState,
     speedLimitKB,
     setSpeedLimitKB,
     formatBytes,

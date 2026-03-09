@@ -8,7 +8,7 @@ import { Button } from "@tw/button";
 import { Listbox, ListboxOption, ListboxLabel } from "@tw/listbox";
 import Card from "@/components/Card";
 import { useDownloads } from "@/context/DownloadContext";
-import { GameVersionEntity } from "@/api/models/GameVersionEntity";
+import { GameVersion } from "@/api/models/GameVersion";
 import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import {
   useEffect,
@@ -68,7 +68,7 @@ export default function GameView() {
   const [pendingDownloadAction, setPendingDownloadAction] = useState<
     "direct" | "tauri" | "client" | null
   >(null);
-  const [selectableVersions, setSelectableVersions] = useState<GameVersionEntity[]>([]);
+  const [selectableVersions, setSelectableVersions] = useState<GameVersion[]>([]);
   const isTauri = isTauriApp();
 
   useEffect(() => {
@@ -264,7 +264,7 @@ export default function GameView() {
     });
   }, [showAlert]);
 
-  const resolveVersions = useCallback(async (): Promise<GameVersionEntity[]> => {
+  const resolveVersions = useCallback(async (): Promise<GameVersion[]> => {
     if (game && Array.isArray(game.versions) && game.versions.length > 0) {
       return game.versions;
     }
@@ -283,7 +283,7 @@ export default function GameView() {
   }, [game, serverUrl, numericId, authFetch]);
 
   const executeDownloadAction = useCallback(
-    (action: "direct" | "tauri" | "client", selectedVersion: GameVersionEntity) => {
+    (action: "direct" | "tauri" | "client", selectedVersion: GameVersion) => {
       if (!game) return;
       const resolvedTitle = title || game.title;
       const filePathFallback = selectedVersion.file_path
@@ -305,6 +305,7 @@ export default function GameView() {
         versionName: selectedVersion.version,
         gameTitle: resolvedTitle,
         gameMetadata: game.metadata,
+        gameType: (selectedVersion.type || game.type) as any,
         filename: selectedFilename,
       });
 
@@ -367,7 +368,7 @@ export default function GameView() {
   }, [game, selectVersionAndRun]);
 
   const handleVersionSelect = useCallback(
-    (selectedVersion: GameVersionEntity) => {
+    (selectedVersion: GameVersion) => {
       if (!pendingDownloadAction) return;
       executeDownloadAction(pendingDownloadAction, selectedVersion);
       setVersionDialogOpen(false);

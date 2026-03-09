@@ -1,28 +1,54 @@
-import { useDownloads } from "@/context/DownloadContext";
+import { useDownloads, type ActiveDownload } from "@/context/DownloadContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { Button } from "@/components/tailwind/button";
+import { Media } from "@/components/Media";
 import { Heading } from "@tw/heading";
 import { Divider } from "@tw/divider";
 import { Badge } from "@/components/tailwind/badge";
 import { Input } from "@tw/input";
+import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
 import { isTauriApp } from "@/utils/tauri";
-import { useMemo, useState } from "react";
+import type { GameMetadata } from "@/api/models/GameMetadata";
 import {
+  GamevaultGameTypeEnum,
+  type GamevaultGameTypeEnum as GameType,
+} from "@/api/models/GamevaultGame";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArchiveBoxIcon,
   ArrowDownTrayIcon,
   ArrowPathIcon,
-  PauseIcon,
-  PlayIcon,
-  TrashIcon,
-  ArchiveBoxIcon,
   CheckCircleIcon,
+  ClipboardDocumentIcon,
   ClockIcon,
+  ComputerDesktopIcon,
+  ExclamationTriangleIcon,
   FolderOpenIcon,
   KeyIcon,
+  PauseIcon,
+  PencilSquareIcon,
+  PlayIcon,
+  TrashIcon,
   XMarkIcon,
-  ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 
 type StepState = "pending" | "active" | "done" | "error";
+type InstallViewMode = "portable" | "setup" | "undetected";
+
+type InstallCardState = {
+  mode: InstallViewMode;
+  forcedType: GameType;
+  installerOptions: string[];
+  selectedInstaller: string;
+  loadingInstallers: boolean;
+  installerLoadError?: string;
+};
+
+const FORCE_INSTALL_TYPES: { label: string; value: GameType }[] = [
+  { label: "Windows Setup", value: GamevaultGameTypeEnum.windows_setup },
+  { label: "Windows Portable", value: GamevaultGameTypeEnum.windows_portable },
+  { label: "Linux Portable", value: GamevaultGameTypeEnum.linux_portable },
+];
 
 function StepDot({ state }: { state: StepState }) {
   if (state === "done") {
@@ -37,6 +63,51 @@ function StepDot({ state }: { state: StepState }) {
   return <div className="h-3 w-3 rounded-full bg-zinc-300 dark:bg-zinc-700" />;
 }
 
+function formatGameTypeLabel(gameType?: string) {
+  if (!gameType) return "Undetectable";
+  return gameType
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function resolveInstallMode(gameType?: string): InstallViewMode {
+  if (gameType === GamevaultGameTypeEnum.windows_setup) {
+    return "setup";
+  }
+
+  if (
+    gameType === GamevaultGameTypeEnum.windows_portable ||
+    gameType === GamevaultGameTypeEnum.linux_portable ||
+    gameType === GamevaultGameTypeEnum.windows_software ||
+    gameType === GamevaultGameTypeEnum.linux_software
+  ) {
+    return "portable";
+  }
+
+  return "undetected";
+}
+
+function normalizeRelativePath(value?: string) {
+  return (value || "").replace(/\\/g, "/").toLowerCase();
+}
+
+function pickPreferredInstaller(options: string[], preferred?: string) {
+  if (!options.length) return "";
+  if (!preferred) return options[0];
+
+  const normalizedPreferred = normalizeRelativePath(preferred);
+  const exactMatch = options.find(
+    (option) => normalizeRelativePath(option) === normalizedPreferred,
+  );
+  if (exactMatch) return exactMatch;
+
+  const suffixMatch = options.find((option) =>
+    normalizeRelativePath(option).endsWith(normalizedPreferred),
+  );
+  return suffixMatch || options[0];
+}
+
 export default function Downloads() {
   const {
     downloads,
@@ -47,6 +118,10 @@ export default function Downloads() {
     retryDownload,
     openDownloadFolder,
     extractArchive,
+    listInstallExecutables,
+    copyInstallationFiles,
+    launchInstallationExecutable,
+    resetInstallationState,
     formatBytes,
     formatSpeed,
   } = useDownloads();
@@ -54,9 +129,28 @@ export default function Downloads() {
   const [passwordByGame, setPasswordByGame] = useState<Record<number, string>>(
     {},
   );
+  const [installStateByGame, setInstallStateByGame] = useState<
+    Record<number, InstallCardState>
+  >({});
   const isTauri = isTauriApp();
 
   const downloadArray = useMemo(() => Object.values(downloads), [downloads]);
+
+  useEffect(() => {
+    setInstallStateByGame((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const key of Object.keys(prev)) {
+        const gameId = Number(key);
+        const download = downloads[gameId];
+        if (!download || download.installationStatus === "completed") {
+          delete next[gameId];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [downloads]);
 
   const getDownloadStepState = (status: string): StepState => {
     if (status === "completed") return "done";
@@ -66,7 +160,7 @@ export default function Downloads() {
     return "pending";
   };
 
-  const getExtractionStepState = (download: any): StepState => {
+  const getExtractionStepState = (download: ActiveDownload): StepState => {
     if (download.status !== "completed") return "pending";
     if (download.extractionStatus === "completed") return "done";
     if (download.extractionStatus === "extracting") return "active";
@@ -79,6 +173,20 @@ export default function Downloads() {
     return "active";
   };
 
+  const getInstallationStepState = (download: ActiveDownload): StepState => {
+    if (download.extractionStatus !== "completed") return "pending";
+    if (download.installationStatus === "completed") return "done";
+    if (
+      download.installationStatus === "copying" ||
+      download.installationStatus === "launching" ||
+      download.installationStatus === "running"
+    ) {
+      return "active";
+    }
+    if (download.installationStatus === "error") return "error";
+    return "pending";
+  };
+
   const handleExtract = async (gameId: number) => {
     const password = passwordByGame[gameId];
     await extractArchive(gameId, password);
@@ -88,12 +196,369 @@ export default function Downloads() {
     const confirmed = await showAlert({
       title: "Delete download?",
       description:
-        "Do you really want to delete this download card? This removes only the Downloads and Extractions folders for this game version.",
+        "Do you really want to delete this download card? This removes only the Download and Extraction folders for this game version.",
       affirmativeText: "Yes",
       negativeText: "No",
     });
     if (!confirmed) return;
     await deleteDownloadCard(gameId);
+  };
+
+  const closeInstallView = (gameId: number) => {
+    setInstallStateByGame((prev) => {
+      if (!prev[gameId]) return prev;
+      const next = { ...prev };
+      delete next[gameId];
+      return next;
+    });
+  };
+
+  const setUndetectedMode = (download: ActiveDownload) => {
+    setInstallStateByGame((prev) => ({
+      ...prev,
+      [download.gameId]: {
+        mode: "undetected",
+        forcedType:
+          FORCE_INSTALL_TYPES.find((option) => option.value === download.gameType)
+            ?.value || GamevaultGameTypeEnum.windows_setup,
+        installerOptions: [],
+        selectedInstaller: "",
+        loadingInstallers: false,
+        installerLoadError: undefined,
+      },
+    }));
+  };
+
+  const openInstallFlow = async (
+    download: ActiveDownload,
+    forcedType?: GameType,
+  ) => {
+    const effectiveType = forcedType || download.gameType;
+    const mode = resolveInstallMode(effectiveType);
+
+    resetInstallationState(download.gameId);
+
+    if (mode === "setup") {
+      setInstallStateByGame((prev) => ({
+        ...prev,
+        [download.gameId]: {
+          mode,
+          forcedType: effectiveType || GamevaultGameTypeEnum.windows_setup,
+          installerOptions: [],
+          selectedInstaller: "",
+          loadingInstallers: true,
+          installerLoadError: undefined,
+        },
+      }));
+
+      try {
+        const installerOptions = await listInstallExecutables(download.gameId);
+        const preferredInstaller = pickPreferredInstaller(
+          installerOptions,
+          (download.gameMetadata as GameMetadata | undefined)?.installer_executable,
+        );
+        setInstallStateByGame((prev) => ({
+          ...prev,
+          [download.gameId]: {
+            mode,
+            forcedType: effectiveType || GamevaultGameTypeEnum.windows_setup,
+            installerOptions,
+            selectedInstaller: preferredInstaller,
+            loadingInstallers: false,
+            installerLoadError: installerOptions.length
+              ? undefined
+              : "No executable installer was found in the extracted files.",
+          },
+        }));
+      } catch (error) {
+        setInstallStateByGame((prev) => ({
+          ...prev,
+          [download.gameId]: {
+            mode,
+            forcedType: effectiveType || GamevaultGameTypeEnum.windows_setup,
+            installerOptions: [],
+            selectedInstaller: "",
+            loadingInstallers: false,
+            installerLoadError: String(error),
+          },
+        }));
+      }
+      return;
+    }
+
+    setInstallStateByGame((prev) => ({
+      ...prev,
+      [download.gameId]: {
+        mode,
+        forcedType: effectiveType || GamevaultGameTypeEnum.windows_setup,
+        installerOptions: [],
+        selectedInstaller: "",
+        loadingInstallers: false,
+        installerLoadError: undefined,
+      },
+    }));
+  };
+
+  const handleCopyInstallPath = async (path?: string) => {
+    if (!path) return;
+    try {
+      await navigator.clipboard.writeText(path);
+      await showAlert({
+        title: "Path copied",
+      });
+    } catch {
+      await showAlert({
+        title: "Could not copy path",
+        description: path,
+      });
+    }
+  };
+
+  const updateInstallState = (
+    gameId: number,
+    patch: Partial<InstallCardState>,
+  ) => {
+    setInstallStateByGame((prev) => {
+      const existing = prev[gameId];
+      if (!existing) return prev;
+      return {
+        ...prev,
+        [gameId]: {
+          ...existing,
+          ...patch,
+        },
+      };
+    });
+  };
+
+  const renderInstallFlow = (
+    download: ActiveDownload,
+    installState: InstallCardState,
+  ) => {
+    const gameTypeLabel = formatGameTypeLabel(
+      installState.mode === "undetected"
+        ? installState.forcedType
+        : download.gameType || installState.forcedType,
+    );
+    const installationBusy =
+      download.installationStatus === "copying" ||
+      download.installationStatus === "launching" ||
+      download.installationStatus === "running";
+
+    return (
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40 p-4 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <ComputerDesktopIcon className="h-5 w-5 text-indigo-600" />
+              <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                Installation
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge color="indigo">{gameTypeLabel}</Badge>
+              {download.installationStatus === "running" && (
+                <Badge color="blue">Running</Badge>
+              )}
+              {download.installationStatus === "copying" && (
+                <Badge color="blue">Copying</Badge>
+              )}
+            </div>
+          </div>
+          <Button plain onClick={() => setUndetectedMode(download)}>
+            <PencilSquareIcon className="h-4 w-4" />
+            Edit
+          </Button>
+        </div>
+
+        {installState.mode === "portable" && (
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300">
+              Portable game needs just to be copied.
+            </p>
+
+            {download.installationStatus === "copying" && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
+                  <span>Copy Progress</span>
+                  <span>
+                    {download.installationProgress !== null &&
+                    download.installationProgress !== undefined
+                      ? `${download.installationProgress.toFixed(1)}%`
+                      : "In progress"}
+                  </span>
+                </div>
+                <div className="relative w-full h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                  <div
+                    className="absolute left-0 top-0 h-full bg-indigo-500 transition-all duration-300"
+                    style={{ width: `${download.installationProgress ?? 0}%` }}
+                  />
+                </div>
+                {download.installationCurrentFile && (
+                  <p
+                    className="text-xs text-zinc-500 dark:text-zinc-400 truncate"
+                    title={download.installationCurrentFile}
+                  >
+                    {download.installationCurrentFile}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {installState.mode === "setup" && (
+          <div className="space-y-4">
+            <div className="space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
+              <p>To install this game, please follow the steps below:</p>
+              <p>1. Pick the correct installer from the dropdown menu below.</p>
+            </div>
+
+            <Listbox
+              value={installState.selectedInstaller}
+              onChange={(value) =>
+                updateInstallState(download.gameId, {
+                  selectedInstaller: String(value || ""),
+                })
+              }
+              placeholder={
+                installState.loadingInstallers
+                  ? "Scanning extracted files..."
+                  : "Select an installer"
+              }
+              aria-label="Installer executable"
+              disabled={installState.loadingInstallers}
+            >
+              {installState.installerOptions.map((option) => (
+                <ListboxOption key={option} value={option}>
+                  <ListboxLabel>{option}</ListboxLabel>
+                </ListboxOption>
+              ))}
+            </Listbox>
+
+            <div className="space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
+              <p>2. Hit the 'Install' button to launch the games installer.</p>
+              <p>3. Go through the game's setup process.</p>
+              <p>Make sure to select this folder as the installers destination:</p>
+            </div>
+
+            <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p
+                  className="min-w-0 flex-1 truncate text-sm text-zinc-700 dark:text-zinc-300"
+                  title={download.installationDirectory}
+                >
+                  {download.installationDirectory || "No installation path available"}
+                </p>
+                <Button
+                  color="zinc"
+                  onClick={() => handleCopyInstallPath(download.installationDirectory)}
+                  disabled={!download.installationDirectory}
+                >
+                  <ClipboardDocumentIcon className="h-4 w-4" />
+                  Copy Path
+                </Button>
+              </div>
+            </div>
+
+            {installState.installerLoadError && (
+              <p className="text-xs text-red-600 dark:text-red-400">
+                {installState.installerLoadError}
+              </p>
+            )}
+          </div>
+        )}
+
+        {installState.mode === "undetected" && (
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-700 dark:text-zinc-300">
+              Unable to detect game type. You can try forcing an installation
+              procedure by selecting it from the options below.
+            </p>
+
+            <Listbox
+              value={installState.forcedType}
+              onChange={(value) =>
+                updateInstallState(download.gameId, {
+                  forcedType: value as GameType,
+                })
+              }
+              aria-label="Forced installation type"
+            >
+              {FORCE_INSTALL_TYPES.map((option) => (
+                <ListboxOption key={option.value} value={option.value}>
+                  <ListboxLabel>{option.label}</ListboxLabel>
+                </ListboxOption>
+              ))}
+            </Listbox>
+          </div>
+        )}
+
+        {download.installationError && (
+          <div className="text-xs text-red-600 dark:text-red-400">
+            {download.installationError}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3">
+          <Button color="zinc" onClick={() => closeInstallView(download.gameId)}>
+            Cancel
+          </Button>
+
+          <div className="flex items-center gap-2">
+            {download.installationStatus === "running" && (
+              <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                Running
+              </span>
+            )}
+
+            {installState.mode === "portable" && (
+              <Button
+                color="indigo"
+                onClick={() => void copyInstallationFiles(download.gameId)}
+                disabled={installationBusy}
+              >
+                {download.installationStatus === "copying"
+                  ? "Installing..."
+                  : "Install"}
+              </Button>
+            )}
+
+            {installState.mode === "setup" && (
+              <Button
+                color="indigo"
+                onClick={() =>
+                  void launchInstallationExecutable(
+                    download.gameId,
+                    installState.selectedInstaller,
+                  )
+                }
+                disabled={
+                  installationBusy ||
+                  installState.loadingInstallers ||
+                  !installState.selectedInstaller
+                }
+              >
+                {download.installationStatus === "launching"
+                  ? "Launching..."
+                  : "Install"}
+              </Button>
+            )}
+
+            {installState.mode === "undetected" && (
+              <Button
+                color="indigo"
+                onClick={() =>
+                  void openInstallFlow(download, installState.forcedType)
+                }
+              >
+                Force Installation
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -110,18 +575,21 @@ export default function Downloads() {
       {downloadArray.length > 0 && (
         <div className="space-y-4 mb-8">
           {downloadArray.map((download) => {
+            const installView = installStateByGame[download.gameId];
+            const installViewOpen = Boolean(installView);
             const downloadStep = getDownloadStepState(download.status);
             const extractionStep = getExtractionStepState(download);
+            const installationStep = getInstallationStepState(download);
             const progressText =
               download.status === "downloading"
                 ? `${download.progress?.toFixed(1) || "0.0"}%`
                 : download.status === "paused"
                   ? "Paused"
-                : download.status === "completed"
-                  ? "Done"
-                  : download.status === "aborted"
-                    ? "Cancelled"
-                    : "Failed";
+                  : download.status === "completed"
+                    ? "Done"
+                    : download.status === "aborted"
+                      ? "Cancelled"
+                      : "Failed";
 
             return (
               <div
@@ -137,22 +605,52 @@ export default function Downloads() {
                 >
                   <TrashIcon className="h-4 w-4" />
                 </button>
-                <div className="flex items-start gap-4">
-                  <div className="pt-1 min-w-[180px]">
-                    <ol className="space-y-3">
-                      <li className="flex items-center gap-2">
-                        <StepDot state={downloadStep} />
-                        <span className="text-sm font-medium">Download</span>
-                      </li>
-                      <li className="pl-2 ml-[9px] h-4 border-l border-zinc-300 dark:border-zinc-700" />
-                      <li className="flex items-center gap-2">
-                        <StepDot state={extractionStep} />
-                        <span className="text-sm font-medium">Extraction</span>
-                      </li>
-                    </ol>
+
+                <div className="flex flex-col items-start gap-4 sm:flex-row">
+                  <div className="shrink-0">
+                    {download.gameMetadata?.cover ? (
+                      <Media
+                        media={download.gameMetadata.cover as any}
+                        width={96}
+                        height={136}
+                        square
+                        alt={`${download.gameTitle} cover art`}
+                        className="overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
+                        fallback={
+                          <div className="px-3 text-center text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                            No Cover
+                          </div>
+                        }
+                      />
+                    ) : (
+                      <div className="flex h-[136px] w-24 items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 text-center text-xs font-medium text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950/40 dark:text-zinc-400">
+                        No Cover
+                      </div>
+                    )}
                   </div>
 
-                  <div className="flex-1 min-w-0 space-y-3">
+                  {!installViewOpen && (
+                    <div className="pt-1 min-w-[180px]">
+                      <ol className="space-y-3">
+                        <li className="flex items-center gap-2">
+                          <StepDot state={downloadStep} />
+                          <span className="text-sm font-medium">Download</span>
+                        </li>
+                        <li className="pl-2 ml-[9px] h-4 border-l border-zinc-300 dark:border-zinc-700" />
+                        <li className="flex items-center gap-2">
+                          <StepDot state={extractionStep} />
+                          <span className="text-sm font-medium">Extraction</span>
+                        </li>
+                        <li className="pl-2 ml-[9px] h-4 border-l border-zinc-300 dark:border-zinc-700" />
+                        <li className="flex items-center gap-2">
+                          <StepDot state={installationStep} />
+                          <span className="text-sm font-medium">Installation</span>
+                        </li>
+                      </ol>
+                    </div>
+                  )}
+
+                  <div className="flex-1 min-w-0 space-y-3 self-stretch">
                     <div className="flex items-start justify-between gap-3 pr-10">
                       <div className="min-w-0">
                         <h3
@@ -169,7 +667,7 @@ export default function Downloads() {
                           {download.speedBps !== undefined &&
                             download.status === "downloading" && (
                               <>
-                                <span>•</span>
+                                <span>-</span>
                                 <span>{formatSpeed(download.speedBps)}</span>
                               </>
                             )}
@@ -257,96 +755,186 @@ export default function Downloads() {
                         </div>
                       )}
 
-                    {download.status === "completed" && (
-                      <div className="mt-2 rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-950/30">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 text-sm font-medium">
-                            <ArchiveBoxIcon className="h-4 w-4" />
-                            Extraction
+                    {download.status === "completed" && !installViewOpen && (
+                      <div className="space-y-3">
+                        <div className="mt-2 rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-950/30">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-sm font-medium">
+                              <ArchiveBoxIcon className="h-4 w-4" />
+                              Extraction
+                            </div>
+                            {download.extractionStatus === "completed" && (
+                              <Badge color="green">Extracted</Badge>
+                            )}
                           </div>
-                          {download.extractionStatus === "completed" && (
-                            <Badge color="green">Extracted</Badge>
+
+                          {(download.extractionStatus === "needs-password" ||
+                            download.extractionPasswordRequired) && (
+                            <div className="mt-3 space-y-2">
+                              <label className="text-xs text-zinc-600 dark:text-zinc-400 flex items-center gap-1">
+                                <KeyIcon className="h-4 w-4" />
+                                Archive password
+                              </label>
+                              <Input
+                                type="password"
+                                value={passwordByGame[download.gameId] || ""}
+                                onChange={(e: any) =>
+                                  setPasswordByGame((prev) => ({
+                                    ...prev,
+                                    [download.gameId]: e.target.value,
+                                  }))
+                                }
+                                placeholder="Enter archive password"
+                              />
+                            </div>
+                          )}
+
+                          <div className="mt-3 flex justify-end">
+                            <Button
+                              color={
+                                download.extractionStatus === "error" ||
+                                download.extractionStatus === "needs-password"
+                                  ? "amber"
+                                  : "indigo"
+                              }
+                              onClick={() => void handleExtract(download.gameId)}
+                              disabled={download.extractionStatus === "extracting"}
+                            >
+                              {download.extractionStatus === "extracting"
+                                ? "Extracting..."
+                                : download.extractionStatus === "completed"
+                                  ? "Extract Again"
+                                  : download.extractionStatus === "error" ||
+                                      download.extractionStatus === "needs-password"
+                                    ? "Try Extraction Again"
+                                    : "Start Extraction"}
+                            </Button>
+                          </div>
+
+                          {download.extractionStatus === "extracting" && (
+                            <div className="mt-3 space-y-2">
+                              <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
+                                <span>Extraction Progress</span>
+                                <span>
+                                  {download.extractionProgress !== null &&
+                                  download.extractionProgress !== undefined
+                                    ? `${download.extractionProgress.toFixed(1)}%`
+                                    : "In progress"}
+                                </span>
+                              </div>
+                              <div className="relative w-full h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                                <div
+                                  className="absolute left-0 top-0 h-full bg-indigo-500 transition-all duration-300"
+                                  style={{
+                                    width: `${download.extractionProgress ?? 0}%`,
+                                  }}
+                                />
+                              </div>
+                              {download.extractionCurrentFile && (
+                                <p
+                                  className="text-xs text-zinc-500 dark:text-zinc-400 truncate"
+                                  title={download.extractionCurrentFile}
+                                >
+                                  {download.extractionCurrentFile}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          {download.extractionError && (
+                            <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+                              {download.extractionError}
+                            </div>
                           )}
                         </div>
 
-                        {(download.extractionStatus === "needs-password" ||
-                          download.extractionPasswordRequired) && (
-                          <div className="mt-3 space-y-2">
-                            <label className="text-xs text-zinc-600 dark:text-zinc-400 flex items-center gap-1">
-                              <KeyIcon className="h-4 w-4" />
-                              Archive password
-                            </label>
-                            <Input
-                              type="password"
-                              value={passwordByGame[download.gameId] || ""}
-                              onChange={(e: any) =>
-                                setPasswordByGame((prev) => ({
-                                  ...prev,
-                                  [download.gameId]: e.target.value,
-                                }))
-                              }
-                              placeholder="Enter archive password"
-                            />
-                          </div>
-                        )}
-
-                        <div className="mt-3 flex justify-end">
-                          <Button
-                            color={
-                              download.extractionStatus === "error" ||
-                              download.extractionStatus === "needs-password"
-                                ? "amber"
-                                : "indigo"
-                            }
-                            onClick={() => void handleExtract(download.gameId)}
-                            disabled={download.extractionStatus === "extracting"}
-                          >
-                            {download.extractionStatus === "extracting"
-                              ? "Extracting..."
-                              : download.extractionStatus === "completed"
-                                ? "Extract Again"
-                                : download.extractionStatus === "error" ||
-                                    download.extractionStatus === "needs-password"
-                                  ? "Try Extraction Again"
-                                  : "Start Extraction"}
-                          </Button>
-                        </div>
-
-                        {download.extractionStatus === "extracting" && (
-                          <div className="mt-3 space-y-2">
-                            <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
-                              <span>Extraction Progress</span>
-                              <span>
-                                {download.extractionProgress !== null &&
-                                download.extractionProgress !== undefined
-                                  ? `${download.extractionProgress.toFixed(1)}%`
-                                  : "In progress"}
-                              </span>
+                        {download.extractionStatus === "completed" && isTauri && (
+                          <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-950/30">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 text-sm font-medium">
+                                <ComputerDesktopIcon className="h-4 w-4" />
+                                Installation
+                              </div>
+                              {download.installationStatus === "completed" && (
+                                <Badge color="green">Installed</Badge>
+                              )}
+                              {download.installationStatus === "running" && (
+                                <Badge color="blue">Running</Badge>
+                              )}
                             </div>
-                            <div className="relative w-full h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
-                              <div
-                                className="absolute left-0 top-0 h-full bg-indigo-500 transition-all duration-300"
-                                style={{ width: `${download.extractionProgress ?? 0}%` }}
-                              />
-                            </div>
-                            {download.extractionCurrentFile && (
-                              <p
-                                className="text-xs text-zinc-500 dark:text-zinc-400 truncate"
-                                title={download.extractionCurrentFile}
-                              >
-                                {download.extractionCurrentFile}
-                              </p>
+
+                            <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+                              Start the installation process for this extracted game.
+                            </p>
+
+                            {(download.installationStatus === "copying" ||
+                              download.installationStatus === "launching") && (
+                              <div className="mt-3 space-y-2">
+                                <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
+                                  <span>
+                                    {download.installationStatus === "copying"
+                                      ? "Installation Copy"
+                                      : "Installer Launch"}
+                                  </span>
+                                  <span>
+                                    {download.installationStatus === "copying" &&
+                                    download.installationProgress !== null &&
+                                    download.installationProgress !== undefined
+                                      ? `${download.installationProgress.toFixed(1)}%`
+                                      : download.installationStatus === "launching"
+                                        ? "Starting"
+                                        : "In progress"}
+                                  </span>
+                                </div>
+                                {download.installationStatus === "copying" && (
+                                  <div className="relative w-full h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                                    <div
+                                      className="absolute left-0 top-0 h-full bg-indigo-500 transition-all duration-300"
+                                      style={{
+                                        width: `${download.installationProgress ?? 0}%`,
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                                {download.installationCurrentFile && (
+                                  <p
+                                    className="text-xs text-zinc-500 dark:text-zinc-400 truncate"
+                                    title={download.installationCurrentFile}
+                                  >
+                                    {download.installationCurrentFile}
+                                  </p>
+                                )}
+                              </div>
                             )}
-                          </div>
-                        )}
 
-                        {download.extractionError && (
-                          <div className="mt-2 text-xs text-red-600 dark:text-red-400">
-                            {download.extractionError}
+                            {download.installationError && (
+                              <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+                                {download.installationError}
+                              </div>
+                            )}
+
+                            <div className="mt-3 flex justify-end">
+                              <Button
+                                color="indigo"
+                                onClick={() => void openInstallFlow(download)}
+                                disabled={
+                                  download.installationStatus === "copying" ||
+                                  download.installationStatus === "launching"
+                                }
+                              >
+                                {download.installationStatus === "completed"
+                                  ? "Install Again"
+                                  : "Install"}
+                              </Button>
+                            </div>
                           </div>
                         )}
                       </div>
                     )}
+
+                    {download.status === "completed" &&
+                      installViewOpen &&
+                      renderInstallFlow(download, installView)}
                   </div>
                 </div>
               </div>
@@ -355,7 +943,6 @@ export default function Downloads() {
         </div>
       )}
 
-      {/* Empty State */}
       {downloadArray.length === 0 && (
         <div className="text-center py-12">
           <ArrowDownTrayIcon className="mx-auto h-12 w-12 text-zinc-400" />

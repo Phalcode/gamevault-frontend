@@ -2,6 +2,7 @@ use futures_util::StreamExt;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
+use std::fs::File as StdFile;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::io::SeekFrom;
@@ -16,6 +17,9 @@ use tauri::Emitter;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use unrar::Archive;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 const DOWNLOAD_CONTROL_RUNNING: u8 = 0;
 const DOWNLOAD_CONTROL_PAUSE: u8 = 1;
@@ -54,6 +58,7 @@ struct RecoveredDownloadCard {
   version_id: i64,
   game_title: String,
   game_metadata: Option<serde_json::Value>,
+  game_type: Option<String>,
   version_name: String,
   filename: String,
   download_directory: String,
@@ -67,6 +72,7 @@ struct RecoveredDownloadCard {
   status: String,
   extraction_status: String,
   extraction_progress: Option<f64>,
+  installation_finished: bool,
 }
 
 fn parse_version_folder(folder_name: &str) -> (i64, String) {
@@ -93,6 +99,104 @@ fn parse_i64_json(value: Option<&serde_json::Value>) -> Option<i64> {
       .or_else(|| v.as_str().and_then(|s| s.trim().parse::<i64>().ok())),
     None => None,
   }
+}
+
+fn resolve_version_subdir(version_path: &Path, preferred: &str, legacy: &str) -> PathBuf {
+  let preferred_path = version_path.join(preferred);
+  if preferred_path.exists() {
+    return preferred_path;
+  }
+
+  let legacy_path = version_path.join(legacy);
+  if legacy_path.exists() {
+    return legacy_path;
+  }
+
+  preferred_path
+}
+
+fn read_saved_game_metadata(start_path: &Path) -> Option<serde_json::Value> {
+  for ancestor in start_path.ancestors() {
+    let metadata_path = ancestor.join(".gamevault.metadata.json");
+    if !metadata_path.exists() {
+      continue;
+    }
+
+    if let Ok(content) = fs::read_to_string(&metadata_path) {
+      if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+        return Some(parsed);
+      }
+    }
+  }
+
+  None
+}
+
+fn read_saved_installer_preferences(start_path: &Path) -> (Option<String>, Option<String>) {
+  let metadata = read_saved_game_metadata(start_path);
+  let installer_executable = metadata
+    .as_ref()
+    .and_then(|value| value.get("installer_executable"))
+    .and_then(|value| value.as_str())
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty());
+  let installer_parameters = metadata
+    .as_ref()
+    .and_then(|value| value.get("installer_parameters"))
+    .and_then(|value| value.as_str())
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty());
+
+  (installer_executable, installer_parameters)
+}
+
+#[cfg(windows)]
+fn escape_powershell_single_quoted(value: &str) -> String {
+  value.replace('\'', "''")
+}
+
+#[cfg(windows)]
+fn run_elevated_installer_and_wait(
+  executable: &str,
+  argument_list: Option<&str>,
+) -> Result<Option<i32>, String> {
+  let file_path = escape_powershell_single_quoted(executable);
+  let script = if let Some(arguments) = argument_list.filter(|value| !value.trim().is_empty()) {
+    let escaped_arguments = escape_powershell_single_quoted(arguments);
+    format!(
+      "$process = Start-Process -FilePath '{file_path}' -ArgumentList '{escaped_arguments}' -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
+    )
+  } else {
+    format!(
+      "$process = Start-Process -FilePath '{file_path}' -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
+    )
+  };
+
+  let output = Command::new("powershell")
+    .arg("-NoProfile")
+    .arg("-Command")
+    .arg(script)
+    .output()
+    .map_err(|error| format!("Failed to start elevated installer: {error}"))?;
+
+  if output.status.success() {
+    return Ok(output.status.code());
+  }
+
+  let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+  let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+  let message = if !stderr.is_empty() {
+    stderr
+  } else if !stdout.is_empty() {
+    stdout
+  } else {
+    format!(
+      "Elevated installer exited with code {}.",
+      output.status.code().unwrap_or(-1)
+    )
+  };
+
+  Err(message)
 }
 
 #[tauri::command]
@@ -170,6 +274,15 @@ fn recover_download_cards(selected_root: String) -> Result<Vec<RecoveredDownload
         .get("extractionfinished")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+      let installation_finished = cfg_value
+        .get("installationfinished")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+      let game_type = cfg_value
+        .get("gametype")
+        .and_then(|v| v.as_str())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
       let download_progress = cfg_value
         .get("downloadprogress")
         .and_then(|v| v.as_str())
@@ -184,9 +297,9 @@ fn recover_download_cards(selected_root: String) -> Result<Vec<RecoveredDownload
         continue;
       }
 
-      let downloads_dir = version_path.join("Downloads");
-      let extractions_dir = version_path.join("Extractions");
-      let installations_dir = version_path.join("Installations");
+      let downloads_dir = resolve_version_subdir(&version_path, "Download", "Downloads");
+      let extractions_dir = resolve_version_subdir(&version_path, "Extraction", "Extractions");
+      let installations_dir = resolve_version_subdir(&version_path, "Installation", "Installations");
 
       let mut filename = format!("{}.bin", resolved_game_title);
       let mut downloaded_file_path: Option<String> = None;
@@ -243,6 +356,7 @@ fn recover_download_cards(selected_root: String) -> Result<Vec<RecoveredDownload
         version_id,
         game_title: resolved_game_title.clone(),
         game_metadata: game_metadata.clone(),
+        game_type,
         version_name,
         filename,
         download_directory: downloads_dir.to_string_lossy().to_string(),
@@ -266,6 +380,7 @@ fn recover_download_cards(selected_root: String) -> Result<Vec<RecoveredDownload
           "idle".to_string()
         },
         extraction_progress: if extraction_finished { Some(100.0) } else { None },
+        installation_finished,
       });
     }
   }
@@ -282,6 +397,28 @@ struct ExtractProgressEvent {
   total: Option<u64>,
   progress: Option<f64>,
   current_file: Option<String>,
+  error: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct InstallCopyProgressEvent {
+  game_id: i64,
+  status: String,
+  processed: u64,
+  total: Option<u64>,
+  progress: Option<f64>,
+  current_file: Option<String>,
+  error: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct InstallerStatusEvent {
+  game_id: i64,
+  status: String,
+  current_file: Option<String>,
+  exit_code: Option<i32>,
   error: Option<String>,
 }
 
@@ -311,6 +448,179 @@ fn emit_extract_progress(
       error,
     },
   );
+}
+
+fn emit_install_copy_progress(
+  app: &tauri::AppHandle,
+  game_id: i64,
+  status: &str,
+  processed: u64,
+  total: Option<u64>,
+  current_file: Option<String>,
+  error: Option<String>,
+) {
+  let progress = match total {
+    Some(t) if t > 0 => Some((processed as f64 / t as f64) * 100.0),
+    _ => None,
+  };
+
+  let _ = app.emit(
+    "install-copy-progress",
+    InstallCopyProgressEvent {
+      game_id,
+      status: status.to_string(),
+      processed,
+      total,
+      progress,
+      current_file,
+      error,
+    },
+  );
+}
+
+fn emit_installer_status(
+  app: &tauri::AppHandle,
+  game_id: i64,
+  status: &str,
+  current_file: Option<String>,
+  exit_code: Option<i32>,
+  error: Option<String>,
+) {
+  let _ = app.emit(
+    "installer-status",
+    InstallerStatusEvent {
+      game_id,
+      status: status.to_string(),
+      current_file,
+      exit_code,
+      error,
+    },
+  );
+}
+
+fn collect_install_candidates(root: &Path, current: &Path, results: &mut Vec<String>) -> Result<(), String> {
+  let entries = fs::read_dir(current)
+    .map_err(|e| format!("Failed to read extraction folder: {e}"))?;
+
+  for entry in entries {
+    let entry = entry.map_err(|e| format!("Failed to read extraction folder entry: {e}"))?;
+    let path = entry.path();
+
+    if path.is_dir() {
+      collect_install_candidates(root, &path, results)?;
+      continue;
+    }
+
+    let ext = path
+      .extension()
+      .and_then(|v| v.to_str())
+      .map(|v| v.to_ascii_lowercase())
+      .unwrap_or_default();
+
+    if !matches!(
+      ext.as_str(),
+      "exe" | "msi" | "bat" | "cmd" | "com" | "sh" | "run" | "appimage"
+    ) {
+      continue;
+    }
+
+    if let Ok(relative) = path.strip_prefix(root) {
+      results.push(relative.to_string_lossy().replace('\\', "/"));
+    }
+  }
+
+  Ok(())
+}
+
+fn compute_directory_size(path: &Path) -> Result<u64, String> {
+  if !path.exists() {
+    return Ok(0);
+  }
+  if path.is_file() {
+    return fs::metadata(path)
+      .map(|m| m.len())
+      .map_err(|e| format!("Failed to read file metadata: {e}"));
+  }
+
+  let mut total = 0u64;
+  let entries = fs::read_dir(path).map_err(|e| format!("Failed to read directory: {e}"))?;
+  for entry in entries {
+    let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
+    total = total.saturating_add(compute_directory_size(&entry.path())?);
+  }
+  Ok(total)
+}
+
+fn copy_path_with_progress(
+  app: &tauri::AppHandle,
+  game_id: i64,
+  source_root: &Path,
+  current_source: &Path,
+  destination_root: &Path,
+  processed: &mut u64,
+  total: u64,
+) -> Result<(), String> {
+  let relative = current_source
+    .strip_prefix(source_root)
+    .map_err(|e| format!("Failed to resolve relative path: {e}"))?;
+  let destination = destination_root.join(relative);
+
+  if current_source.is_dir() {
+    fs::create_dir_all(&destination)
+      .map_err(|e| format!("Failed to create installation directory: {e}"))?;
+    let entries = fs::read_dir(current_source)
+      .map_err(|e| format!("Failed to read extraction directory: {e}"))?;
+    for entry in entries {
+      let entry = entry.map_err(|e| format!("Failed to read extraction entry: {e}"))?;
+      copy_path_with_progress(
+        app,
+        game_id,
+        source_root,
+        &entry.path(),
+        destination_root,
+        processed,
+        total,
+      )?;
+    }
+    return Ok(());
+  }
+
+  if let Some(parent) = destination.parent() {
+    fs::create_dir_all(parent)
+      .map_err(|e| format!("Failed to create installation directory: {e}"))?;
+  }
+
+  let mut source_file = StdFile::open(current_source)
+    .map_err(|e| format!("Failed to open extracted file: {e}"))?;
+  let mut destination_file = StdFile::create(&destination)
+    .map_err(|e| format!("Failed to create installation file: {e}"))?;
+  let mut buffer = vec![0u8; 1024 * 1024];
+
+  loop {
+    let read = source_file
+      .read(&mut buffer)
+      .map_err(|e| format!("Failed to read extracted file: {e}"))?;
+    if read == 0 {
+      break;
+    }
+
+    destination_file
+      .write_all(&buffer[..read])
+      .map_err(|e| format!("Failed to write installation file: {e}"))?;
+
+    *processed = processed.saturating_add(read as u64);
+    emit_install_copy_progress(
+      app,
+      game_id,
+      "copying",
+      *processed,
+      Some(total),
+      Some(relative.to_string_lossy().replace('\\', "/")),
+      None,
+    );
+  }
+
+  Ok(())
 }
 
 fn extract_zip_archive(
@@ -1189,6 +1499,284 @@ fn open_in_file_explorer(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn list_install_executables(extraction_path: String) -> Result<Vec<String>, String> {
+  let root = PathBuf::from(extraction_path);
+  if !root.exists() || !root.is_dir() {
+    return Ok(Vec::new());
+  }
+
+  let mut results = Vec::new();
+  collect_install_candidates(&root, &root, &mut results)?;
+  let (preferred_installer, _) = read_saved_installer_preferences(&root);
+  let normalized_preferred = preferred_installer
+    .as_ref()
+    .map(|value| value.replace('\\', "/").to_ascii_lowercase());
+
+  results.sort_by(|left, right| {
+    let left_normalized = left.replace('\\', "/").to_ascii_lowercase();
+    let right_normalized = right.replace('\\', "/").to_ascii_lowercase();
+    let left_is_preferred = normalized_preferred
+      .as_ref()
+      .map(|preferred| {
+        left_normalized == *preferred || left_normalized.ends_with(preferred)
+      })
+      .unwrap_or(false);
+    let right_is_preferred = normalized_preferred
+      .as_ref()
+      .map(|preferred| {
+        right_normalized == *preferred || right_normalized.ends_with(preferred)
+      })
+      .unwrap_or(false);
+
+    right_is_preferred
+      .cmp(&left_is_preferred)
+      .then_with(|| left_normalized.cmp(&right_normalized))
+  });
+  Ok(results)
+}
+
+#[tauri::command]
+fn copy_installation_files(
+  app: tauri::AppHandle,
+  game_id: i64,
+  source_path: String,
+  destination_path: String,
+) -> Result<(), String> {
+  let source = PathBuf::from(source_path);
+  let destination = PathBuf::from(destination_path);
+
+  if !source.exists() || !source.is_dir() {
+    return Err("Extraction folder does not exist".to_string());
+  }
+
+  fs::create_dir_all(&destination)
+    .map_err(|e| format!("Failed to create installation directory: {e}"))?;
+
+  std::thread::spawn(move || {
+    let total = match compute_directory_size(&source) {
+      Ok(total) => total,
+      Err(error) => {
+        emit_install_copy_progress(&app, game_id, "error", 0, None, None, Some(error));
+        return;
+      }
+    };
+
+    emit_install_copy_progress(&app, game_id, "copying", 0, Some(total), None, None);
+
+    let mut processed = 0u64;
+    let result = copy_path_with_progress(
+      &app,
+      game_id,
+      &source,
+      &source,
+      &destination,
+      &mut processed,
+      total,
+    );
+
+    match result {
+      Ok(_) => emit_install_copy_progress(
+        &app,
+        game_id,
+        "completed",
+        total,
+        Some(total),
+        None,
+        None,
+      ),
+      Err(error) => emit_install_copy_progress(
+        &app,
+        game_id,
+        "error",
+        processed,
+        Some(total),
+        None,
+        Some(error),
+      ),
+    }
+  });
+
+  Ok(())
+}
+
+#[tauri::command]
+fn launch_installation_executable(
+  app: tauri::AppHandle,
+  game_id: i64,
+  extraction_path: String,
+  installer_relative_path: String,
+  installation_path: String,
+) -> Result<(), String> {
+  let extraction_root = PathBuf::from(extraction_path);
+  let installer_path = extraction_root.join(installer_relative_path.replace('/', "\\"));
+  if !installer_path.exists() || !installer_path.is_file() {
+    return Err("Selected installer does not exist".to_string());
+  }
+
+  let installation_path_resolved = installation_path.clone();
+  let installer_relative = installer_relative_path.clone();
+  let (_, installer_parameters) = read_saved_installer_preferences(&extraction_root);
+  let is_msi = installer_path
+    .extension()
+    .and_then(|v| v.to_str())
+    .map(|v| v.eq_ignore_ascii_case("msi"))
+    .unwrap_or(false);
+
+  std::thread::spawn(move || {
+    emit_installer_status(
+      &app,
+      game_id,
+      "launching",
+      Some(installer_relative.clone()),
+      None,
+      None,
+    );
+
+    let mut command = if is_msi {
+      let mut cmd = Command::new("msiexec");
+      cmd.arg("/i").arg(&installer_path);
+      cmd
+    } else {
+      Command::new(&installer_path)
+    };
+
+    let resolved_parameters = installer_parameters
+      .map(|value| value.replace("%INSTALLDIR%", &installation_path_resolved))
+      .filter(|value| !value.trim().is_empty());
+    let fallback_argument_list = if is_msi {
+      let base = format!("/i \"{}\"", installer_path.display());
+      match resolved_parameters.as_deref() {
+        Some(parameters) => format!("{base} {parameters}"),
+        None => base,
+      }
+    } else {
+      resolved_parameters.clone().unwrap_or_default()
+    };
+
+    if let Some(parameters) = resolved_parameters {
+      #[cfg(windows)]
+      {
+        command.raw_arg(parameters);
+      }
+
+      #[cfg(not(windows))]
+      {
+        for arg in parameters.split_whitespace() {
+          command.arg(arg);
+        }
+      }
+    }
+
+    let child = match command.spawn() {
+      Ok(child) => child,
+      Err(error) => {
+        #[cfg(windows)]
+        {
+          if error.raw_os_error() == Some(740) {
+            emit_installer_status(
+              &app,
+              game_id,
+              "running",
+              Some(installer_relative.clone()),
+              None,
+              None,
+            );
+
+            match run_elevated_installer_and_wait(
+              command.get_program().to_string_lossy().as_ref(),
+              if fallback_argument_list.trim().is_empty() {
+                None
+              } else {
+                Some(fallback_argument_list.as_str())
+              },
+            ) {
+              Ok(exit_code) => {
+                emit_installer_status(
+                  &app,
+                  game_id,
+                  "completed",
+                  Some(installer_relative.clone()),
+                  exit_code,
+                  None,
+                );
+              }
+              Err(message) => {
+                emit_installer_status(
+                  &app,
+                  game_id,
+                  "error",
+                  Some(installer_relative.clone()),
+                  None,
+                  Some(message),
+                );
+              }
+            }
+            return;
+          }
+        }
+
+        emit_installer_status(
+          &app,
+          game_id,
+          "error",
+          Some(installer_relative.clone()),
+          None,
+          Some(format!("Failed to start installer: {error}")),
+        );
+        return;
+      }
+    };
+
+    emit_installer_status(
+      &app,
+      game_id,
+      "running",
+      Some(installer_relative.clone()),
+      None,
+      None,
+    );
+
+    match child.wait_with_output() {
+      Ok(output) => {
+        let exit_code = output.status.code();
+        if output.status.success() {
+          emit_installer_status(
+            &app,
+            game_id,
+            "completed",
+            Some(installer_relative),
+            exit_code,
+            None,
+          );
+        } else {
+          emit_installer_status(
+            &app,
+            game_id,
+            "error",
+            Some(installer_relative),
+            exit_code,
+            Some(format!(
+              "Installer exited with code {}.",
+              exit_code.unwrap_or(-1)
+            )),
+          );
+        }
+      }
+      Err(error) => emit_installer_status(
+        &app,
+        game_id,
+        "error",
+        Some(installer_relative),
+        None,
+        Some(format!("Failed while waiting for installer: {error}")),
+      ),
+    }
+  });
+
+  Ok(())
+}
+
+#[tauri::command]
 fn extract_archive(
   app: tauri::AppHandle,
   game_id: i64,
@@ -1324,6 +1912,9 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       open_in_file_explorer,
       extract_archive,
+      list_install_executables,
+      copy_installation_files,
+      launch_installation_executable,
       download_game_version,
       cancel_download_task,
       pause_download_task,
