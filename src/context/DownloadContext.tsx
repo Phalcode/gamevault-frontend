@@ -9,11 +9,20 @@ import {
 } from "react";
 import { useAuth } from "./AuthContext";
 import { isTauriApp } from "@/utils/tauri";
+import type { GameVaultConfig } from "@/models/gamevaultconfig";
 
 export interface ActiveDownload {
   gameId: number;
   versionId: number;
+  gameTitle: string;
+  gameMetadata?: unknown;
+  versionName?: string;
   filename: string;
+  downloadDirectory?: string;
+  extractionDirectory?: string;
+  installationDirectory?: string;
+  versionDirectory?: string;
+  downloadedFilePath?: string;
   received: number;
   total: number | null;
   progress: number | null;
@@ -22,6 +31,11 @@ export interface ActiveDownload {
   speedBps?: number;
   status: "downloading" | "completed" | "error" | "aborted";
   error?: string;
+  extractionStatus?: "idle" | "extracting" | "completed" | "error" | "needs-password";
+  extractionProgress?: number | null;
+  extractionCurrentFile?: string;
+  extractionError?: string;
+  extractionPasswordRequired?: boolean;
   fileWriter?: { close(): Promise<void>; abort(): Promise<void> };
 }
 
@@ -32,9 +46,13 @@ interface DownloadContextValue {
     versionId: number;
     versionName?: string;
     gameTitle: string;
+    gameMetadata?: unknown;
     filename: string;
   }) => void;
   cancelDownload: (gameId: number) => void;
+  retryDownload: (gameId: number) => void;
+  openDownloadFolder: (gameId: number) => Promise<void>;
+  extractArchive: (gameId: number, password?: string) => Promise<void>;
   speedLimitKB: number;
   setSpeedLimitKB: (v: number) => void;
   formatBytes: (bytes: number) => string;
@@ -45,8 +63,13 @@ interface DownloadContextValue {
 
 const DownloadContext = createContext<DownloadContextValue | null>(null);
 
+const DEFAULT_GAME_VAULT_CONFIG: GameVaultConfig = {
+  downloadfinished: false,
+  extractionfinished: false,
+};
+
 export function DownloadProvider({ children }: { children: ReactNode }) {
-  const { serverUrl, authFetch } = useAuth();
+  const { serverUrl, authFetch, auth } = useAuth();
   const [downloads, setDownloads] = useState<Record<number, ActiveDownload>>(
     {},
   );
@@ -72,7 +95,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     Record<number, { t: number; bytes: number }[]>
   >({});
   const SPEED_WINDOW_MS = 5000;
-  const UI_THROTTLE_MS = 200;
+  const UI_THROTTLE_MS = 500;
+  const SAMPLE_INTERVAL_MS = 250;
+  const DISK_WRITE_BATCH_BYTES = 512 * 1024;
+  const DEBUG_DOWNLOAD_LOGS = false;
+  const dlog = (...args: any[]) => {
+    if (DEBUG_DOWNLOAD_LOGS) console.log(...args);
+  };
   const trimSamples = (
     samples: { t: number; bytes: number }[],
     now: number,
@@ -115,7 +144,60 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const writeVersionConfig = useCallback(
+    async (versionDirectory: string, patch: Partial<GameVaultConfig>) => {
+      if (!isTauriApp() || !versionDirectory) return;
+      const { exists, readTextFile, writeTextFile } = await import(
+        "@tauri-apps/plugin-fs"
+      );
+      const { join } = await import("@tauri-apps/api/path");
+
+      const configPath = await join(
+        versionDirectory,
+        ".gamevault.game.config.json",
+      );
+
+      let current: GameVaultConfig = { ...DEFAULT_GAME_VAULT_CONFIG };
+      if (await exists(configPath)) {
+        try {
+          const raw = await readTextFile(configPath);
+          const parsed = JSON.parse(raw) as Partial<GameVaultConfig>;
+          current = {
+            ...DEFAULT_GAME_VAULT_CONFIG,
+            ...parsed,
+          };
+        } catch {
+          current = { ...DEFAULT_GAME_VAULT_CONFIG };
+        }
+      }
+
+      const next: GameVaultConfig = {
+        ...current,
+        ...patch,
+      };
+      await writeTextFile(configPath, JSON.stringify(next, null, 2));
+    },
+    [],
+  );
+
+  const writeGameMetadata = useCallback(
+    async (gameFolderPath: string, metadata: unknown) => {
+      if (!isTauriApp() || !gameFolderPath) return;
+      if (metadata === undefined || metadata === null) return;
+      const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+      const { join } = await import("@tauri-apps/api/path");
+      const metadataPath = await join(gameFolderPath, ".gamevault.metadata.json");
+      await writeTextFile(metadataPath, JSON.stringify(metadata, null, 2));
+    },
+    [],
+  );
+
   const cancelDownload = useCallback((gameId: number) => {
+    if (isTauriApp()) {
+      import("@tauri-apps/api/core")
+        .then(({ invoke }) => invoke("cancel_download_task", { gameId }))
+        .catch(() => {});
+    }
     setDownloads((prev) => {
       const d = prev[gameId];
       if (!d) return prev;
@@ -123,18 +205,36 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       if (d.fileWriter) {
         d.fileWriter.abort().catch(() => {});
       }
-      return { ...prev, [gameId]: { ...d, status: "aborted" } };
+      return {
+        ...prev,
+        [gameId]: {
+          ...d,
+          status: "aborted",
+          received: 0,
+          total: null,
+          progress: 0,
+          speedBps: undefined,
+        },
+      };
     });
+    const stop = tauriUnlistenRef.current[gameId];
+    if (stop) {
+      stop();
+      delete tauriUnlistenRef.current[gameId];
+    }
   }, []);
 
   const lastUpdateRef = useRef<Record<number, number>>({});
+  const tauriUnlistenRef = useRef<Record<number, () => void>>({});
+  const tauriExtractUnlistenRef = useRef<Record<number, () => void>>({});
 
   const startDownload = useCallback(
-    async ({ gameId, versionId, versionName, gameTitle, filename }: {
+    async ({ gameId, versionId, versionName, gameTitle, gameMetadata, filename }: {
       gameId: number;
       versionId: number;
       versionName?: string;
       gameTitle: string;
+      gameMetadata?: unknown;
       filename: string;
     }) => {
       if (!serverUrl) return;
@@ -143,11 +243,14 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       const url = `${base}/api/game/${gameId}/versions/${versionId}`;
       const isDesktop = isTauriApp();
       let tauriFilePath: string | null = null;
-      console.log("Is Tauri Desktop App:", isDesktop);
+      dlog("Is Tauri Desktop App:", isDesktop);
       const ac = new AbortController();
       const entry: ActiveDownload = {
         gameId,
         versionId,
+        gameTitle,
+        gameMetadata,
+        versionName,
         filename,
         received: 0,
         total: null,
@@ -155,6 +258,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         abortController: ac,
         startedAt: performance.now(),
         status: "downloading",
+        extractionStatus: "idle",
       };
       setDownloads((prev) => ({ ...prev, [gameId]: entry }));
       speedSamplesRef.current[gameId] = [{ t: performance.now(), bytes: 0 }];
@@ -162,9 +266,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       try {
         // Handle Tauri-specific downloads
         if (isDesktop) {
-          console.log("=== Starting Tauri Download ===");
+          dlog("=== Starting Tauri Download ===");
           const downloadPath = localStorage.getItem("tauri_download_path");
-          console.log("Tauri download path from localStorage:", downloadPath);
+          dlog("Tauri download path from localStorage:", downloadPath);
           if (!downloadPath) {
             updateDownload(gameId, {
               status: "error",
@@ -174,9 +278,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          console.log("Importing Tauri modules...");
-          const { create, mkdir } = await import("@tauri-apps/plugin-fs");
+          dlog("Importing Tauri modules...");
+          const { mkdir } = await import("@tauri-apps/plugin-fs");
           const { join } = await import("@tauri-apps/api/path");
+          const { invoke } = await import("@tauri-apps/api/core");
+          const { listen } = await import("@tauri-apps/api/event");
 
           const sanitizeFolderName = (value: string) =>
             (value || "")
@@ -189,111 +295,148 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           const versionFolderName = `(${versionId}) ${versionName ?? ""}`.trimEnd();
 
           const gameVaultRoot = await join(downloadPath, "GameVault");
-          const downloadsVersionFolder = await join(
-            gameVaultRoot,
-            "Downloads",
-            gameFolderName,
+          const gameFolderPath = await join(gameVaultRoot, gameFolderName);
+          const versionBaseFolder = await join(
+            gameFolderPath,
             "Versions",
             versionFolderName,
+          );
+          const downloadsVersionFolder = await join(
+            versionBaseFolder,
+            "Downloads",
           );
           const extractionsVersionFolder = await join(
-            gameVaultRoot,
+            versionBaseFolder,
             "Extractions",
-            gameFolderName,
-            "Versions",
-            versionFolderName,
           );
           const installationsVersionFolder = await join(
-            gameVaultRoot,
+            versionBaseFolder,
             "Installations",
-            gameFolderName,
-            "Versions",
-            versionFolderName,
           );
 
           await mkdir(downloadsVersionFolder, { recursive: true });
           await mkdir(extractionsVersionFolder, { recursive: true });
           await mkdir(installationsVersionFolder, { recursive: true });
-
-          console.log("Joining paths:", { downloadsVersionFolder, filename });
-          const filePath = await join(downloadsVersionFolder, filename);
-          tauriFilePath = filePath;
-          console.log("Full file path:", filePath);
-          console.log("File path type:", typeof filePath);
-          console.log("File path length:", filePath.length);
-
-          // Create the file for writing
-          console.log("Attempting to create file...");
-          let file;
-          try {
-            file = await create(filePath);
-            console.log("File created successfully, file object:", file);
-          } catch (createError) {
-            console.error("Error creating file:", createError);
-            console.error(
-              "Error details:",
-              JSON.stringify(createError, null, 2),
-            );
-            throw createError;
-          }
-
-          const res = await authFetch(url, {
-            method: "GET",
-            signal: ac.signal,
+          await writeGameMetadata(gameFolderPath, gameMetadata);
+          await writeVersionConfig(versionBaseFolder, {
+            downloadfinished: false,
+            extractionfinished: false,
           });
 
-          if (!res.ok) {
-            await file.close();
-            throw new Error(`HTTP ${res.status}`);
+          dlog("Joining paths:", { downloadsVersionFolder, filename });
+          const filePath = await join(downloadsVersionFolder, filename);
+          tauriFilePath = filePath;
+          updateDownload(gameId, {
+            downloadDirectory: downloadsVersionFolder,
+            extractionDirectory: extractionsVersionFolder,
+            installationDirectory: installationsVersionFolder,
+            versionDirectory: versionBaseFolder,
+            downloadedFilePath: filePath,
+          });
+          dlog("Full file path:", filePath);
+          dlog("File path type:", typeof filePath);
+          dlog("File path length:", filePath.length);
+          if (tauriUnlistenRef.current[gameId]) {
+            tauriUnlistenRef.current[gameId]();
+            delete tauriUnlistenRef.current[gameId];
           }
-          const total = Number(res.headers.get("Content-Length")) || 0;
-          console.log("Total download size:", total);
-          if (total > 0) updateDownload(gameId, { total });
 
-          const reader = res.body?.getReader();
-          if (!reader) {
-            await file.close();
-            throw new Error("Streaming not supported");
-          }
+          const unlisten = await listen<any>("download-progress", (event) => {
+            const payload = event.payload;
+            if (!payload || payload.gameId !== gameId) return;
 
-          let received = 0;
-
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              if (value) {
-                // Write chunk to file immediately
-                await file.write(value);
-
-                received += value.length;
-                const progressDecimal = total > 0 ? received / total : 0;
-                const progress = progressDecimal * 100; // Convert to percentage
-                const now = performance.now();
-                const samples = speedSamplesRef.current[gameId];
-                samples.push({ t: now, bytes: received });
-                trimSamples(samples, now);
-                const speedBps = computeSpeedBps(samples, received, now);
-                const last = lastUpdateRef.current[gameId] || 0;
-                if (now - last > UI_THROTTLE_MS || progressDecimal === 1) {
-                  lastUpdateRef.current[gameId] = now;
-                  updateDownload(gameId, { received, progress, speedBps });
-                  console.log(
-                    `Progress: ${progress.toFixed(1)}%, Received: ${received}/${total}`,
-                  );
-                }
-              }
+            if (payload.status === "downloading") {
+              const received = Number(payload.received || 0);
+              const total =
+                payload.total !== undefined && payload.total !== null
+                  ? Number(payload.total)
+                  : 0;
+              const progress = total > 0 ? (received / total) * 100 : 0;
+              const now = performance.now();
+              const samples = speedSamplesRef.current[gameId];
+              samples.push({ t: now, bytes: received });
+              trimSamples(samples, now);
+              const speedBps = computeSpeedBps(samples, received, now);
+              updateDownload(gameId, {
+                filename:
+                  typeof payload.filename === "string" && payload.filename
+                    ? payload.filename
+                    : entry.filename,
+                downloadedFilePath:
+                  typeof payload.filePath === "string" && payload.filePath
+                    ? payload.filePath
+                    : undefined,
+                received,
+                total: total || null,
+                progress,
+                speedBps,
+              });
+              return;
             }
 
-            console.log("Download complete, closing file...");
-            await file.close();
-            console.log("File closed successfully");
-            updateDownload(gameId, { status: "completed", progress: 100 });
-          } catch (error) {
-            console.error("Error during download:", error);
-            await file.close();
-            throw error;
-          }
+            if (payload.status === "completed") {
+              const received = Number(payload.received || 0);
+              const total =
+                payload.total !== undefined && payload.total !== null
+                  ? Number(payload.total)
+                  : null;
+              void writeVersionConfig(versionBaseFolder, {
+                downloadfinished: true,
+              });
+              updateDownload(gameId, {
+                status: "completed",
+                progress: 100,
+                received: total && total > 0 ? total : received,
+                total,
+                speedBps: undefined,
+                filename:
+                  typeof payload.filename === "string" && payload.filename
+                    ? payload.filename
+                    : entry.filename,
+                downloadedFilePath:
+                  typeof payload.filePath === "string" && payload.filePath
+                    ? payload.filePath
+                    : undefined,
+              });
+            } else if (payload.status === "aborted") {
+              updateDownload(gameId, {
+                status: "aborted",
+                received: 0,
+                total: null,
+                progress: 0,
+                speedBps: undefined,
+              });
+            } else if (payload.status === "error") {
+              updateDownload(gameId, {
+                status: "error",
+                error: payload.error || "Download failed",
+                received: 0,
+                total: null,
+                progress: 0,
+                speedBps: undefined,
+              });
+            }
+
+            const stop = tauriUnlistenRef.current[gameId];
+            if (stop) {
+              stop();
+              delete tauriUnlistenRef.current[gameId];
+            }
+          });
+
+          tauriUnlistenRef.current[gameId] = unlisten;
+
+          const authHeader = auth?.access_token
+            ? `Bearer ${auth.access_token}`
+            : null;
+
+          await invoke("download_game_version", {
+            gameId,
+            url,
+            destinationDir: downloadsVersionFolder,
+            fallbackFilename: filename,
+            authHeader,
+          });
           return;
         }
 
@@ -361,6 +504,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         if (!reader) throw new Error("Streaming not supported");
         const chunks: (Uint8Array | ArrayBuffer)[] = writer ? [] : [];
         let received = 0;
+        let lastSamplePush = performance.now();
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -372,8 +516,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             const progress = progressDecimal * 100; // Convert to percentage
             const now = performance.now();
             const samples = speedSamplesRef.current[gameId];
-            samples.push({ t: now, bytes: received });
-            trimSamples(samples, now);
+            if (now - lastSamplePush >= SAMPLE_INTERVAL_MS || progressDecimal === 1) {
+              samples.push({ t: now, bytes: received });
+              trimSamples(samples, now);
+              lastSamplePush = now;
+            }
             const speedBps = computeSpeedBps(samples, received, now);
             const last = lastUpdateRef.current[gameId] || 0;
             if (now - last > UI_THROTTLE_MS || progressDecimal === 1) {
@@ -394,7 +541,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           a.remove();
           URL.revokeObjectURL(objectUrl);
         }
-        updateDownload(gameId, { status: "completed", progress: 100 });
+        updateDownload(gameId, {
+          status: "completed",
+          progress: 100,
+          received: total > 0 ? total : received,
+          total: total || null,
+          speedBps: undefined,
+        });
       } catch (err: any) {
         if (isDesktop && tauriFilePath) {
           try {
@@ -407,13 +560,191 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           }
         }
         if (err?.name === "AbortError") {
-          updateDownload(gameId, { status: "aborted" });
+          updateDownload(gameId, {
+            status: "aborted",
+            received: 0,
+            total: null,
+            progress: 0,
+            speedBps: undefined,
+          });
         } else {
-          updateDownload(gameId, { status: "error", error: String(err) });
+          updateDownload(gameId, {
+            status: "error",
+            error: String(err),
+            received: 0,
+            total: null,
+            progress: 0,
+            speedBps: undefined,
+          });
         }
       }
     },
-    [serverUrl, authFetch, downloads, updateDownload, speedLimitKB],
+    [
+      serverUrl,
+      authFetch,
+      auth,
+      downloads,
+      updateDownload,
+      writeGameMetadata,
+      writeVersionConfig,
+      speedLimitKB,
+      trimSamples,
+      computeSpeedBps,
+    ],
+  );
+
+  const retryDownload = useCallback(
+    (gameId: number) => {
+      const d = downloads[gameId];
+      if (!d) return;
+      void startDownload({
+        gameId: d.gameId,
+        versionId: d.versionId,
+        versionName: d.versionName,
+        gameTitle: d.gameTitle,
+        gameMetadata: d.gameMetadata,
+        filename: d.filename,
+      });
+    },
+    [downloads, startDownload],
+  );
+
+  const openDownloadFolder = useCallback(
+    async (gameId: number) => {
+      if (!isTauriApp()) return;
+      const d = downloads[gameId];
+      if (!d?.downloadDirectory) return;
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_in_file_explorer", { path: d.downloadDirectory });
+    },
+    [downloads],
+  );
+
+  const extractArchive = useCallback(
+    async (gameId: number, password?: string) => {
+      if (!isTauriApp()) return;
+      const d = downloads[gameId];
+      if (!d?.downloadedFilePath || !d.extractionDirectory) return;
+
+      updateDownload(gameId, {
+        extractionStatus: "extracting",
+        extractionProgress: 0,
+        extractionCurrentFile: undefined,
+        extractionError: undefined,
+        extractionPasswordRequired: false,
+      });
+
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const { listen } = await import("@tauri-apps/api/event");
+
+        if (tauriExtractUnlistenRef.current[gameId]) {
+          tauriExtractUnlistenRef.current[gameId]();
+          delete tauriExtractUnlistenRef.current[gameId];
+        }
+
+        const unlisten = await listen<any>("extract-progress", (event) => {
+          const payload = event.payload;
+          if (!payload || payload.gameId !== gameId) return;
+
+          if (payload.status === "extracting") {
+            updateDownload(gameId, {
+              extractionStatus: "extracting",
+              extractionProgress:
+                typeof payload.progress === "number"
+                  ? Math.max(0, Math.min(100, payload.progress))
+                  : null,
+              extractionCurrentFile:
+                typeof payload.currentFile === "string" && payload.currentFile
+                  ? payload.currentFile
+                  : undefined,
+            });
+            return;
+          }
+
+          if (payload.status === "completed") {
+            updateDownload(gameId, {
+              extractionStatus: "completed",
+              extractionProgress: 100,
+              extractionCurrentFile: undefined,
+            });
+          } else if (payload.status === "needs-password") {
+            updateDownload(gameId, {
+              extractionStatus: "needs-password",
+              extractionPasswordRequired: true,
+              extractionError:
+                (typeof payload.error === "string" && payload.error) ||
+                "Archive password required.",
+            });
+          } else if (payload.status === "error") {
+            updateDownload(gameId, {
+              extractionStatus: "error",
+              extractionError:
+                (typeof payload.error === "string" && payload.error) ||
+                "Extraction failed.",
+            });
+          }
+        });
+
+        tauriExtractUnlistenRef.current[gameId] = unlisten;
+
+        const result = await invoke<{
+          success: boolean;
+          needsPassword: boolean;
+          message?: string;
+        }>("extract_archive", {
+          gameId,
+          archivePath: d.downloadedFilePath,
+          destinationPath: d.extractionDirectory,
+          password: password?.trim() || null,
+        });
+
+        if (result.success) {
+          if (d.versionDirectory) {
+            await writeVersionConfig(d.versionDirectory, {
+              extractionfinished: true,
+            });
+          }
+          updateDownload(gameId, {
+            extractionStatus: "completed",
+            extractionProgress: 100,
+            extractionCurrentFile: undefined,
+            extractionError: undefined,
+            extractionPasswordRequired: false,
+          });
+          return;
+        }
+
+        if (result.needsPassword) {
+          updateDownload(gameId, {
+            extractionStatus: "needs-password",
+            extractionProgress: null,
+            extractionPasswordRequired: true,
+            extractionError: result.message || "Archive password required.",
+          });
+          return;
+        }
+
+        updateDownload(gameId, {
+          extractionStatus: "error",
+          extractionProgress: null,
+          extractionError: result.message || "Extraction failed.",
+        });
+      } catch (err) {
+        updateDownload(gameId, {
+          extractionStatus: "error",
+          extractionProgress: null,
+          extractionError: String(err),
+        });
+      } finally {
+        const stop = tauriExtractUnlistenRef.current[gameId];
+        if (stop) {
+          stop();
+          delete tauriExtractUnlistenRef.current[gameId];
+        }
+      }
+    },
+    [downloads, updateDownload, writeVersionConfig],
   );
 
   const setSpeedLimitKB = useCallback((v: number) => {
@@ -441,6 +772,79 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener("storage", handler);
     return () => window.removeEventListener("storage", handler);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const recoverDownloads = async () => {
+      if (!isTauriApp()) return;
+      const selectedRoot = localStorage.getItem("tauri_download_path");
+      if (!selectedRoot) return;
+
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const recoveredCards = await invoke<any[]>("recover_download_cards", {
+          selectedRoot,
+        });
+        const recovered: Record<number, ActiveDownload> = {};
+
+        for (const card of recoveredCards || []) {
+          const gameId = Number(card.gameId || 0);
+          if (!gameId) continue;
+
+          recovered[gameId] = {
+            gameId,
+            versionId: Number(card.versionId || 0),
+            gameTitle: String(card.gameTitle || "Unknown Game"),
+            gameMetadata: card.gameMetadata,
+            versionName: String(card.versionName || ""),
+            filename: String(card.filename || "download.bin"),
+            downloadDirectory: String(card.downloadDirectory || ""),
+            extractionDirectory: String(card.extractionDirectory || ""),
+            installationDirectory: String(card.installationDirectory || ""),
+            versionDirectory: String(card.versionDirectory || ""),
+            downloadedFilePath: card.downloadedFilePath
+              ? String(card.downloadedFilePath)
+              : undefined,
+            received: Number(card.received || 0),
+            total:
+              card.total !== undefined && card.total !== null
+                ? Number(card.total)
+                : null,
+            progress: Number(card.progress || 0),
+            abortController: new AbortController(),
+            startedAt: performance.now(),
+            speedBps: undefined,
+            status:
+              card.status === "completed"
+                ? "completed"
+                : card.status === "error"
+                  ? "error"
+                  : "aborted",
+            extractionStatus:
+              card.extractionStatus === "completed"
+                ? "completed"
+                : "idle",
+            extractionProgress:
+              card.extractionProgress !== undefined &&
+              card.extractionProgress !== null
+                ? Number(card.extractionProgress)
+                : null,
+          };
+        }
+
+        if (!mounted || !Object.keys(recovered).length) return;
+        setDownloads((prev) => ({ ...recovered, ...prev }));
+      } catch (error) {
+        console.warn("Failed to recover downloads from GameVault config:", error);
+      }
+    };
+
+    void recoverDownloads();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const formatBytes = useCallback((bytes: number) => {
@@ -492,6 +896,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     downloads,
     startDownload,
     cancelDownload,
+    retryDownload,
+    openDownloadFolder,
+    extractArchive,
     speedLimitKB,
     setSpeedLimitKB,
     formatBytes,

@@ -286,7 +286,13 @@ export default function GameView() {
     (action: "direct" | "tauri" | "client", selectedVersion: GameVersionEntity) => {
       if (!game) return;
       const resolvedTitle = title || game.title;
-      const selectedFilename = `${resolvedTitle}.zip`;
+      const filePathFallback = selectedVersion.file_path
+        ? selectedVersion.file_path.split(/[/\\]/).pop()
+        : undefined;
+      const selectedFilename =
+        filePathFallback && filePathFallback.trim().length > 0
+          ? filePathFallback
+          : `${resolvedTitle}.zip`;
 
       if (action === "client") {
         window.location.href = `gamevault://install?gameid=${game.id}&versionid=${selectedVersion.id}`;
@@ -298,6 +304,7 @@ export default function GameView() {
         versionId: selectedVersion.id,
         versionName: selectedVersion.version,
         gameTitle: resolvedTitle,
+        gameMetadata: game.metadata,
         filename: selectedFilename,
       });
 

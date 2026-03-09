@@ -121,7 +121,13 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   const executeDownloadAction = useCallback(
     (action: "direct" | "tauri" | "client", selectedVersion: GameVersionEntity) => {
       const resolvedTitle = localGame.metadata?.title || localGame.title;
-      const selectedFilename = `${resolvedTitle}.zip`;
+      const filePathFallback = selectedVersion.file_path
+        ? selectedVersion.file_path.split(/[/\\]/).pop()
+        : undefined;
+      const selectedFilename =
+        filePathFallback && filePathFallback.trim().length > 0
+          ? filePathFallback
+          : `${resolvedTitle}.zip`;
 
       if (action === "client") {
         const url = `gamevault://install?gameid=${game.id}&versionid=${selectedVersion.id}`;
@@ -134,6 +140,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
         versionId: selectedVersion.id,
         versionName: selectedVersion.version,
         gameTitle: resolvedTitle,
+        gameMetadata: localGame.metadata,
         filename: selectedFilename,
       });
 
