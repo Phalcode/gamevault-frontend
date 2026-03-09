@@ -1,7 +1,7 @@
 import { Navbar } from "@components/Navbar";
 import { Sidebar } from "@components/Sidebar";
 import { SidebarLayout } from "@tw/sidebar-layout";
-import { Outlet } from "react-router";
+import { Outlet, matchPath, useLocation } from "react-router";
 import ProtectedRoute from "../guards/ProtectedRoute";
 
 interface DashboardLayoutProps {
@@ -11,9 +11,19 @@ interface DashboardLayoutProps {
 export default function DashboardLayout({
   guarded = true,
 }: DashboardLayoutProps) {
+  const location = useLocation();
+  const isGameViewRoute = Boolean(
+    matchPath({ path: "/library/:id" }, location.pathname),
+  );
+
   return (
     <ProtectedRoute guarded={guarded}>
-      <SidebarLayout sidebar={<Sidebar />} navbar={<Navbar />}>
+      <SidebarLayout
+        sidebar={<Sidebar />}
+        navbar={<Navbar />}
+        fullWidth={isGameViewRoute}
+        fullBleed={isGameViewRoute}
+      >
         <Outlet />
       </SidebarLayout>
     </ProtectedRoute>

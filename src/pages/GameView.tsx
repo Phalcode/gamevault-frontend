@@ -70,6 +70,50 @@ export default function GameView() {
   >(null);
   const [selectableVersions, setSelectableVersions] = useState<GameVersion[]>([]);
   const isTauri = isTauriApp();
+  const backgroundMediaId = game?.metadata?.background?.id;
+  const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
+  const backgroundRevokeRef = useRef<string | null>(null);
+
+  useEffect(
+    () => () => {
+      if (backgroundRevokeRef.current) {
+        URL.revokeObjectURL(backgroundRevokeRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (backgroundRevokeRef.current) {
+      URL.revokeObjectURL(backgroundRevokeRef.current);
+      backgroundRevokeRef.current = null;
+    }
+
+    setBackgroundUrl(null);
+
+    if (!backgroundMediaId || !serverUrl) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = serverUrl.replace(/\/+$/, "");
+        const res = await authFetch(`${base}/api/media/${backgroundMediaId}`);
+        if (!res.ok)
+          throw new Error(`Failed to load background (${res.status})`);
+        const blob = await res.blob();
+        if (cancelled) return;
+        const objectUrl = URL.createObjectURL(blob);
+        backgroundRevokeRef.current = objectUrl;
+        setBackgroundUrl(objectUrl);
+      } catch {
+        if (!cancelled) setBackgroundUrl(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backgroundMediaId, serverUrl, authFetch]);
 
   useEffect(() => {
     if (!serverUrl || !numericId || Number.isNaN(numericId)) return;
@@ -459,20 +503,63 @@ export default function GameView() {
           return `${val}%`;
         })()
       : null;
+  const backgroundMaskImage =
+    "linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)";
 
   // Removed h-full overflow-auto to prevent nested scroll area causing double vertical scrollbar; letting parent layout manage vertical scrolling.
   return (
-    <div className="flex flex-col pb-12">
-      {loading && (
-        <div className="p-6 text-sm text-fg-muted">Loading game…</div>
-      )}
-      {error && (
-        <div className="p-6 text-sm text-red-500 bg-red-500/10 rounded-md max-w-xl">
-          {error}
-        </div>
-      )}
-      {!loading && !error && game && (
-        <div className="px-2 max-w-[1400px] w-full grid xl:grid-cols-[1fr_20rem] gap-10">
+    <div className="relative isolate flex min-h-full flex-col overflow-hidden px-4 pb-4 sm:px-6 lg:px-8">
+      <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 w-screen -translate-x-1/2">
+        <div className="absolute inset-0 bg-zinc-100 dark:bg-zinc-950" />
+
+        {backgroundUrl ? (
+          <>
+            <div
+              className="absolute inset-0 opacity-30"
+              style={{
+                backgroundImage: `url(${backgroundUrl})`,
+                backgroundPosition: "center center",
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "cover",
+                WebkitMaskImage: backgroundMaskImage,
+                maskImage: backgroundMaskImage,
+                WebkitMaskComposite: "source-in",
+              }}
+            />
+            <div
+              className="absolute inset-[-6%] opacity-32 blur-3xl"
+              style={{
+                backgroundImage: `url(${backgroundUrl})`,
+                backgroundPosition: "center center",
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "cover",
+                WebkitMaskImage: backgroundMaskImage,
+                maskImage: backgroundMaskImage,
+                WebkitMaskComposite: "source-in",
+              }}
+            />
+          </>
+        ) : (
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(99,102,241,0.14),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.05)_0%,rgba(255,255,255,0.02)_38%,rgba(255,255,255,0)_100%)] dark:bg-[radial-gradient(circle_at_50%_0%,rgba(99,102,241,0.18),transparent_42%),linear-gradient(180deg,rgba(24,24,27,0.24)_0%,rgba(24,24,27,0.1)_36%,rgba(24,24,27,0)_100%)]" />
+        )}
+
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.09),transparent_40%)] dark:bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.04),transparent_40%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.06)_18%,rgba(255,255,255,0)_42%,rgba(255,255,255,0)_100%)] dark:bg-[linear-gradient(180deg,rgba(9,9,11,0.16)_0%,rgba(9,9,11,0.08)_18%,rgba(9,9,11,0)_42%,rgba(9,9,11,0)_100%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(244,244,245,0.12)_0%,rgba(244,244,245,0.04)_24%,rgba(244,244,245,0)_45%,rgba(99,102,241,0.03)_100%)] dark:bg-[linear-gradient(135deg,rgba(24,24,27,0.12)_0%,rgba(24,24,27,0.05)_24%,rgba(24,24,27,0)_45%,rgba(99,102,241,0.05)_100%)]" />
+        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-white/10 to-transparent dark:from-zinc-950/10 dark:to-transparent sm:h-20 xl:h-24" />
+      </div>
+
+      <div className="relative z-10 flex w-full flex-col">
+        {loading && (
+          <div className="p-6 text-sm text-fg-muted">Loading game…</div>
+        )}
+        {error && (
+          <div className="p-6 text-sm text-red-500 bg-red-500/10 rounded-md max-w-xl">
+            {error}
+          </div>
+        )}
+        {!loading && !error && game && (
+          <div className="mx-auto grid w-full max-w-[1400px] gap-10 px-2 pt-4 xl:grid-cols-[1fr_20rem]">
           {/* Row 1: Cover/Title/Actions spans both columns on mobile but only left column on xl */}
           <div className="flex flex-row gap-4 items-start xl:col-span-1 xl:row-span-1 min-w-0">
             <div className="w-32 aspect-[3/4] rounded-lg overflow-hidden bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-500">
@@ -530,9 +617,9 @@ export default function GameView() {
                   </Dropdown>
                 )}
                 <Button
-                  plain
+                  outline
                   onClick={() => setSettingsOpen(true)}
-                  className="h-9 w-9 p-0 flex items-center justify-center"
+                  className="h-9 w-9 p-0 flex items-center justify-center border-white/20 bg-zinc-900/40 text-white shadow-sm backdrop-blur-sm hover:bg-zinc-800/60 dark:border-white/20 dark:bg-zinc-700/50 dark:hover:bg-zinc-600/60"
                   title="Settings"
                 >
                   <Cog8ToothIcon className="w-5 h-5" />
@@ -558,9 +645,9 @@ export default function GameView() {
                   )}
                 </button>
                 <Button
-                  plain
+                  outline
                   onClick={handleShare}
-                  className="h-9 w-9 p-0 flex items-center justify-center"
+                  className="h-9 w-9 p-0 flex items-center justify-center border-white/20 bg-zinc-900/40 text-white shadow-sm backdrop-blur-sm hover:bg-zinc-800/60 dark:border-white/20 dark:bg-zinc-700/50 dark:hover:bg-zinc-600/60"
                   title="Copy link"
                 >
                   <ShareIcon className="w-5 h-5" />
@@ -642,6 +729,7 @@ export default function GameView() {
                 value={progressState || "UNPLAYED"}
                 onChange={(v: any) => updateProgressState(v)}
                 disabled={!user || progressUpdating}
+                className="rounded-lg before:bg-zinc-900/40 before:backdrop-blur-sm before:shadow-none dark:bg-zinc-700/50 dark:before:hidden"
               >
                 {progressStateOptions.map((o) => (
                   <ListboxOption key={o.key} value={o.key}>
@@ -956,28 +1044,29 @@ export default function GameView() {
               </Card>
             </div>
           </div>
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* Game Settings Modal */}
-      {settingsOpen && game && (
-        <GameSettings
-          game={game}
-          onClose={() => setSettingsOpen(false)}
-          onGameUpdated={(updatedGame) => setGame(updatedGame)}
+        {/* Game Settings Modal */}
+        {settingsOpen && game && (
+          <GameSettings
+            game={game}
+            onClose={() => setSettingsOpen(false)}
+            onGameUpdated={(updatedGame) => setGame(updatedGame)}
+          />
+        )}
+        <VersionSelectDialog
+          open={versionDialogOpen}
+          gameTitle={title || game?.title || "Game"}
+          versions={selectableVersions}
+          onClose={() => {
+            setVersionDialogOpen(false);
+            setPendingDownloadAction(null);
+            setSelectableVersions([]);
+          }}
+          onSelect={handleVersionSelect}
         />
-      )}
-      <VersionSelectDialog
-        open={versionDialogOpen}
-        gameTitle={title || game?.title || "Game"}
-        versions={selectableVersions}
-        onClose={() => {
-          setVersionDialogOpen(false);
-          setPendingDownloadAction(null);
-          setSelectableVersions([]);
-        }}
-        onSelect={handleVersionSelect}
-      />
+      </div>
     </div>
   );
 }
