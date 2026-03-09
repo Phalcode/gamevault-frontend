@@ -1,4 +1,5 @@
 import { useDownloads } from "@/context/DownloadContext";
+import { useAlertDialog } from "@/context/AlertDialogContext";
 import { Button } from "@/components/tailwind/button";
 import { Heading } from "@tw/heading";
 import { Divider } from "@tw/divider";
@@ -9,6 +10,9 @@ import { useMemo, useState } from "react";
 import {
   ArrowDownTrayIcon,
   ArrowPathIcon,
+  PauseIcon,
+  PlayIcon,
+  TrashIcon,
   ArchiveBoxIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -37,12 +41,16 @@ export default function Downloads() {
   const {
     downloads,
     cancelDownload,
+    pauseDownload,
+    resumeDownload,
+    deleteDownloadCard,
     retryDownload,
     openDownloadFolder,
     extractArchive,
     formatBytes,
     formatSpeed,
   } = useDownloads();
+  const { showAlert } = useAlertDialog();
   const [passwordByGame, setPasswordByGame] = useState<Record<number, string>>(
     {},
   );
@@ -53,6 +61,7 @@ export default function Downloads() {
   const getDownloadStepState = (status: string): StepState => {
     if (status === "completed") return "done";
     if (status === "downloading") return "active";
+    if (status === "paused") return "active";
     if (status === "error" || status === "aborted") return "error";
     return "pending";
   };
@@ -75,6 +84,18 @@ export default function Downloads() {
     await extractArchive(gameId, password);
   };
 
+  const handleDeleteCard = async (gameId: number) => {
+    const confirmed = await showAlert({
+      title: "Delete download?",
+      description:
+        "Do you really want to delete this download card? This removes only the Downloads and Extractions folders for this game version.",
+      affirmativeText: "Yes",
+      negativeText: "No",
+    });
+    if (!confirmed) return;
+    await deleteDownloadCard(gameId);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
@@ -94,6 +115,8 @@ export default function Downloads() {
             const progressText =
               download.status === "downloading"
                 ? `${download.progress?.toFixed(1) || "0.0"}%`
+                : download.status === "paused"
+                  ? "Paused"
                 : download.status === "completed"
                   ? "Done"
                   : download.status === "aborted"
@@ -103,8 +126,17 @@ export default function Downloads() {
             return (
               <div
                 key={download.gameId}
-                className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4"
+                className="relative rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4"
               >
+                <button
+                  type="button"
+                  aria-label="Delete download card"
+                  title="Delete download and extraction folders"
+                  onClick={() => void handleDeleteCard(download.gameId)}
+                  className="absolute top-3 right-3 inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-100 hover:text-red-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+                >
+                  <TrashIcon className="h-4 w-4" />
+                </button>
                 <div className="flex items-start gap-4">
                   <div className="pt-1 min-w-[180px]">
                     <ol className="space-y-3">
@@ -121,7 +153,7 @@ export default function Downloads() {
                   </div>
 
                   <div className="flex-1 min-w-0 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start justify-between gap-3 pr-10">
                       <div className="min-w-0">
                         <h3
                           className="font-medium text-sm text-zinc-900 dark:text-zinc-100 truncate"
@@ -157,7 +189,8 @@ export default function Downloads() {
                       </Badge>
                     </div>
 
-                    {download.status === "downloading" && (
+                    {(download.status === "downloading" ||
+                      download.status === "paused") && (
                       <div className="relative w-full h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
                         <div
                           className="absolute left-0 top-0 h-full bg-blue-500 transition-all duration-300"
@@ -175,6 +208,24 @@ export default function Downloads() {
                         >
                           <FolderOpenIcon className="h-4 w-4" />
                           Open Folder
+                        </Button>
+                      )}
+                      {download.status === "downloading" && (
+                        <Button
+                          color="amber"
+                          onClick={() => pauseDownload(download.gameId)}
+                        >
+                          <PauseIcon className="h-4 w-4" />
+                          Pause
+                        </Button>
+                      )}
+                      {download.status === "paused" && (
+                        <Button
+                          color="indigo"
+                          onClick={() => resumeDownload(download.gameId)}
+                        >
+                          <PlayIcon className="h-4 w-4" />
+                          Resume
                         </Button>
                       )}
                       {download.status === "downloading" && (
