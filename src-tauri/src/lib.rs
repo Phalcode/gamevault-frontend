@@ -159,16 +159,22 @@ fn escape_powershell_single_quoted(value: &str) -> String {
 fn run_elevated_installer_and_wait(
   executable: &str,
   argument_list: Option<&str>,
+  working_directory: Option<&str>,
 ) -> Result<Option<i32>, String> {
   let file_path = escape_powershell_single_quoted(executable);
+  let working_directory_segment = working_directory
+    .filter(|value| !value.trim().is_empty())
+    .map(escape_powershell_single_quoted)
+    .map(|value| format!(" -WorkingDirectory '{value}'"))
+    .unwrap_or_default();
   let script = if let Some(arguments) = argument_list.filter(|value| !value.trim().is_empty()) {
     let escaped_arguments = escape_powershell_single_quoted(arguments);
     format!(
-      "$process = Start-Process -FilePath '{file_path}' -ArgumentList '{escaped_arguments}' -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
+      "$process = Start-Process -FilePath '{file_path}' -ArgumentList '{escaped_arguments}'{working_directory_segment} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
     )
   } else {
     format!(
-      "$process = Start-Process -FilePath '{file_path}' -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
+      "$process = Start-Process -FilePath '{file_path}'{working_directory_segment} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
     )
   };
 
@@ -1689,6 +1695,7 @@ fn launch_installation_executable(
               } else {
                 Some(fallback_argument_list.as_str())
               },
+              installer_path.parent().and_then(|value| value.to_str()),
             ) {
               Ok(exit_code) => {
                 emit_installer_status(
@@ -1774,6 +1781,102 @@ fn launch_installation_executable(
   });
 
   Ok(())
+}
+
+#[tauri::command]
+fn launch_uninstall_executable(
+  executable_path: String,
+  working_directory: Option<String>,
+  argument_list: Option<String>,
+) -> Result<Option<i32>, String> {
+  let executable = PathBuf::from(&executable_path);
+  if !executable.exists() || !executable.is_file() {
+    return Err("Selected uninstall executable does not exist".to_string());
+  }
+
+  let is_msi = executable
+    .extension()
+    .and_then(|value| value.to_str())
+    .map(|value| value.eq_ignore_ascii_case("msi"))
+    .unwrap_or(false);
+
+  let mut command = if is_msi {
+    let mut cmd = Command::new("msiexec");
+    cmd.arg("/x").arg(&executable);
+    cmd
+  } else {
+    Command::new(&executable)
+  };
+
+  if let Some(directory) = working_directory.as_deref().filter(|value| !value.trim().is_empty()) {
+    command.current_dir(directory);
+  }
+
+  let resolved_arguments = argument_list
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .map(str::to_string);
+  let fallback_argument_list = if is_msi {
+    let base = format!("/x \"{}\"", executable.display());
+    match resolved_arguments.as_deref() {
+      Some(arguments) => format!("{base} {arguments}"),
+      None => base,
+    }
+  } else {
+    resolved_arguments.clone().unwrap_or_default()
+  };
+
+  if let Some(arguments) = resolved_arguments {
+    #[cfg(windows)]
+    {
+      command.raw_arg(arguments);
+    }
+
+    #[cfg(not(windows))]
+    {
+      for arg in arguments.split_whitespace() {
+        command.arg(arg);
+      }
+    }
+  }
+
+  let child = match command.spawn() {
+    Ok(child) => child,
+    Err(error) => {
+      #[cfg(windows)]
+      {
+        if error.raw_os_error() == Some(740) {
+          return run_elevated_installer_and_wait(
+            command.get_program().to_string_lossy().as_ref(),
+            if fallback_argument_list.trim().is_empty() {
+              None
+            } else {
+              Some(fallback_argument_list.as_str())
+            },
+            working_directory.as_deref(),
+          );
+        }
+      }
+
+      return Err(format!("Failed to start uninstall executable: {error}"));
+    }
+  };
+
+  match child.wait_with_output() {
+    Ok(output) => {
+      let exit_code = output.status.code();
+      if output.status.success() {
+        Ok(exit_code)
+      } else {
+        Err(format!(
+          "Uninstall executable exited with code {}.",
+          exit_code.unwrap_or(-1)
+        ))
+      }
+    }
+    Err(error) => Err(format!("Failed while waiting for uninstall executable: {error}")),
+  }
 }
 
 #[tauri::command]
@@ -1915,6 +2018,7 @@ pub fn run() {
       list_install_executables,
       copy_installation_files,
       launch_installation_executable,
+      launch_uninstall_executable,
       download_game_version,
       cancel_download_task,
       pause_download_task,

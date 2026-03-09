@@ -7,14 +7,19 @@ import {
   ListboxOption,
   ListboxLabel,
 } from "@/components/tailwind/listbox";
-import { GamevaultGame } from "@/api/models/GamevaultGame";
+import {
+  GamevaultGame,
+  GamevaultGameTypeEnum,
+} from "@/api/models/GamevaultGame";
 import { UpdateGameDto } from "@/api/models/UpdateGameDto";
 import { MetadataProviderDto } from "@/api/models/MetadataProviderDto";
 import { GameMetadata } from "@/api/models/GameMetadata";
 import { MapGameDto } from "@/api/models/MapGameDto";
+import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { isTauriApp } from "@/utils/tauri";
 import {
   PhotoIcon,
   CircleStackIcon,
@@ -23,7 +28,9 @@ import {
   SparklesIcon,
   ArrowUturnLeftIcon,
   ArrowPathIcon,
+  FolderOpenIcon,
   LinkSlashIcon,
+  TrashIcon,
 } from "@heroicons/react/24/outline";
 import { PaintBrushIcon } from "@heroicons/react/16/solid";
 
@@ -64,7 +71,30 @@ type CustomMetadataForm = {
   developers: string;
 };
 
-type TabKey = "images" | "metadata" | "custom-metadata";
+type InstalledGameInfo = {
+  gameId: number;
+  gameTitle: string;
+  gameType?: string;
+  versionId: number;
+  versionName: string;
+  installationDirectory: string;
+  versionDirectory: string;
+};
+
+const DOWNLOAD_PATH_KEY = "tauri_download_path";
+
+function isSetupInstallType(gameType?: string) {
+  return gameType === GamevaultGameTypeEnum.windows_setup;
+}
+
+function isPortableInstallType(gameType?: string) {
+  return (
+    gameType === GamevaultGameTypeEnum.windows_portable ||
+    gameType === GamevaultGameTypeEnum.linux_portable ||
+    gameType === GamevaultGameTypeEnum.windows_software ||
+    gameType === GamevaultGameTypeEnum.linux_software
+  );
+}
 
 interface ImageState {
   file: File | null;
@@ -75,6 +105,13 @@ interface ImageState {
   loadedId?: number | null;
 }
 
+type TabKey =
+  | "images"
+  | "metadata"
+  | "custom-metadata"
+  | "installation"
+  | "launch-options";
+
 export function GameSettings({ game, onClose, onGameUpdated }: Props) {
   const { serverUrl, authFetch } = useAuth() as any;
   const { showAlert } = useAlertDialog();
@@ -82,6 +119,11 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
   const [saving, setSaving] = useState(false);
   const [fullGame, setFullGame] = useState<GamevaultGame | null>(null);
   const [loadingFullGame, setLoadingFullGame] = useState(true);
+  const [installedGame, setInstalledGame] = useState<InstalledGameInfo | null>(
+    null,
+  );
+  const [uninstalling, setUninstalling] = useState(false);
+  const isTauri = isTauriApp();
 
   // Image state & logic
   const [coverImg, setCoverImg] = useState<ImageState>({
@@ -181,6 +223,248 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
 
   // Use fullGame if available, otherwise fallback to game prop
   const workingGame = fullGame || game;
+  const installationTabsVisible = isTauri && !!installedGame;
+
+  const findInstalledGame = useCallback(async (): Promise<InstalledGameInfo | null> => {
+    if (!isTauri) return null;
+    const selectedRoot = localStorage.getItem(DOWNLOAD_PATH_KEY);
+    if (!selectedRoot) return null;
+
+    const { invoke } = await import("@tauri-apps/api/core");
+    const recoveredCards = await invoke<any[]>("recover_download_cards", {
+      selectedRoot,
+    });
+
+    const match = (recoveredCards || [])
+      .filter(
+        (card) =>
+          Number(card.gameId || 0) === workingGame.id &&
+          Boolean(card.installationFinished) &&
+          typeof card.installationDirectory === "string" &&
+          card.installationDirectory.trim().length > 0 &&
+          typeof card.versionDirectory === "string" &&
+          card.versionDirectory.trim().length > 0,
+      )
+      .sort(
+        (left, right) =>
+          Number(right.versionId || 0) - Number(left.versionId || 0),
+      )[0];
+
+    if (!match) return null;
+
+    return {
+      gameId: Number(match.gameId || workingGame.id),
+      gameTitle:
+        String(match.gameTitle || "").trim() ||
+        workingGame.metadata?.title ||
+        workingGame.title ||
+        "Game",
+      gameType:
+        typeof match.gameType === "string" && match.gameType.trim().length > 0
+          ? match.gameType
+          : undefined,
+      versionId: Number(match.versionId || 0),
+      versionName: String(match.versionName || "").trim(),
+      installationDirectory: String(match.installationDirectory || ""),
+      versionDirectory: String(match.versionDirectory || ""),
+    };
+  }, [isTauri, workingGame.id, workingGame.metadata?.title, workingGame.title]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const nextInstalledGame = await findInstalledGame();
+        if (!cancelled) {
+          setInstalledGame(nextInstalledGame);
+        }
+      } catch (error) {
+        console.warn("Failed to detect installed game state:", error);
+        if (!cancelled) {
+          setInstalledGame(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [findInstalledGame]);
+
+  useEffect(() => {
+    if (
+      !installationTabsVisible &&
+      (activeTab === "installation" || activeTab === "launch-options")
+    ) {
+      setActiveTab("images");
+    }
+  }, [activeTab, installationTabsVisible]);
+
+  const updateInstallationFinishedFlag = useCallback(
+    async (versionDirectory: string, installationFinished: boolean) => {
+      const { exists, readTextFile, writeTextFile } = await import(
+        "@tauri-apps/plugin-fs"
+      );
+      const { join } = await import("@tauri-apps/api/path");
+
+      const configPath = await join(versionDirectory, ".gamevault.game.config.json");
+      if (!(await exists(configPath))) return;
+
+      let current: Partial<GameVaultConfig> = {};
+      try {
+        current = JSON.parse(await readTextFile(configPath)) as Partial<GameVaultConfig>;
+      } catch {
+        current = {};
+      }
+
+      const next: GameVaultConfig = {
+        gameid: current.gameid,
+        versionid: current.versionid,
+        gametype: current.gametype,
+        downloadfinished: Boolean(current.downloadfinished),
+        extractionfinished: Boolean(current.extractionfinished),
+        installationfinished: installationFinished,
+        downloadprogress:
+          typeof current.downloadprogress === "string"
+            ? current.downloadprogress
+            : "",
+      };
+
+      await writeTextFile(configPath, JSON.stringify(next, null, 2));
+    },
+    [],
+  );
+
+  const handleOpenInstallationDirectory = useCallback(async () => {
+    if (!installedGame?.installationDirectory) return;
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_in_file_explorer", {
+        path: installedGame.installationDirectory,
+      });
+    } catch (error: any) {
+      await showAlert({
+        title: "Error",
+        description: error?.message || String(error),
+        affirmativeText: "OK",
+      });
+    }
+  }, [installedGame, showAlert]);
+
+  const handleUninstallGame = useCallback(async () => {
+    if (!installedGame) return;
+
+    const resolvedTitle =
+      workingGame.metadata?.title || workingGame.title || installedGame.gameTitle;
+
+    if (isPortableInstallType(installedGame.gameType)) {
+      const confirmed = await showAlert({
+        title: `Are you sure you want to uninstall ${resolvedTitle} ?`,
+        affirmativeText: "Yes",
+        negativeText: "No",
+      });
+
+      if (!confirmed) return;
+
+      setUninstalling(true);
+      try {
+        const { exists, remove } = await import("@tauri-apps/plugin-fs");
+        if (await exists(installedGame.installationDirectory)) {
+          await remove(installedGame.installationDirectory, { recursive: true });
+        }
+        await updateInstallationFinishedFlag(
+          installedGame.versionDirectory,
+          false,
+        );
+        setInstalledGame(await findInstalledGame());
+        await showAlert({
+          title: "Game uninstalled",
+          affirmativeText: "OK",
+        });
+      } catch (error: any) {
+        await showAlert({
+          title: "Error",
+          description: error?.message || "Failed to uninstall game",
+          affirmativeText: "OK",
+        });
+      } finally {
+        setUninstalling(false);
+      }
+      return;
+    }
+
+    if (isSetupInstallType(installedGame.gameType)) {
+      const confirmed = await showAlert({
+        title: `Are you sure you want to uninstall '${resolvedTitle}' ?`,
+        description:
+          "As this is a Windows Setup Game, you will need to select an uninstall executable manually",
+        affirmativeText: "Yes",
+        negativeText: "No",
+      });
+
+      if (!confirmed) return;
+
+      try {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const selected = await open({
+          directory: false,
+          multiple: false,
+          defaultPath: installedGame.installationDirectory,
+          title: "Select Uninstall Executable",
+          filters: [
+            {
+              name: "Executables",
+              extensions: ["exe", "msi", "bat", "cmd", "com"],
+            },
+          ],
+        });
+
+        if (typeof selected !== "string" || !selected) return;
+
+        setUninstalling(true);
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("launch_uninstall_executable", {
+          executablePath: selected,
+          workingDirectory: installedGame.installationDirectory,
+          argumentList: workingGame.metadata?.uninstaller_parameters || null,
+        });
+        await updateInstallationFinishedFlag(
+          installedGame.versionDirectory,
+          false,
+        );
+        setInstalledGame(await findInstalledGame());
+        await showAlert({
+          title: "Game uninstalled",
+          affirmativeText: "OK",
+        });
+      } catch (error: any) {
+        await showAlert({
+          title: "Error",
+          description: error?.message || "Failed to run uninstall executable",
+          affirmativeText: "OK",
+        });
+      } finally {
+        setUninstalling(false);
+      }
+      return;
+    }
+
+    await showAlert({
+      title: "Unsupported game type",
+      description: "Only portable and setup games can be uninstalled right now.",
+      affirmativeText: "OK",
+    });
+  }, [
+    findInstalledGame,
+    installedGame,
+    showAlert,
+    updateInstallationFinishedFlag,
+    workingGame.metadata?.title,
+    workingGame.metadata?.uninstaller_parameters,
+    workingGame.title,
+  ]);
 
   // Computed: Current shown mapped game
   const currentShownMappedGame = useMemo<GameMetadata | null>(() => {
@@ -1210,6 +1494,34 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
                   <PencilIcon className="w-5 h-5 flex-shrink-0" />
                   <span className="whitespace-nowrap">Custom Metadata</span>
                 </button>
+                {installationTabsVisible && (
+                  <>
+                    <button
+                      onClick={() => setActiveTab("installation")}
+                      className={
+                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                        (activeTab === "installation"
+                          ? "bg-indigo-500 text-white"
+                          : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800")
+                      }
+                    >
+                      <FolderOpenIcon className="w-5 h-5 flex-shrink-0" />
+                      <span>Installation</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("launch-options")}
+                      className={
+                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                        (activeTab === "launch-options"
+                          ? "bg-indigo-500 text-white"
+                          : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800")
+                      }
+                    >
+                      <SparklesIcon className="w-5 h-5 flex-shrink-0" />
+                      <span>Launch options</span>
+                    </button>
+                  </>
+                )}
               </nav>
             </div>
 
@@ -2606,6 +2918,65 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
                           ? "Saving..."
                           : "Save Custom Metadata"}
                       </Button>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "installation" && installedGame && (
+                  <div className="max-w-3xl space-y-6">
+                    <div>
+                      <h3 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">
+                        Installation
+                      </h3>
+                      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                        here you can manage your Game Installation
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
+                      <div className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                        This Game was installed to
+                      </div>
+                      <div className="mt-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                        {installedGame.installationDirectory}
+                      </div>
+                      {installedGame.versionName && (
+                        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                          Installed version: {installedGame.versionName}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-3">
+                      <Button
+                        color="zinc"
+                        onClick={handleOpenInstallationDirectory}
+                        disabled={uninstalling}
+                      >
+                        <FolderOpenIcon className="w-4 h-4" />
+                        Open Directory
+                      </Button>
+                      <Button
+                        color="rose"
+                        onClick={handleUninstallGame}
+                        disabled={uninstalling}
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                        {uninstalling ? "Uninstalling..." : "Uninstall Game"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "launch-options" && installedGame && (
+                  <div className="max-w-3xl space-y-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">
+                        Launch options
+                      </h3>
+                      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                        Coming soon.
+                      </p>
                     </div>
                   </div>
                 )}
