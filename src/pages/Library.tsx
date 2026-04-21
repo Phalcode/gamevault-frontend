@@ -858,7 +858,7 @@ export default function Library() {
           </div>
         </div>
       )}
-      <div className="flex-1 overflow-y-scroll overflow-x-hidden text-center">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden text-center">
         {!serverUrl && (
           <div className="p-8 text-sm text-fg-muted">
             Connect to a server to load games.
