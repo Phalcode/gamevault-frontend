@@ -38,6 +38,7 @@ interface Props {
   game: GamevaultGame;
   onClose: () => void;
   onGameUpdated?: (g: GamevaultGame) => void;
+  onUninstalled?: () => void;
 }
 
 // No cool object binding in react, so we manually pick fields for custom metadata. But at least this is type save
@@ -112,7 +113,7 @@ type TabKey =
   | "installation"
   | "launch-options";
 
-export function GameSettings({ game, onClose, onGameUpdated }: Props) {
+export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Props) {
   const { serverUrl, authFetch } = useAuth() as any;
   const { showAlert } = useAlertDialog();
   const [activeTab, setActiveTab] = useState<TabKey>("images");
@@ -195,6 +196,14 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
   const [mappedGameCoverUrl, setMappedGameCoverUrl] = useState<string | null>(
     null,
   );
+
+  // Launch options state
+  const [launchExecutables, setLaunchExecutables] = useState<string[]>([]);
+  const [selectedLaunchExe, setSelectedLaunchExe] = useState<string>("");
+  const [launchParams, setLaunchParams] = useState<string>("");
+  const [launchAsAdmin, setLaunchAsAdmin] = useState<boolean>(false);
+  const [loadingLaunchOptions, setLoadingLaunchOptions] = useState(false);
+  const launchOptionsLoadedRef = useRef(false);
 
   // Fetch full game object on mount
   useEffect(() => {
@@ -301,6 +310,93 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
     }
   }, [activeTab, installationTabsVisible]);
 
+  // Load launch options when tab is opened
+  useEffect(() => {
+    if (activeTab !== "launch-options" || !installedGame) return;
+    let cancelled = false;
+
+    (async () => {
+      setLoadingLaunchOptions(true);
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
+        const { join } = await import("@tauri-apps/api/path");
+
+        // List executables from installation directory
+        const exes = await invoke<string[]>("list_launch_executables", {
+          installationPath: installedGame.installationDirectory,
+        });
+        if (!cancelled) setLaunchExecutables(exes);
+
+        // Read saved launch config
+        const configPath = await join(
+          installedGame.versionDirectory,
+          ".gamevault.game.config.json",
+        );
+        if (await exists(configPath)) {
+          try {
+            const raw = JSON.parse(await readTextFile(configPath));
+            if (!cancelled) {
+              setSelectedLaunchExe(raw.launchexecutable || "");
+              setLaunchParams(raw.launchparameters || "");
+              setLaunchAsAdmin(!!raw.launchasadmin);
+            }
+          } catch {}
+        }
+        if (!cancelled) launchOptionsLoadedRef.current = true;
+      } catch (err) {
+        console.error("Failed to load launch options:", err);
+      } finally {
+        if (!cancelled) setLoadingLaunchOptions(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, installedGame]);
+
+  const persistLaunchOptions = useCallback(async (exe: string, params: string) => {
+    if (!installedGame) return;
+    try {
+      const { readTextFile, writeTextFile, exists } = await import(
+        "@tauri-apps/plugin-fs"
+      );
+      const { join } = await import("@tauri-apps/api/path");
+
+      const configPath = await join(
+        installedGame.versionDirectory,
+        ".gamevault.game.config.json",
+      );
+
+      let current: Record<string, any> = {};
+      if (await exists(configPath)) {
+        try {
+          current = JSON.parse(await readTextFile(configPath));
+        } catch {
+          current = {};
+        }
+      }
+
+      current.launchexecutable = exe || undefined;
+      current.launchparameters = params.trim() || undefined;
+      current.launchasadmin = launchAsAdmin || undefined;
+
+      await writeTextFile(configPath, JSON.stringify(current, null, 2));
+    } catch (err: any) {
+      console.error("Failed to save launch options:", err);
+    }
+  }, [installedGame]);
+
+  // Auto-save launch options on change (debounced)
+  useEffect(() => {
+    if (!launchOptionsLoadedRef.current) return;
+    const timeout = setTimeout(() => {
+      persistLaunchOptions(selectedLaunchExe, launchParams);
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [selectedLaunchExe, launchParams, launchAsAdmin, persistLaunchOptions]);
+
   const updateInstallationFinishedFlag = useCallback(
     async (versionDirectory: string, installationFinished: boolean) => {
       const { exists, readTextFile, writeTextFile } = await import(
@@ -329,6 +425,8 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
           typeof current.downloadprogress === "string"
             ? current.downloadprogress
             : "",
+        launchexecutable: current.launchexecutable,
+        launchparameters: current.launchparameters,
       };
 
       await writeTextFile(configPath, JSON.stringify(next, null, 2));
@@ -379,6 +477,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
           false,
         );
         setInstalledGame(await findInstalledGame());
+        onUninstalled?.();
         await showAlert({
           title: "Game uninstalled",
           affirmativeText: "OK",
@@ -435,6 +534,7 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
           false,
         );
         setInstalledGame(await findInstalledGame());
+        onUninstalled?.();
         await showAlert({
           title: "Game uninstalled",
           affirmativeText: "OK",
@@ -2969,15 +3069,92 @@ export function GameSettings({ game, onClose, onGameUpdated }: Props) {
                 )}
 
                 {activeTab === "launch-options" && installedGame && (
-                  <div className="max-w-3xl space-y-4">
+                  <div className="max-w-3xl space-y-6">
                     <div>
                       <h3 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">
-                        Launch options
+                        Launch Options
                       </h3>
-                      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-                        Coming soon.
+                      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                        Configure how this game is launched when you click the
+                        play button.
                       </p>
                     </div>
+
+                    {loadingLaunchOptions ? (
+                      <div className="text-sm text-zinc-500">
+                        Loading executables…
+                      </div>
+                    ) : (
+                      <>
+                        {/* Launch Executable Picker */}
+                        <div>
+                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                            Launch Executable
+                          </label>
+                          {launchExecutables.length === 0 ? (
+                            <p className="text-sm text-zinc-500">
+                              No executables found in the installation folder.
+                            </p>
+                          ) : (
+                            <Listbox
+                              name="launchExe"
+                              value={selectedLaunchExe}
+                              onChange={(v: any) =>
+                                setSelectedLaunchExe(String(v))
+                              }
+                            >
+                              <ListboxOption value="">
+                                <ListboxLabel>-- Select executable --</ListboxLabel>
+                              </ListboxOption>
+                              {launchExecutables.map((exe) => (
+                                <ListboxOption key={exe} value={exe}>
+                                  <ListboxLabel>{exe}</ListboxLabel>
+                                </ListboxOption>
+                              ))}
+                            </Listbox>
+                          )}
+                        </div>
+
+                        {/* Launch Parameters */}
+                        <div>
+                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                            Launch Parameters
+                          </label>
+                          <Input
+                            name="launchParams"
+                            value={launchParams}
+                            onChange={(e: any) =>
+                              setLaunchParams(e.target.value)
+                            }
+                            placeholder="e.g. -fullscreen -width 1920"
+                          />
+                          <p className="mt-1 text-xs text-zinc-500">
+                            Optional command-line arguments passed to the
+                            executable.
+                          </p>
+                        </div>
+
+                        {/* Run as Admin */}
+                        <div>
+                          <label className="flex items-center gap-2 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={launchAsAdmin}
+                              onChange={(e) => setLaunchAsAdmin(e.target.checked)}
+                              className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800"
+                            />
+                            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                              Run as Administrator
+                            </span>
+                          </label>
+                          <p className="mt-1 ml-6 text-xs text-zinc-500">
+                            Launch the game with elevated privileges (UAC prompt).
+                          </p>
+                        </div>
+
+
+                      </>
+                    )}
                   </div>
                 )}
               </DialogBody>

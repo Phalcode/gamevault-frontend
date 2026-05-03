@@ -173,6 +173,66 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const applyDefaultLaunchConfig = useCallback(
+    async (d: ActiveDownload) => {
+      if (!d.versionDirectory || !d.installationDirectory) return;
+      const { exists, readTextFile, writeTextFile } = await import(
+        "@tauri-apps/plugin-fs"
+      );
+      const { join } = await import("@tauri-apps/api/path");
+      const { invoke } = await import("@tauri-apps/api/core");
+
+      const configPath = await join(
+        d.versionDirectory,
+        ".gamevault.game.config.json",
+      );
+
+      let current: Record<string, any> = {};
+      if (await exists(configPath)) {
+        try {
+          current = JSON.parse(await readTextFile(configPath));
+        } catch {
+          current = {};
+        }
+      }
+
+      // Never overwrite a user-configured launch executable
+      if (current.launchexecutable) return;
+
+      const metaExe = (d.gameMetadata as any)?.launch_executable as
+        | string
+        | undefined;
+      const metaParams = (d.gameMetadata as any)?.launch_parameters as
+        | string
+        | undefined;
+
+      let resolvedExe: string | undefined;
+      if (metaExe && metaExe.trim()) {
+        // Normalize separators for comparison — list_launch_executables always returns forward slashes
+        const normalized = metaExe.trim().replace(/\\/g, "/").toLowerCase();
+        // Match against the actual executable list (same source as the Listbox)
+        const exeList = await invoke<string[]>("list_launch_executables", {
+          installationPath: d.installationDirectory,
+        });
+        // Case-insensitive match; use the exact casing from the list so it matches the UI
+        const match = exeList.find(
+          (e) => e.replace(/\\/g, "/").toLowerCase() === normalized,
+        );
+        if (match) resolvedExe = match;
+      }
+
+      const resolvedParams =
+        metaParams && metaParams.trim() ? metaParams.trim() : undefined;
+
+      if (!resolvedExe && !resolvedParams) return;
+
+      if (resolvedExe !== undefined) current.launchexecutable = resolvedExe;
+      if (resolvedParams !== undefined) current.launchparameters = resolvedParams;
+      await writeTextFile(configPath, JSON.stringify(current, null, 2));
+    },
+    [],
+  );
+
   const writeVersionConfig = useCallback(
     async (versionDirectory: string, patch: Partial<GameVaultConfig>) => {
       if (!isTauriApp() || !versionDirectory) return;
@@ -1050,7 +1110,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           delete tauriInstallCopyUnlistenRef.current[gameId];
         }
 
-        const unlisten = await listen<any>("install-copy-progress", (event) => {
+        const unlisten = await listen<any>("install-copy-progress", async (event) => {
           const payload = event.payload;
           if (!payload || payload.gameId !== gameId) return;
 
@@ -1072,9 +1132,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
           if (payload.status === "completed") {
             if (d.versionDirectory) {
-              void writeVersionConfig(d.versionDirectory, {
+              await writeVersionConfig(d.versionDirectory, {
                 installationfinished: true,
               });
+              await applyDefaultLaunchConfig(d);
             }
             updateDownload(gameId, {
               installationStatus: "completed",
@@ -1151,7 +1212,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           delete tauriInstallerUnlistenRef.current[gameId];
         }
 
-        const unlisten = await listen<any>("installer-status", (event) => {
+        const unlisten = await listen<any>("installer-status", async (event) => {
           const payload = event.payload;
           if (!payload || payload.gameId !== gameId) return;
 
@@ -1181,9 +1242,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
           if (payload.status === "completed") {
             if (d.versionDirectory) {
-              void writeVersionConfig(d.versionDirectory, {
+              await writeVersionConfig(d.versionDirectory, {
                 installationfinished: true,
               });
+              await applyDefaultLaunchConfig(d);
             }
             updateDownload(gameId, {
               installationStatus: "completed",

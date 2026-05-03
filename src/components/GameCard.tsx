@@ -30,6 +30,14 @@ import { GameVersion } from "@/api/models/GameVersion";
 export function GameCard({ game }: { game: GamevaultGame }) {
   const { serverUrl, user, authFetch } = useAuth();
   const { showAlert } = useAlertDialog();
+  // Detect if this is a locally installed game (set by Library for installed games)
+  const installedInfo = (game as any)?._installedInfo as
+    | { installationDirectory: string; versionDirectory: string; versionId: number; versionName: string }
+    | undefined;
+  const onUninstalledCallback = (game as any)?._onUninstalled as
+    | (() => void)
+    | undefined;
+  const isInstalled = !!installedInfo;
   // Derive initial bookmarked state from raw API shape (bookmarked_users or bookmarkedUsers)
   const currentUserId = (user as any)?.id ?? (user as any)?.ID;
   const initialBookmarked = useMemo(() => {
@@ -211,6 +219,60 @@ export function GameCard({ game }: { game: GamevaultGame }) {
     [serverUrl, selectVersionAndRun],
   );
 
+  const handlePlayGame = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!installedInfo) return;
+
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
+        const { join } = await import("@tauri-apps/api/path");
+
+        const configPath = await join(
+          installedInfo.versionDirectory,
+          ".gamevault.game.config.json",
+        );
+
+        let launchExe: string | undefined;
+        let launchParams: string | undefined;
+        let launchAsAdmin = false;
+
+        if (await exists(configPath)) {
+          try {
+            const raw = JSON.parse(await readTextFile(configPath));
+            launchExe = raw.launchexecutable;
+            launchParams = raw.launchparameters;
+            launchAsAdmin = !!raw.launchasadmin;
+          } catch {}
+        }
+
+        if (!launchExe) {
+          showAlert({
+            title: "No launch executable configured",
+            description:
+              "Open Game Settings → Launch Options to select an executable first.",
+          });
+          return;
+        }
+
+        await invoke("launch_game", {
+          installationPath: installedInfo.installationDirectory,
+          executableRelativePath: launchExe,
+          launchParameters: launchParams || null,
+          runAsAdmin: launchAsAdmin,
+        });
+      } catch (err: any) {
+        showAlert({
+          title: "Failed to launch game",
+          description: err?.message || String(err),
+        });
+      }
+    },
+    [installedInfo, showAlert],
+  );
+
   const handleClientDownload = useCallback(
     async () => {
       await selectVersionAndRun("client");
@@ -298,9 +360,20 @@ export function GameCard({ game }: { game: GamevaultGame }) {
           >
             <Cog8ToothIcon className="h-5 w-5 text-white" />
           </button>
-          {/* Bottom-right download actions */}
+          {/* Bottom-right download/play actions */}
           <div className="absolute bottom-0 right-0 p-1 z-10 flex justify-end opacity-85">
-            {isTauri ? (
+            {isInstalled ? (
+              <button
+                type="button"
+                aria-label="Play"
+                onClick={handlePlayGame}
+                className="h-8 w-8 flex items-center justify-center rounded-md border shadow-md backdrop-blur-sm transition-colors bg-emerald-600/90 border-emerald-500/60 hover:bg-emerald-500 shadow-black/20"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-5 h-5 fill-white">
+                  <path d="M8 17.175V6.825q0-.425.3-.713t.7-.287q.125 0 .263.037t.262.113l8.15 5.175q.225.15.338.375t.112.475t-.112.475t-.338.375l-8.15 5.175q-.125.075-.262.113T9 18.175q-.4 0-.7-.288t-.3-.712"/>
+                </svg>
+              </button>
+            ) : isTauri ? (
               <Button
                 color="zinc"
                 aria-label="Download"
@@ -372,6 +445,7 @@ export function GameCard({ game }: { game: GamevaultGame }) {
           game={game}
           onClose={() => setSettingsOpen(false)}
           onGameUpdated={(updatedGame) => setLocalGame(updatedGame)}
+          onUninstalled={onUninstalledCallback}
         />
       )}
       <VersionSelectDialog

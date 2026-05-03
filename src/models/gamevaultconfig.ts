@@ -6,4 +6,7 @@ export interface GameVaultConfig {
   extractionfinished: boolean;
   installationfinished?: boolean;
   downloadprogress: string;
+  launchexecutable?: string;
+  launchparameters?: string;
+  launchasadmin?: boolean;
 }

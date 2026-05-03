@@ -104,6 +104,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [bootstrapping, setBootstrapping] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const bootstrapRanRef = useRef(false);
+
   const authRef = useRef<AuthTokens | null>(null);
   const serverRef = useRef("");
   const nextTokenRefreshRef = useRef<Date | null>(null);
@@ -273,6 +275,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    // Guard against React StrictMode double-mount: only attempt bootstrap once
+    // to avoid consuming a rotated refresh token twice concurrently.
+    if (bootstrapRanRef.current) {
+      setBootstrapping(false);
+      return;
+    }
+    bootstrapRanRef.current = true;
+
     (async () => {
       const storedRefresh = localStorage.getItem(REFRESH_KEY);
       const storedServer = localStorage.getItem(SERVER_KEY);

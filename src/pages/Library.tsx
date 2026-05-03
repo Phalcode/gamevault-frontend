@@ -23,11 +23,16 @@ import {
 import { Button } from "@/components/tailwind/button";
 import { Badge } from "../components/tailwind/badge";
 import { GamevaultGameTypeEnum } from "@/api/models/GamevaultGame";
+import type { GamevaultGame } from "@/api/models/GamevaultGame";
 import { ProgressStateEnum } from "@/api/models/Progress";
 import MultiSelectFilterDialog, {
   FilterItem,
 } from "@/components/MultiSelectFilterDialog";
 import { Strong, TextLink } from "@/components/tailwind/text";
+import { isTauriApp } from "@/utils/tauri";
+import { useInstalledGames } from "@/hooks/useInstalledGames";
+import { SectionExpander } from "@/components/SectionExpander";
+import { RowCountControl } from "@/components/RowCountControl";
 
 const SORT_BY: { label: string; value: string }[] = [
   { label: "Title", value: "sort_title" },
@@ -456,6 +461,190 @@ export default function Library() {
     return () => io.disconnect();
   }, [hasMore, loadMore, games.length]);
 
+  // --- Installed games (Tauri only) ---
+  const isTauri = isTauriApp();
+  const { installedGames, refetch: refetchInstalledGames } = useInstalledGames();
+
+  const INSTALLED_ROWS_KEY = "installed_games_rows";
+  const [installedRows, setInstalledRows] = useState(() => {
+    try {
+      const saved = localStorage.getItem(INSTALLED_ROWS_KEY);
+      if (saved) {
+        const n = parseInt(saved, 10);
+        if (n >= 1 && n <= 5) return n;
+      }
+    } catch {}
+    return 1;
+  });
+  const handleRowsChange = useCallback((n: number) => {
+    setInstalledRows(n);
+    try {
+      localStorage.setItem(INSTALLED_ROWS_KEY, String(n));
+    } catch {}
+  }, []);
+
+  // Map installed games to a GamevaultGame-compatible shape for GameCard
+  const installedAsGames: GamevaultGame[] = useMemo(() => {
+    return installedGames.map((ig) => {
+      const meta = ig.gameMetadata as any;
+      const g = {
+        id: ig.gameId,
+        created_at: new Date(),
+        entity_version: 0,
+        title: ig.gameTitle,
+        sort_title: ig.gameTitle?.toLowerCase(),
+        type: ig.gameType as any,
+        metadata: meta
+          ? {
+              title: meta.title,
+              cover: meta.cover ?? meta.metadata?.cover,
+              rating: meta.rating ?? meta.metadata?.rating,
+              release_date: meta.release_date ?? meta.metadata?.release_date,
+              tags: meta.tags ?? meta.metadata?.tags,
+              genres: meta.genres ?? meta.metadata?.genres,
+              developers: meta.developers ?? meta.metadata?.developers,
+              publishers: meta.publishers ?? meta.metadata?.publishers,
+            }
+          : undefined,
+      } as GamevaultGame;
+      // Attach installation info for GameCard play button
+      (g as any)._installedInfo = {
+        installationDirectory: ig.installationDirectory,
+        versionDirectory: ig.versionDirectory,
+        versionId: ig.versionId,
+        versionName: ig.versionName,
+      };
+      (g as any)._onUninstalled = refetchInstalledGames;
+      return g;
+    });
+  }, [installedGames]);
+
+  // Client-side filter + sort installed games with the same Library criteria
+  const filteredInstalledGames = useMemo(() => {
+    let filtered = installedAsGames;
+
+    // Search filter
+    if (deferredSearch.trim()) {
+      const q = deferredSearch.trim().toLowerCase();
+      filtered = filtered.filter((g) =>
+        (g.title ?? g.sort_title ?? "").toLowerCase().includes(q),
+      );
+    }
+
+    // Game type filter
+    if (gameTypeValues.length > 0) {
+      filtered = filtered.filter(
+        (g) => g.type && gameTypeValues.includes(g.type),
+      );
+    }
+
+    // Tag filter
+    if (tagNames.length > 0) {
+      filtered = filtered.filter((g) => {
+        const gameTags = (g.metadata as any)?.tags;
+        if (!Array.isArray(gameTags)) return false;
+        return tagNames.some((t) =>
+          gameTags.some(
+            (gt: any) =>
+              (gt.name ?? gt)?.toString().toLowerCase() === t.toLowerCase(),
+          ),
+        );
+      });
+    }
+
+    // Genre filter
+    if (genreNames.length > 0) {
+      filtered = filtered.filter((g) => {
+        const gameGenres = (g.metadata as any)?.genres;
+        if (!Array.isArray(gameGenres)) return false;
+        return genreNames.some((gn) =>
+          gameGenres.some(
+            (gg: any) =>
+              (gg.name ?? gg)?.toString().toLowerCase() === gn.toLowerCase(),
+          ),
+        );
+      });
+    }
+
+    // Developer filter
+    if (developerNames.length > 0) {
+      filtered = filtered.filter((g) => {
+        const gameDevs = (g.metadata as any)?.developers;
+        if (!Array.isArray(gameDevs)) return false;
+        return developerNames.some((d) =>
+          gameDevs.some(
+            (gd: any) =>
+              (gd.name ?? gd)?.toString().toLowerCase() === d.toLowerCase(),
+          ),
+        );
+      });
+    }
+
+    // Publisher filter
+    if (publisherNames.length > 0) {
+      filtered = filtered.filter((g) => {
+        const gamePubs = (g.metadata as any)?.publishers;
+        if (!Array.isArray(gamePubs)) return false;
+        return publisherNames.some((p) =>
+          gamePubs.some(
+            (gp: any) =>
+              (gp.name ?? gp)?.toString().toLowerCase() === p.toLowerCase(),
+          ),
+        );
+      });
+    }
+
+    // Sort
+    const sorted = [...filtered].sort((a, b) => {
+      let va: any;
+      let vb: any;
+      switch (sortBy) {
+        case "sort_title":
+          va = (a.sort_title ?? a.title ?? "").toLowerCase();
+          vb = (b.sort_title ?? b.title ?? "").toLowerCase();
+          break;
+        case "size":
+          va = Number(a.size) || 0;
+          vb = Number(b.size) || 0;
+          break;
+        case "created_at":
+          va = new Date(a.created_at).getTime();
+          vb = new Date(b.created_at).getTime();
+          break;
+        case "metadata.release_date":
+          va = a.metadata?.release_date
+            ? new Date(a.metadata.release_date).getTime()
+            : 0;
+          vb = b.metadata?.release_date
+            ? new Date(b.metadata.release_date).getTime()
+            : 0;
+          break;
+        case "metadata.rating":
+          va = (a.metadata as any)?.rating ?? 0;
+          vb = (b.metadata as any)?.rating ?? 0;
+          break;
+        default:
+          va = (a.sort_title ?? a.title ?? "").toLowerCase();
+          vb = (b.sort_title ?? b.title ?? "").toLowerCase();
+      }
+      if (va < vb) return order === "ASC" ? -1 : 1;
+      if (va > vb) return order === "ASC" ? 1 : -1;
+      return 0;
+    });
+
+    return sorted;
+  }, [
+    installedAsGames,
+    deferredSearch,
+    gameTypeValues,
+    tagNames,
+    genreNames,
+    developerNames,
+    publisherNames,
+    sortBy,
+    order,
+  ]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <Heading className="flex items-center">
@@ -869,38 +1058,120 @@ export default function Library() {
             {error}
           </div>
         )}
-        {serverUrl && loading && (
-          <div className="p-8 text-sm text-fg-muted">Loading games…</div>
-        )}
-        {serverUrl && !loading && games.length === 0 && !error && (
-          <div className="p-8 text-sm text-fg-muted">
-            No games found.
-            {(search.trim() || hasActiveFilters) && (
-              <div className="mt-2">
-                <TextLink
-                  href="#"
-                  onClick={() => {
-                    clearAllFilters();
-                    setShowFilters(false);
-                    setSearch("");
+
+        {/* Installed Games Section (Tauri only) */}
+        {isTauri && (
+          <SectionExpander
+            title={`Installed Games (${filteredInstalledGames.length})`}
+            defaultOpen={true}
+            headerRight={
+              <RowCountControl
+                value={installedRows}
+                onChange={handleRowsChange}
+              />
+            }
+          >
+            {filteredInstalledGames.length === 0 ? (
+              <div className="p-4 text-sm text-fg-muted">
+                No installed games found.
+              </div>
+            ) : (
+              <div
+                className="overflow-x-auto overflow-y-hidden pb-3"
+              >
+                <div
+                  className="grid gap-4 pb-1"
+                  style={{
+                    gridTemplateRows: `repeat(${Math.min(installedRows, filteredInstalledGames.length)}, auto)`,
+                    gridAutoFlow: "column",
+                    gridAutoColumns: "150px",
                   }}
                 >
-                  <Strong>Try clearing all filters and search</Strong>
-                </TextLink>
+                  {filteredInstalledGames.map((g) => (
+                    <GameCard key={`installed-${g.id}`} game={g} />
+                  ))}
+                </div>
               </div>
             )}
-          </div>
+          </SectionExpander>
         )}
-        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] pb-8">
-          {games.map((g) => (
-            <GameCard key={g.id} game={g} />
-          ))}
-        </div>
-        {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
-        {loading && games.length > 0 && (
-          <div className="p-4 text-center text-xs text-fg-muted">
-            Loading more…
-          </div>
+
+        {/* Server Games Section */}
+        {isTauri ? (
+          <SectionExpander
+            title={`Server Games (${games.length} of ${count ?? 0})`}
+            defaultOpen={true}
+          >
+            {serverUrl && loading && games.length === 0 && (
+              <div className="p-8 text-sm text-fg-muted">Loading games…</div>
+            )}
+            {serverUrl && !loading && games.length === 0 && !error && (
+              <div className="p-8 text-sm text-fg-muted">
+                No games found.
+                {(search.trim() || hasActiveFilters) && (
+                  <div className="mt-2">
+                    <TextLink
+                      href="#"
+                      onClick={() => {
+                        clearAllFilters();
+                        setShowFilters(false);
+                        setSearch("");
+                      }}
+                    >
+                      <Strong>Try clearing all filters and search</Strong>
+                    </TextLink>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] pb-8">
+              {games.map((g) => (
+                <GameCard key={g.id} game={g} />
+              ))}
+            </div>
+            {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
+            {loading && games.length > 0 && (
+              <div className="p-4 text-center text-xs text-fg-muted">
+                Loading more…
+              </div>
+            )}
+          </SectionExpander>
+        ) : (
+          <>
+            {serverUrl && loading && games.length === 0 && (
+              <div className="p-8 text-sm text-fg-muted">Loading games…</div>
+            )}
+            {serverUrl && !loading && games.length === 0 && !error && (
+              <div className="p-8 text-sm text-fg-muted">
+                No games found.
+                {(search.trim() || hasActiveFilters) && (
+                  <div className="mt-2">
+                    <TextLink
+                      href="#"
+                      onClick={() => {
+                        clearAllFilters();
+                        setShowFilters(false);
+                        setSearch("");
+                      }}
+                    >
+                      <Strong>Try clearing all filters and search</Strong>
+                    </TextLink>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] pb-8">
+              {games.map((g) => (
+                <GameCard key={g.id} game={g} />
+              ))}
+            </div>
+            {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
+            {loading && games.length > 0 && (
+              <div className="p-4 text-center text-xs text-fg-muted">
+                Loading more…
+              </div>
+            )}
+          </>
         )}
       </div>
 
