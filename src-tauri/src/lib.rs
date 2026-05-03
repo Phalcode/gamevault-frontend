@@ -2508,6 +2508,45 @@ fn paths_match(a: &Path, b: &Path) -> bool {
 
 // ── End GameTimeTracker ───────────────────────────────────────────────────────
 
+// ── Filesystem utility commands (bypasses plugin-fs scope restrictions) ───────
+
+#[tauri::command]
+fn fs_read_text_file(path: String) -> Result<String, String> {
+  std::fs::read_to_string(&path).map_err(|e| format!("fs_read_text_file failed for '{}': {}", path, e))
+}
+
+#[tauri::command]
+fn fs_write_text_file(path: String, content: String) -> Result<(), String> {
+  std::fs::write(&path, content).map_err(|e| format!("fs_write_text_file failed for '{}': {}", path, e))
+}
+
+#[tauri::command]
+fn fs_create_dir_all(path: String) -> Result<(), String> {
+  std::fs::create_dir_all(&path).map_err(|e| format!("fs_create_dir_all failed for '{}': {}", path, e))
+}
+
+#[tauri::command]
+fn fs_path_exists(path: String) -> Result<bool, String> {
+  Ok(std::path::Path::new(&path).exists())
+}
+
+#[tauri::command]
+fn fs_remove(path: String, recursive: bool) -> Result<(), String> {
+  let p = std::path::Path::new(&path);
+  if !p.exists() {
+    return Ok(());
+  }
+  if recursive && p.is_dir() {
+    std::fs::remove_dir_all(&path).map_err(|e| format!("fs_remove (recursive) failed for '{}': {}", path, e))
+  } else if p.is_dir() {
+    std::fs::remove_dir(&path).map_err(|e| format!("fs_remove (dir) failed for '{}': {}", path, e))
+  } else {
+    std::fs::remove_file(&path).map_err(|e| format!("fs_remove (file) failed for '{}': {}", path, e))
+  }
+}
+
+// ── End filesystem utility commands ──────────────────────────────────────────
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -2540,7 +2579,12 @@ pub fn run() {
       launch_game,
       start_game_time_tracker,
       stop_game_time_tracker,
-      update_tracker_auth
+      update_tracker_auth,
+      fs_read_text_file,
+      fs_write_text_file,
+      fs_create_dir_all,
+      fs_path_exists,
+      fs_remove
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

@@ -319,7 +319,6 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       setLoadingLaunchOptions(true);
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
         const { join } = await import("@tauri-apps/api/path");
 
         // List executables from installation directory
@@ -333,9 +332,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
           installedGame.versionDirectory,
           ".gamevault.game.config.json",
         );
-        if (await exists(configPath)) {
+        if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
           try {
-            const raw = JSON.parse(await readTextFile(configPath));
+            const raw = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath }));
             if (!cancelled) {
               setSelectedLaunchExe(raw.launchexecutable || "");
               setLaunchParams(raw.launchparameters || "");
@@ -359,9 +358,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   const persistLaunchOptions = useCallback(async (exe: string, params: string) => {
     if (!installedGame) return;
     try {
-      const { readTextFile, writeTextFile, exists } = await import(
-        "@tauri-apps/plugin-fs"
-      );
+      const { invoke } = await import("@tauri-apps/api/core");
       const { join } = await import("@tauri-apps/api/path");
 
       const configPath = await join(
@@ -370,9 +367,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       );
 
       let current: Record<string, any> = {};
-      if (await exists(configPath)) {
+      if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
         try {
-          current = JSON.parse(await readTextFile(configPath));
+          current = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath }));
         } catch {
           current = {};
         }
@@ -382,7 +379,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       current.launchparameters = params.trim() || undefined;
       current.launchasadmin = launchAsAdmin || undefined;
 
-      await writeTextFile(configPath, JSON.stringify(current, null, 2));
+      await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(current, null, 2) });
     } catch (err: any) {
       console.error("Failed to save launch options:", err);
     }
@@ -399,17 +396,15 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
   const updateInstallationFinishedFlag = useCallback(
     async (versionDirectory: string, installationFinished: boolean) => {
-      const { exists, readTextFile, writeTextFile } = await import(
-        "@tauri-apps/plugin-fs"
-      );
+      const { invoke } = await import("@tauri-apps/api/core");
       const { join } = await import("@tauri-apps/api/path");
 
       const configPath = await join(versionDirectory, ".gamevault.game.config.json");
-      if (!(await exists(configPath))) return;
+      if (!(await invoke<boolean>("fs_path_exists", { path: configPath }))) return;
 
       let current: Partial<GameVaultConfig> = {};
       try {
-        current = JSON.parse(await readTextFile(configPath)) as Partial<GameVaultConfig>;
+        current = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath })) as Partial<GameVaultConfig>;
       } catch {
         current = {};
       }
@@ -429,7 +424,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         launchparameters: current.launchparameters,
       };
 
-      await writeTextFile(configPath, JSON.stringify(next, null, 2));
+      await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(next, null, 2) });
     },
     [],
   );
@@ -468,9 +463,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
       setUninstalling(true);
       try {
-        const { exists, remove } = await import("@tauri-apps/plugin-fs");
-        if (await exists(installedGame.installationDirectory)) {
-          await remove(installedGame.installationDirectory, { recursive: true });
+        const { invoke } = await import("@tauri-apps/api/core");
+        if (await invoke<boolean>("fs_path_exists", { path: installedGame.installationDirectory })) {
+          await invoke("fs_remove", { path: installedGame.installationDirectory, recursive: true });
         }
         await updateInstallationFinishedFlag(
           installedGame.versionDirectory,

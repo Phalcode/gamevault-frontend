@@ -227,7 +227,6 @@ export function GameCard({ game }: { game: GamevaultGame }) {
 
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
         const { join } = await import("@tauri-apps/api/path");
 
         const configPath = await join(
@@ -239,9 +238,9 @@ export function GameCard({ game }: { game: GamevaultGame }) {
         let launchParams: string | undefined;
         let launchAsAdmin = false;
 
-        if (await exists(configPath)) {
+        if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
           try {
-            const raw = JSON.parse(await readTextFile(configPath));
+            const raw = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath }));
             launchExe = raw.launchexecutable;
             launchParams = raw.launchparameters;
             launchAsAdmin = !!raw.launchasadmin;

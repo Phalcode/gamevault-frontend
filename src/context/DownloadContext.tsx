@@ -176,9 +176,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const applyDefaultLaunchConfig = useCallback(
     async (d: ActiveDownload) => {
       if (!d.versionDirectory || !d.installationDirectory) return;
-      const { exists, readTextFile, writeTextFile } = await import(
-        "@tauri-apps/plugin-fs"
-      );
       const { join } = await import("@tauri-apps/api/path");
       const { invoke } = await import("@tauri-apps/api/core");
 
@@ -188,9 +185,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       );
 
       let current: Record<string, any> = {};
-      if (await exists(configPath)) {
+      if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
         try {
-          current = JSON.parse(await readTextFile(configPath));
+          current = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath }));
         } catch {
           current = {};
         }
@@ -228,7 +225,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
       if (resolvedExe !== undefined) current.launchexecutable = resolvedExe;
       if (resolvedParams !== undefined) current.launchparameters = resolvedParams;
-      await writeTextFile(configPath, JSON.stringify(current, null, 2));
+      await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(current, null, 2) });
     },
     [],
   );
@@ -236,10 +233,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const writeVersionConfig = useCallback(
     async (versionDirectory: string, patch: Partial<GameVaultConfig>) => {
       if (!isTauriApp() || !versionDirectory) return;
-      const { exists, readTextFile, writeTextFile } = await import(
-        "@tauri-apps/plugin-fs"
-      );
       const { join } = await import("@tauri-apps/api/path");
+      const { invoke } = await import("@tauri-apps/api/core");
 
       const configPath = await join(
         versionDirectory,
@@ -247,9 +242,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       );
 
       let current: GameVaultConfig = { ...DEFAULT_GAME_VAULT_CONFIG };
-      if (await exists(configPath)) {
+      if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
         try {
-          const raw = await readTextFile(configPath);
+          const raw = await invoke<string>("fs_read_text_file", { path: configPath });
           const parsed = JSON.parse(raw) as Partial<GameVaultConfig>;
           current = {
             ...DEFAULT_GAME_VAULT_CONFIG,
@@ -264,7 +259,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         ...current,
         ...patch,
       };
-      await writeTextFile(configPath, JSON.stringify(next, null, 2));
+      await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(next, null, 2) });
     },
     [],
   );
@@ -273,10 +268,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     async (gameFolderPath: string, metadata: unknown) => {
       if (!isTauriApp() || !gameFolderPath) return;
       if (metadata === undefined || metadata === null) return;
-      const { writeTextFile } = await import("@tauri-apps/plugin-fs");
       const { join } = await import("@tauri-apps/api/path");
+      const { invoke } = await import("@tauri-apps/api/core");
       const metadataPath = await join(gameFolderPath, ".gamevault.metadata.json");
-      await writeTextFile(metadataPath, JSON.stringify(metadata, null, 2));
+      await invoke("fs_write_text_file", { path: metadataPath, content: JSON.stringify(metadata, null, 2) });
     },
     [],
   );
@@ -389,7 +384,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           }
 
           dlog("Importing Tauri modules...");
-          const { mkdir } = await import("@tauri-apps/plugin-fs");
           const { join } = await import("@tauri-apps/api/path");
           const { invoke } = await import("@tauri-apps/api/core");
           const { listen } = await import("@tauri-apps/api/event");
@@ -424,9 +418,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             "Installation",
           );
 
-          await mkdir(downloadsVersionFolder, { recursive: true });
-          await mkdir(extractionsVersionFolder, { recursive: true });
-          await mkdir(installationsVersionFolder, { recursive: true });
+          await invoke("fs_create_dir_all", { path: downloadsVersionFolder });
+          await invoke("fs_create_dir_all", { path: extractionsVersionFolder });
+          await invoke("fs_create_dir_all", { path: installationsVersionFolder });
           await writeGameMetadata(gameFolderPath, gameMetadata);
           await writeVersionConfig(versionBaseFolder, {
             gameid: gameId,
@@ -732,9 +726,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       } catch (err: any) {
         if (isDesktop && tauriFilePath) {
           try {
-            const { exists, remove } = await import("@tauri-apps/plugin-fs");
-            if (await exists(tauriFilePath)) {
-              await remove(tauriFilePath);
+            const { invoke: invokeCleanup } = await import("@tauri-apps/api/core");
+            if (await invokeCleanup<boolean>("fs_path_exists", { path: tauriFilePath })) {
+              await invokeCleanup("fs_remove", { path: tauriFilePath, recursive: false });
             }
           } catch (cleanupError) {
             console.warn("Could not remove partial download:", cleanupError);
@@ -878,12 +872,12 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
       if (isTauriApp()) {
         try {
-          const { exists, remove } = await import("@tauri-apps/plugin-fs");
-          if (d.downloadDirectory && (await exists(d.downloadDirectory))) {
-            await remove(d.downloadDirectory, { recursive: true });
+          const { invoke: invokeFsCleanup } = await import("@tauri-apps/api/core");
+          if (d.downloadDirectory && (await invokeFsCleanup<boolean>("fs_path_exists", { path: d.downloadDirectory }))) {
+            await invokeFsCleanup("fs_remove", { path: d.downloadDirectory, recursive: true });
           }
-          if (d.extractionDirectory && (await exists(d.extractionDirectory))) {
-            await remove(d.extractionDirectory, { recursive: true });
+          if (d.extractionDirectory && (await invokeFsCleanup<boolean>("fs_path_exists", { path: d.extractionDirectory }))) {
+            await invokeFsCleanup("fs_remove", { path: d.extractionDirectory, recursive: true });
           }
         } catch (error) {
           console.warn("Failed to delete download/extraction folders:", error);

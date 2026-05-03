@@ -11,39 +11,39 @@
     "fs:default",
     {
       "identifier": "fs:allow-create",
-      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }, { "path": "M:/Games/GameVault/**" }, { "path": "**" }]
+      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }]
     },
     {
       "identifier": "fs:allow-mkdir",
-      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }, { "path": "M:/Games/GameVault/**" }, { "path": "**" }]
+      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }]
     },
     {
       "identifier": "fs:allow-write",
-      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }, { "path": "M:/Games/GameVault/**" }, { "path": "**" }]
+      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }]
     },
     {
       "identifier": "fs:allow-write-file",
-      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }, { "path": "M:/Games/GameVault/**" }, { "path": "**" }]
+      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }]
     },
     {
       "identifier": "fs:allow-write-text-file",
-      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }, { "path": "M:/Games/GameVault/**" }, { "path": "**" }]
+      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }]
     },
     {
       "identifier": "fs:allow-read-file",
-      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }, { "path": "M:/Games/GameVault/**" }, { "path": "**" }]
+      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }]
     },
     {
       "identifier": "fs:allow-read-text-file",
-      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }, { "path": "M:/Games/GameVault/**" }, { "path": "**" }]
+      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }]
     },
     {
       "identifier": "fs:allow-exists",
-      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }, { "path": "M:/Games/GameVault/**" }, { "path": "**" }]
+      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }]
     },
     {
       "identifier": "fs:allow-remove",
-      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }, { "path": "M:/Games/GameVault/**" }, { "path": "**" }]
+      "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }]
     },
     "fs:allow-home-read-recursive",
     "fs:allow-home-write-recursive"
