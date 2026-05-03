@@ -1,5 +1,10 @@
 # GameVault Frontend Changelog
 
+## 16.3.0
+
+- New installed games section in the library
+- Game time tracker
+
 ## 16.2.1
 
 ### Changes
