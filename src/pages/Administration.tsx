@@ -264,10 +264,7 @@ export default function Administration() {
                 const first_name = u.first_name;
                 const last_name = u.last_name;
                 const email = u.email;
-                const roleNumeric =
-                  typeof u.role === "number"
-                    ? (u.role as GamevaultUserRoleEnum)
-                    : GamevaultUserRoleEnum.NUMBER_0;
+                const roleNumeric = u.role ?? GamevaultUserRoleEnum._0;
                 return (
                   <TableRow key={id} className={deleted ? "opacity-60" : ""}>
                     <TableCell>
@@ -324,7 +321,7 @@ export default function Administration() {
                         name="role"
                         value={roleNumeric}
                         onChange={async (val: any) => {
-                          const nextRole = Number(val) as GamevaultUserRoleEnum;
+                          const nextRole = String(val) as GamevaultUserRoleEnum;
                           if (
                             currentUser &&
                             currentUser.id === u.id &&

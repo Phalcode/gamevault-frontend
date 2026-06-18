@@ -48,7 +48,7 @@ createRoot(document.getElementById("root")!).render(
                   element={
                     <ProtectedRoute
                       guarded
-                      requiredRole={GamevaultUserRoleEnum.NUMBER_3}
+                      requiredRole={GamevaultUserRoleEnum._3}
                     >
                       <Administration />
                     </ProtectedRoute>

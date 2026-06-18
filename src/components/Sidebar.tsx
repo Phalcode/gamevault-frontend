@@ -70,7 +70,7 @@ export function Sidebar() {
   };
 
   const roleVal = user?.role;
-  const isAdmin = roleVal === GamevaultUserRoleEnum.NUMBER_3;
+  const isAdmin = Number(roleVal) >= Number(GamevaultUserRoleEnum._3);
   const isTauri = isTauriApp();
 
   return (
