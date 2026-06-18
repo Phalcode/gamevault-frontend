@@ -9,6 +9,12 @@ import {
 } from "react";
 import { GamevaultUser } from "../api";
 import { AuthTokens } from "../types/AuthTokens";
+import {
+  AUTH_REFRESH_STORAGE_KEY,
+  AUTH_SERVER_STORAGE_KEY,
+  getDevAutologinConfig,
+  normalizeServerUrl,
+} from "@/utils/authConfig";
 
 interface LoginArgs {
   server: string;
@@ -37,9 +43,6 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-const REFRESH_KEY = "app_refresh_token";
-const SERVER_KEY = "app_server_url";
 
 interface InternalJwtPayload {
   exp?: number;
@@ -161,7 +164,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
   const performRefresh = useCallback(async () => {
     const refreshToken =
-      authRef.current?.refresh_token || localStorage.getItem(REFRESH_KEY);
+      authRef.current?.refresh_token ||
+      localStorage.getItem(AUTH_REFRESH_STORAGE_KEY);
     if (!refreshToken) throw new Error("Missing refresh token");
     const data = await refreshWithToken(refreshToken);
     if (!data?.access_token)
@@ -170,7 +174,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authRef.current = merged;
     setAuth(merged);
     if (merged.refresh_token)
-      localStorage.setItem(REFRESH_KEY, merged.refresh_token);
+      localStorage.setItem(
+        AUTH_REFRESH_STORAGE_KEY,
+        merged.refresh_token,
+      );
     nextTokenRefreshRef.current = computeNextTokenRefresh(merged.access_token);
   }, []);
   const ensureFreshToken = useCallback(async () => {
@@ -210,9 +217,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuth(null);
       authRef.current = null;
       nextTokenRefreshRef.current = null;
-      serverRef.current = (server || "").replace(/\/+$/, "");
+      serverRef.current = normalizeServerUrl(server);
       setServerUrl(serverRef.current);
-      localStorage.setItem(SERVER_KEY, serverRef.current);
+      localStorage.setItem(AUTH_SERVER_STORAGE_KEY, serverRef.current);
       try {
         if (!server || !username || !password)
           throw new Error("All fields are required.");
@@ -220,7 +227,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         authRef.current = authData;
         setAuth(authData);
         if (authData.refresh_token)
-          localStorage.setItem(REFRESH_KEY, authData.refresh_token);
+          localStorage.setItem(
+            AUTH_REFRESH_STORAGE_KEY,
+            authData.refresh_token,
+          );
         nextTokenRefreshRef.current = authData.access_token
           ? computeNextTokenRefresh(authData.access_token)
           : new Date();
@@ -247,15 +257,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuth(null);
       authRef.current = null;
       nextTokenRefreshRef.current = null;
-      serverRef.current = (server || "").replace(/\/+$/, "");
+      serverRef.current = normalizeServerUrl(server);
       setServerUrl(serverRef.current);
-      localStorage.setItem(SERVER_KEY, serverRef.current);
+      localStorage.setItem(AUTH_SERVER_STORAGE_KEY, serverRef.current);
       try {
         if (!tokens?.access_token) throw new Error("Missing access token");
         authRef.current = tokens;
         setAuth(tokens);
         if (tokens.refresh_token)
-          localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
+          localStorage.setItem(
+            AUTH_REFRESH_STORAGE_KEY,
+            tokens.refresh_token,
+          );
         nextTokenRefreshRef.current = computeNextTokenRefresh(
           tokens.access_token,
         );
@@ -284,13 +297,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     bootstrapRanRef.current = true;
 
     (async () => {
-      const storedRefresh = localStorage.getItem(REFRESH_KEY);
-      const storedServer = localStorage.getItem(SERVER_KEY);
+      const storedRefresh = localStorage.getItem(AUTH_REFRESH_STORAGE_KEY);
+      const storedServer = localStorage.getItem(AUTH_SERVER_STORAGE_KEY);
       if (!storedRefresh || !storedServer) {
-        setBootstrapping(false);
+        const devAutologin = getDevAutologinConfig();
+        if (!devAutologin) {
+          setBootstrapping(false);
+          return;
+        }
+
+        setLoading(true);
+        setError(null);
+        serverRef.current = devAutologin.server;
+        setServerUrl(serverRef.current);
+        localStorage.setItem(AUTH_SERVER_STORAGE_KEY, serverRef.current);
+        try {
+          const tokens = await loginBasicRequest(
+            devAutologin.username,
+            devAutologin.password,
+          );
+          if (!tokens.access_token) {
+            throw new Error("No access_token in dev autologin response");
+          }
+          authRef.current = tokens;
+          setAuth(tokens);
+          if (tokens.refresh_token) {
+            localStorage.setItem(
+              AUTH_REFRESH_STORAGE_KEY,
+              tokens.refresh_token,
+            );
+          }
+          nextTokenRefreshRef.current = computeNextTokenRefresh(
+            tokens.access_token,
+          );
+          const me = await fetchCurrentUser();
+          setUser(me);
+        } catch (e) {
+          authRef.current = null;
+          setAuth(null);
+          setUser(null);
+          nextTokenRefreshRef.current = null;
+          localStorage.removeItem(AUTH_REFRESH_STORAGE_KEY);
+          setError(
+            e instanceof Error ? e.message : "Dev autologin failed.",
+          );
+        } finally {
+          setLoading(false);
+          setBootstrapping(false);
+        }
         return;
       }
-      serverRef.current = storedServer.replace(/\/+$/, "");
+      serverRef.current = normalizeServerUrl(storedServer);
       setServerUrl(serverRef.current);
       try {
         const tokens = await refreshWithToken(storedRefresh);
@@ -299,15 +356,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         authRef.current = tokens;
         setAuth(tokens);
         if (tokens.refresh_token)
-          localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
+          localStorage.setItem(
+            AUTH_REFRESH_STORAGE_KEY,
+            tokens.refresh_token,
+          );
         nextTokenRefreshRef.current = computeNextTokenRefresh(
           tokens.access_token,
         );
         const me = await fetchCurrentUser();
         setUser(me);
       } catch {
-        localStorage.removeItem(REFRESH_KEY);
-        localStorage.removeItem(SERVER_KEY);
+        localStorage.removeItem(AUTH_REFRESH_STORAGE_KEY);
         authRef.current = null;
         setAuth(null);
       } finally {
@@ -322,7 +381,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuth(null);
     setUser(null);
     setError(null);
-    localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem(AUTH_REFRESH_STORAGE_KEY);
   }, []);
 
   const refreshCurrentUser = useCallback(async () => {

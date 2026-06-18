@@ -1,4 +1,9 @@
 import { useAuth } from "@/context/AuthContext";
+import {
+  AUTH_SERVER_STORAGE_KEY,
+  getDevAutologinConfig,
+  normalizeServerUrl,
+} from "@/utils/authConfig";
 import { Logo } from "@components/Logo";
 import { Button } from "@tw/button";
 import { Checkbox, CheckboxField } from "@tw/checkbox";
@@ -6,7 +11,7 @@ import { Field, Label } from "@tw/fieldset";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { useNavigate } from "react-router";
 import ThemeSwitch from "./ThemeSwitch";
 import { Status } from "../api";
@@ -14,10 +19,21 @@ import { Status } from "../api";
 export function Login() {
   const { loginBasic, loginWithTokens, loading, error } = useAuth();
   const navigate = useNavigate();
-  const [server, setServer] = useState(window.location.origin);
-  const [confirmedServer, setConfirmedServer] = useState<string | null>(null);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const devAutologin = getDevAutologinConfig();
+  const [server, setServer] = useState(() => {
+    return (
+      localStorage.getItem(AUTH_SERVER_STORAGE_KEY) ||
+      devAutologin?.server ||
+      window.location.origin
+    );
+  });
+  const [confirmedServer, setConfirmedServer] = useState<string | null>(() => {
+    const initialServer =
+      localStorage.getItem(AUTH_SERVER_STORAGE_KEY) || devAutologin?.server;
+    return initialServer ? normalizeServerUrl(initialServer) : null;
+  });
+  const [username, setUsername] = useState(() => devAutologin?.username || "");
+  const [password, setPassword] = useState(() => devAutologin?.password || "");
   const [useSso, setUseSso] = useState(false);
   const [serverStatus, setServerStatus] = useState<Status | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
@@ -42,25 +58,13 @@ export function Login() {
     }
   }, [confirmedServer]);
 
-  const normalizeServer = useCallback((raw: string) => {
-    if (!raw) return raw;
-    let s = raw.trim();
-    // If user omitted protocol, assume https
-    if (!/^https?:\/\//i.test(s)) {
-      s = `https://${s}`;
-    }
-    // Remove trailing slashes
-    s = s.replace(/\/+$/, "");
-    return s;
-  }, []);
-
   useEffect(() => {
     if (!confirmedServer) {
       setServerStatus(null);
       setStatusError(false);
       return;
     }
-    const normalized = normalizeServer(confirmedServer);
+    const normalized = normalizeServerUrl(confirmedServer);
     if (!normalized) {
       setServerStatus(null);
       return;
@@ -98,7 +102,7 @@ export function Login() {
     return () => {
       controller.abort();
     };
-  }, [confirmedServer, normalizeServer]);
+  }, [confirmedServer]);
 
   useEffect(() => {
     if (serverStatus) {
@@ -154,11 +158,10 @@ export function Login() {
     }
   }, [loginWithTokens, navigate]);
 
-  const handleContinue = (e: React.FormEvent) => {
+  const handleContinue = (e: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
     e.preventDefault();
     if (!server.trim()) return;
-    let normalized = server.trim();
-    if (!/^https?:\/\//i.test(normalized)) normalized = `https://${normalized}`;
+    const normalized = normalizeServerUrl(server);
     setServer(normalized);
     setConfirmedServer(normalized);
   };
@@ -168,10 +171,10 @@ export function Login() {
     setServerStatus(null);
   };
 
-  const onSubmit = async (e: FormEvent) => {
+  const onSubmit = async (e: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
     e.preventDefault();
     try {
-      const normalized = normalizeServer(confirmedServer || server);
+      const normalized = normalizeServerUrl(confirmedServer || server);
       if (useSso) {
         window.location.href = `${normalized}/api/auth/oauth2/login`;
         return;
