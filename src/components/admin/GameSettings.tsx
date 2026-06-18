@@ -1910,79 +1910,88 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Content Area with fixed sections */}
                         <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto overflow-x-hidden pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-zinc-600 max-w-full">
-                          {/* Three Column Layout - Fixed height section */}
-                          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_150px] gap-6 xl:gap-[30px] flex-shrink-0 w-full max-w-full">
-                            {/* Left Column: GameVault Data */}
-                            <div className="flex flex-col overflow-x-hidden space-y-4 pb-4 xl:pb-0 border-b xl:border-b-0 border-zinc-200 dark:border-zinc-700 min-w-0">
-                              <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
-                                GameVault
-                              </h4>
+                          {/* Comparison cards with separate action panel */}
+                          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_220px] shrink-0 w-full max-w-full">
+                            <div className="space-y-4 min-w-0">
+                              <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 dark:border-zinc-700 dark:bg-zinc-900/40">
+                                <div className="mb-4">
+                                  <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
+                                    GameVault
+                                  </h4>
+                                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                    Source file and imported game data
+                                  </div>
+                                </div>
 
-                              <div className="flex gap-4">
-                                {/* Cover Image */}
-                                {gameCoverUrl && (
-                                  <div className="flex-shrink-0 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
-                                    <img
-                                      src={gameCoverUrl}
-                                      alt="Cover"
-                                      className="w-32 h-44 object-cover"
-                                      style={{ aspectRatio: "2/3" }}
-                                      onError={(e) => {
-                                        (
-                                          e.target as HTMLImageElement
-                                        ).style.display = "none";
-                                      }}
-                                    />
-                                  </div>
-                                )}
+                                <div className="flex flex-col gap-4 lg:flex-row">
+                                  {gameCoverUrl && (
+                                    <div className="shrink-0 self-start rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                                      <img
+                                        src={gameCoverUrl}
+                                        alt="Cover"
+                                        className="w-32 h-44 object-cover"
+                                        style={{ aspectRatio: "2/3" }}
+                                        onError={(e) => {
+                                          (
+                                            e.target as HTMLImageElement
+                                          ).style.display = "none";
+                                        }}
+                                      />
+                                    </div>
+                                  )}
 
-                                <div className="flex-1 space-y-2 text-sm">
-                                  <div>
-                                    <div className="text-zinc-500 dark:text-zinc-400 mb-1">
-                                      File Path:
+                                  <div className="grid flex-1 gap-3 text-sm min-w-0 sm:grid-cols-2">
+                                    <div className="sm:col-span-2">
+                                      <div className="mb-1 text-zinc-500 dark:text-zinc-400">
+                                        File Path:
+                                      </div>
+                                      <div
+                                        className="font-mono text-xs leading-relaxed text-zinc-900 break-all dark:text-zinc-100"
+                                        title={workingGame.file_path || "N/A"}
+                                      >
+                                        {workingGame.file_path || "N/A"}
+                                      </div>
                                     </div>
-                                    <div className="text-zinc-900 dark:text-zinc-100 font-mono text-xs overflow-hidden whitespace-nowrap text-ellipsis">
-                                      {workingGame.file_path || "N/A"}
+                                    <div>
+                                      <div className="mb-1 text-zinc-500 dark:text-zinc-400">
+                                        Release Date:
+                                      </div>
+                                      <div className="text-zinc-900 dark:text-zinc-100">
+                                        {workingGame.release_date
+                                          ? new Date(
+                                              workingGame.release_date,
+                                            ).toLocaleDateString()
+                                          : "N/A"}
+                                      </div>
                                     </div>
-                                  </div>
-                                  <div>
-                                    <div className="text-zinc-500 dark:text-zinc-400 mb-1">
-                                      Release Date:
-                                    </div>
-                                    <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
-                                      {workingGame.release_date
-                                        ? new Date(
-                                            workingGame.release_date,
-                                          ).toLocaleDateString()
-                                        : "N/A"}
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div className="text-zinc-500 dark:text-zinc-400 mb-1">
-                                      Added:
-                                    </div>
-                                    <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
-                                      {new Date(
-                                        workingGame.created_at,
-                                      ).toLocaleDateString()}
+                                    <div>
+                                      <div className="mb-1 text-zinc-500 dark:text-zinc-400">
+                                        Added:
+                                      </div>
+                                      <div className="text-zinc-900 dark:text-zinc-100">
+                                        {new Date(
+                                          workingGame.created_at,
+                                        ).toLocaleDateString()}
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
                               </div>
-                            </div>
 
-                            {/* Middle Column: Mapped Game Data */}
-                            <div className="flex flex-col overflow-x-hidden space-y-4 pb-4 xl:pb-0 border-b xl:border-b-0 border-zinc-200 dark:border-zinc-700 min-w-0">
-                              <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
-                                Mapped Game
-                              </h4>
+                              <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 dark:border-zinc-700 dark:bg-zinc-900/40">
+                                <div className="mb-4">
+                                  <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
+                                    Mapped Game
+                                  </h4>
+                                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                    Current provider match and cached metadata
+                                  </div>
+                                </div>
 
-                              {currentShownMappedGame ? (
-                                <>
-                                  <div className="flex gap-4">
-                                    {/* Cover Image */}
+                                {currentShownMappedGame ? (
+                                  <div className="flex flex-col gap-4 lg:flex-row">
                                     {mappedGameCoverUrl && (
-                                      <div className="flex-shrink-0 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                                      <div className="shrink-0 self-start rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
                                         <img
                                           src={mappedGameCoverUrl}
                                           alt="Provider Cover"
@@ -1997,21 +2006,21 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                       </div>
                                     )}
 
-                                    <div className="flex-1 space-y-2 text-sm">
-                                      <div>
-                                        <div className="text-zinc-500 dark:text-zinc-400 mb-1">
+                                    <div className="grid flex-1 gap-3 text-sm min-w-0 sm:grid-cols-2">
+                                      <div className="sm:col-span-2">
+                                        <div className="mb-1 text-zinc-500 dark:text-zinc-400">
                                           Title:
                                         </div>
-                                        <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
+                                        <div className="leading-relaxed text-zinc-900 wrap-break-word dark:text-zinc-100">
                                           {currentShownMappedGame.title ||
                                             "N/A"}
                                         </div>
                                       </div>
                                       <div>
-                                        <div className="text-zinc-500 dark:text-zinc-400 mb-1">
+                                        <div className="mb-1 text-zinc-500 dark:text-zinc-400">
                                           Release Date:
                                         </div>
-                                        <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
+                                        <div className="text-zinc-900 dark:text-zinc-100">
                                           {currentShownMappedGame.release_date
                                             ? new Date(
                                                 currentShownMappedGame.release_date,
@@ -2020,10 +2029,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         </div>
                                       </div>
                                       <div>
-                                        <div className="text-zinc-500 dark:text-zinc-400 mb-1">
+                                        <div className="mb-1 text-zinc-500 dark:text-zinc-400">
                                           Last Cached:
                                         </div>
-                                        <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
+                                        <div className="text-zinc-900 dark:text-zinc-100">
                                           {currentShownMappedGame.updated_at
                                             ? new Date(
                                                 currentShownMappedGame.updated_at,
@@ -2032,14 +2041,14 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         </div>
                                       </div>
                                       {currentShownMappedGame.provider_data_url && (
-                                        <div>
+                                        <div className="sm:col-span-2">
                                           <a
                                             href={
                                               currentShownMappedGame.provider_data_url
                                             }
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="text-indigo-600 dark:text-indigo-400 hover:underline text-xs"
+                                            className="text-xs text-indigo-600 hover:underline dark:text-indigo-400"
                                           >
                                             View on{" "}
                                             {
@@ -2052,19 +2061,23 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                       )}
                                     </div>
                                   </div>
-                                </>
-                              ) : (
-                                <div className="flex items-center justify-center h-32 text-sm text-zinc-500 dark:text-zinc-400">
-                                  Not mapped to this provider
-                                </div>
-                              )}
+                                ) : (
+                                  <div className="flex min-h-24 items-center justify-center text-sm text-zinc-500 dark:text-zinc-400">
+                                    Not mapped to this provider
+                                  </div>
+                                )}
+                              </div>
                             </div>
 
-                            {/* Actions Column */}
-                            <div className="flex flex-col space-y-4 w-full max-w-full xl:max-w-none">
-                              <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
-                                Actions
-                              </h4>
+                            <div className="flex flex-col space-y-4 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 w-full max-w-full dark:border-zinc-700 dark:bg-zinc-900/40 2xl:max-w-none">
+                              <div>
+                                <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
+                                  Actions
+                                </h4>
+                                <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                  Adjust match priority or refresh mapping
+                                </div>
+                              </div>
 
                               {currentShownMappedGame ? (
                                 <div className="space-y-3 w-full max-w-full">

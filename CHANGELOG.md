@@ -8,6 +8,7 @@
 - Game time tracker
 - Fixed a bug where only the first 1000 Tags would be loaded in the library, now all tags are loaded
 - [#22](https://github.com/Phalcode/gamevault-frontend/issues/22) - Added support for markdown in game descriptions and notes.
+- [#32](https://github.com/Phalcode/gamevault-frontend/issues/32) - Redesigned the game settings page a bit.
 
 ## 16.2.1
 
