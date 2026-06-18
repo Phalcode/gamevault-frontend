@@ -176,7 +176,7 @@ export default function MultiSelectFilterDialog({
     try {
       const base = serverUrl.replace(/\/+$/, "");
       const params = new URLSearchParams();
-      params.set("limit", "1000"); // Fetch all items
+      params.set("limit", "-1");
       const url = `${base}${endpoint}?${params.toString()}`;
       const res = await authFetch(url, { method: "GET" });
       if (!res.ok) throw new Error(`Failed to fetch ${title} (${res.status})`);

@@ -2,8 +2,11 @@
 
 ## 16.3.0
 
+### Changes
+
 - New installed games section in the library
 - Game time tracker
+- Fixed a bug where only the first 1000 Tags would be loaded in the library, now all tags are loaded
 
 ## 16.2.1
 
