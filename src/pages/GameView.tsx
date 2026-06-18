@@ -611,7 +611,7 @@ export default function GameView() {
                         <DropdownLabel>Direct Download</DropdownLabel>
                       </DropdownItem>
                       <DropdownItem onClick={handleClientDownload}>
-                        <DropdownLabel>Open in Client</DropdownLabel>
+                        <DropdownLabel>Download via GameVault Client</DropdownLabel>
                       </DropdownItem>
                     </DropdownMenu>
                   </Dropdown>
