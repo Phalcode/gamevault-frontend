@@ -2,6 +2,7 @@ import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { Progress, ProgressStateEnum } from "@/api/models/Progress";
 import { Media } from "@/components/Media";
 import MediaSlider from "@/components/MediaSlider";
+import MarkdownContent from "@/components/MarkdownContent";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { Button } from "@tw/button";
@@ -35,7 +36,6 @@ import {
   HashtagIcon,
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
-import Markdown from "react-markdown";
 import {
   Dropdown,
   DropdownButton,
@@ -479,6 +479,17 @@ export default function GameView() {
     game?.metadata?.average_playtime ||
     (game as any)?.metadata?.average_playtime ||
     null;
+  const floatingIconButtonClassName =
+    "h-9 w-9 p-0 flex items-center justify-center border-white/35 bg-white/60 shadow-sm backdrop-blur-md hover:bg-white/78 dark:border-white/20 dark:bg-zinc-950/58 dark:hover:bg-zinc-900/72";
+  const glassPanelClassName =
+    "border border-white/35 bg-white/[0.42] backdrop-blur-md dark:border-white/10 dark:bg-zinc-950/72 dark:backdrop-blur-md";
+  const darkGlassInsetClassName =
+    "dark:border dark:border-white/10 dark:bg-zinc-950/68 dark:backdrop-blur-md";
+  const progressSelectClassName = clsx(
+    "rounded-lg before:bg-white/60 before:backdrop-blur-md before:shadow-sm",
+    "dark:before:hidden",
+    darkGlassInsetClassName,
+  );
 
   // Derive additional metadata fields
   const releaseYear = game?.release_date
@@ -619,7 +630,7 @@ export default function GameView() {
                 <Button
                   outline
                   onClick={() => setSettingsOpen(true)}
-                  className="h-9 w-9 p-0 flex items-center justify-center border-white/20 bg-zinc-900/40 text-white shadow-sm backdrop-blur-sm hover:bg-zinc-800/60 dark:border-white/20 dark:bg-zinc-700/50 dark:hover:bg-zinc-600/60"
+                  className={floatingIconButtonClassName}
                   title="Settings"
                 >
                   <Cog8ToothIcon className="w-5 h-5" />
@@ -633,7 +644,7 @@ export default function GameView() {
                     "disabled:opacity-50 disabled:cursor-not-allowed shadow-sm",
                     bookmarked
                       ? "bg-yellow-400/20 border-yellow-400 text-yellow-400"
-                      : "bg-zinc-900/40 dark:bg-zinc-700/50 border-white/20 hover:bg-zinc-800/60 dark:hover:bg-zinc-600/60 text-white",
+                      : "border-white/35 bg-white/60 text-zinc-700 hover:bg-white/78 dark:border-white/20 dark:bg-zinc-950/58 dark:text-zinc-100 dark:hover:bg-zinc-900/72",
                   )}
                   title={bookmarked ? "Remove bookmark" : "Add bookmark"}
                   aria-pressed={bookmarked}
@@ -647,7 +658,7 @@ export default function GameView() {
                 <Button
                   outline
                   onClick={handleShare}
-                  className="h-9 w-9 p-0 flex items-center justify-center border-white/20 bg-zinc-900/40 text-white shadow-sm backdrop-blur-sm hover:bg-zinc-800/60 dark:border-white/20 dark:bg-zinc-700/50 dark:hover:bg-zinc-600/60"
+                  className={floatingIconButtonClassName}
                   title="Copy link"
                 >
                   <ShareIcon className="w-5 h-5" />
@@ -688,7 +699,12 @@ export default function GameView() {
           {/* Right Column Row 1: Stats + Progress State */}
           <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-1 min-w-0">
             <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="p-3 rounded-lg bg-zinc-100 dark:bg-zinc-800">
+              <div
+                className={clsx(
+                  "rounded-lg bg-zinc-100 p-3",
+                  darkGlassInsetClassName,
+                )}
+              >
                 <div className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                   Playtime
                 </div>
@@ -698,7 +714,12 @@ export default function GameView() {
                     : `${playtimeMinutes} m`}
                 </div>
               </div>
-              <div className="p-3 rounded-lg bg-zinc-100 dark:bg-zinc-800">
+              <div
+                className={clsx(
+                  "rounded-lg bg-zinc-100 p-3",
+                  darkGlassInsetClassName,
+                )}
+              >
                 <div className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                   Last Played
                 </div>
@@ -709,7 +730,12 @@ export default function GameView() {
                   {lastPlayed}
                 </div>
               </div>
-              <div className="p-3 rounded-lg bg-zinc-100 dark:bg-zinc-800">
+              <div
+                className={clsx(
+                  "rounded-lg bg-zinc-100 p-3",
+                  darkGlassInsetClassName,
+                )}
+              >
                 <div className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                   Avg Playtime
                 </div>
@@ -729,7 +755,7 @@ export default function GameView() {
                 value={progressState || "UNPLAYED"}
                 onChange={(v: any) => updateProgressState(v)}
                 disabled={!user || progressUpdating}
-                className="rounded-lg before:bg-zinc-900/40 before:backdrop-blur-sm before:shadow-none dark:bg-zinc-700/50 dark:before:hidden"
+                className={progressSelectClassName}
               >
                 {progressStateOptions.map((o) => (
                   <ListboxOption key={o.key} value={o.key}>
@@ -756,7 +782,11 @@ export default function GameView() {
               </div>
             )}
             <div ref={detailsCardRef} className="contents">
-              <Card title="Details" className="!mb-0">
+              <Card
+                title="Details"
+                className="!mb-0"
+                surfaceClassName={glassPanelClassName}
+              >
                 <div className="flex border-b border-zinc-300/40 dark:border-zinc-700/50 mb-4 gap-6 text-sm">
                   <button
                     onClick={() => setDetailsTab("description")}
@@ -795,9 +825,7 @@ export default function GameView() {
                 <div className="text-sm leading-relaxed space-y-4 min-h-[180px]">
                   {detailsTab === "description" &&
                     (description ? (
-                      <p className="whitespace-pre-line text-zinc-700 dark:text-zinc-300">
-                        {description}
-                      </p>
+                      <MarkdownContent content={description} />
                     ) : (
                       <p className="italic text-zinc-500">
                         No description available.
@@ -805,9 +833,7 @@ export default function GameView() {
                     ))}
                   {detailsTab === "notes" &&
                     (notes ? (
-                      <div className="prose prose-sm dark:prose-invert max-w-none">
-                        <Markdown>{notes}</Markdown>
-                      </div>
+                      <MarkdownContent content={notes} />
                     ) : (
                       <p className="italic text-zinc-500">No notes.</p>
                     ))}
@@ -840,6 +866,7 @@ export default function GameView() {
               <Card
                 title="Additional Metadata"
                 className="min-h-[160px] h-full"
+                surfaceClassName={glassPanelClassName}
               >
                 <ul className="space-y-4 text-sm">
                   <li className="flex items-start gap-3">
@@ -966,7 +993,11 @@ export default function GameView() {
                 isXL && detailsHeight ? { height: detailsHeight } : undefined
               }
             >
-              <Card title="Activity" className="!mb-0 h-full">
+              <Card
+                title="Activity"
+                className="!mb-0 h-full"
+                surfaceClassName={glassPanelClassName}
+              >
                 {(() => {
                   const progresses: Progress[] =
                     (game as any)?.progresses || [];

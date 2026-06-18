@@ -4,9 +4,9 @@ import {
   DialogBody,
   DialogTitle,
 } from "@/components/tailwind/dialog";
+import MarkdownContent from "@/components/MarkdownContent";
 import { Button } from "@tw/button";
 import { useEffect, useState } from "react";
-import Markdown from "react-markdown";
 import { useNews } from "../../hooks/useNews";
 
 interface NewsDialogProps {
@@ -76,7 +76,7 @@ export function NewsDialog({ onClose }: NewsDialogProps) {
       </div>
       <DialogBody className="pt-4 max-h-[70vh] overflow-y-auto min-h-[420px]">
         {hasErr && <div className="mb-4 text-sm text-rose-500">{hasErr}</div>}
-        <Markdown>{content}</Markdown>
+        <MarkdownContent content={content} />
       </DialogBody>
       <DialogActions>
         <Button type="button" onClick={onClose} color="zinc">
