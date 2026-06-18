@@ -5,9 +5,14 @@ import React, { forwardRef } from "react";
 export const Textarea = forwardRef(function Textarea(
   {
     className,
+    textareaClassName,
     resizable = true,
     ...props
-  }: { className?: string; resizable?: boolean } & Omit<
+  }: {
+    className?: string;
+    textareaClassName?: string;
+    resizable?: boolean;
+  } & Omit<
     Headless.TextareaProps,
     "as" | "className"
   >,
@@ -34,6 +39,7 @@ export const Textarea = forwardRef(function Textarea(
         ref={ref}
         {...props}
         className={clsx([
+          textareaClassName,
           // Basic layout
           "relative block h-full w-full appearance-none rounded-lg px-[calc(--spacing(3.5)-1px)] py-[calc(--spacing(2.5)-1px)] sm:px-[calc(--spacing(3)-1px)] sm:py-[calc(--spacing(1.5)-1px)]",
           // Typography
