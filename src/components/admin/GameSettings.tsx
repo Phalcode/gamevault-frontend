@@ -33,6 +33,8 @@ import {
   TrashIcon,
 } from "@heroicons/react/24/outline";
 import { PaintBrushIcon } from "@heroicons/react/16/solid";
+import { Switch, SwitchField } from "../tailwind/switch";
+import { Label } from "../tailwind/fieldset";
 
 interface Props {
   game: GamevaultGame;
@@ -340,7 +342,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
               setLaunchParams(raw.launchparameters || "");
               setLaunchAsAdmin(!!raw.launchasadmin);
             }
-          } catch {}
+          } catch { }
         }
         if (!cancelled) launchOptionsLoadedRef.current = true;
       } catch (err) {
@@ -355,7 +357,11 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     };
   }, [activeTab, installedGame]);
 
-  const persistLaunchOptions = useCallback(async (exe: string, params: string) => {
+  const persistLaunchOptions = useCallback(async (
+    exe: string,
+    params: string,
+    runAsAdmin: boolean,
+  ) => {
     if (!installedGame) return;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -377,7 +383,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
       current.launchexecutable = exe || undefined;
       current.launchparameters = params.trim() || undefined;
-      current.launchasadmin = launchAsAdmin || undefined;
+      current.launchasadmin = runAsAdmin || undefined;
 
       await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(current, null, 2) });
     } catch (err: any) {
@@ -389,7 +395,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   useEffect(() => {
     if (!launchOptionsLoadedRef.current) return;
     const timeout = setTimeout(() => {
-      persistLaunchOptions(selectedLaunchExe, launchParams);
+      persistLaunchOptions(selectedLaunchExe, launchParams, launchAsAdmin);
     }, 500);
     return () => clearTimeout(timeout);
   }, [selectedLaunchExe, launchParams, launchAsAdmin, persistLaunchOptions]);
@@ -854,7 +860,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       revokeRef.current.forEach((u) => {
         try {
           URL.revokeObjectURL(u);
-        } catch {}
+        } catch { }
       });
     },
     [],
@@ -1063,13 +1069,13 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       // Upload new images and get their IDs
       const coverId = newCover
         ? await uploadImage(
-            (await obtainFileForState(coverImg, "cover")) as File,
-          )
+          (await obtainFileForState(coverImg, "cover")) as File,
+        )
         : undefined;
       const backgroundId = newBg
         ? await uploadImage(
-            (await obtainFileForState(bgImg, "background")) as File,
-          )
+          (await obtainFileForState(bgImg, "background")) as File,
+        )
         : undefined;
 
       // Update game with new media IDs
@@ -1952,8 +1958,8 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                     <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
                                       {workingGame.release_date
                                         ? new Date(
-                                            workingGame.release_date,
-                                          ).toLocaleDateString()
+                                          workingGame.release_date,
+                                        ).toLocaleDateString()
                                         : "N/A"}
                                     </div>
                                   </div>
@@ -2014,8 +2020,8 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
                                           {currentShownMappedGame.release_date
                                             ? new Date(
-                                                currentShownMappedGame.release_date,
-                                              ).toLocaleDateString()
+                                              currentShownMappedGame.release_date,
+                                            ).toLocaleDateString()
                                             : "N/A"}
                                         </div>
                                       </div>
@@ -2026,8 +2032,8 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         <div className="text-zinc-900 dark:text-zinc-100 overflow-hidden whitespace-nowrap text-ellipsis">
                                           {currentShownMappedGame.updated_at
                                             ? new Date(
-                                                currentShownMappedGame.updated_at,
-                                              ).toLocaleDateString()
+                                              currentShownMappedGame.updated_at,
+                                            ).toLocaleDateString()
                                             : "N/A"}
                                         </div>
                                       </div>
@@ -3130,24 +3136,21 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                         </div>
 
                         {/* Run as Admin */}
-                        <div>
-                          <label className="flex items-center gap-2 cursor-pointer select-none">
-                            <input
-                              type="checkbox"
+                        <div>                         
+                          <SwitchField>
+                            <Switch
+                              name="launchAsAdmin"
+                              color="indigo"
+                              aria-label="Run as Administrator"
                               checked={launchAsAdmin}
-                              onChange={(e) => setLaunchAsAdmin(e.target.checked)}
-                              className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800"
+                              onChange={(v: boolean) => setLaunchAsAdmin(v)}
                             />
-                            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                              Run as Administrator
-                            </span>
-                          </label>
-                          <p className="mt-1 ml-6 text-xs text-zinc-500">
+                            <Label>Run as Administrator</Label>
+                          </SwitchField>
+                          <p className="mt-1 ml-0 text-xs text-zinc-500">
                             Launch the game with elevated privileges (UAC prompt).
                           </p>
                         </div>
-
-
                       </>
                     )}
                   </div>
