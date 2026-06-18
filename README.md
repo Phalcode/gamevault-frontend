@@ -41,6 +41,22 @@ Persistence keys:
 - `app_refresh_token` (refresh token)
 - `app_server_url` (last used server base URL)
 
+## Dev Autologin
+
+Create `gamevault-frontend/.env.local` for dev-only automatic basic login:
+
+```env
+VITE_DEV_AUTOLOGIN=true
+VITE_DEV_AUTOLOGIN_SERVER=https://example.gamevault.tld
+VITE_DEV_AUTOLOGIN_USERNAME=devuser
+VITE_DEV_AUTOLOGIN_PASSWORD=devpassword
+```
+
+- `.env.local` stays local because `*.local` already ignored.
+- Autologin runs only in Vite dev mode and only when no refresh token exists yet.
+- Login page reuses stored server URL, so failed refresh or failed dev autologin still lands on right server.
+- Restart `pnpm dev` after changing env file.
+
 Uncheck "Remember me" on login if you want the refresh token removed right after authenticating (session-only access token).
 
 If backend endpoints change, update the paths in `AuthContext` and the admin hook.

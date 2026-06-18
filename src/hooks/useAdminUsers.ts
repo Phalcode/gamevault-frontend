@@ -1,7 +1,14 @@
 import { useAuth } from "@/context/AuthContext";
 import { useCallback, useEffect, useRef, useState } from "react";
-// Local helper to normalize user objects if backend changes shape; currently identity
+// Normalize runtime payloads from backend to match generated frontend user types.
 function normalizeUser<T>(u: T): T {
+  if (!u || typeof u !== "object") return u;
+
+  const candidate = u as T & { role?: unknown };
+  if (typeof candidate.role === "number") {
+    return { ...candidate, role: String(candidate.role) } as T;
+  }
+
   return u;
 }
 import { GamevaultUser, GamevaultUserRoleEnum } from "../api";
@@ -54,7 +61,9 @@ export function useAdminUsers(): UseAdminUsersResult {
           );
         const list = await res.json();
         if (cancelled) return;
-        setUsers(list);
+        setUsers(
+          Array.isArray(list) ? list.map((entry) => normalizeUser(entry)) : [],
+        );
         fetchedRef.current = true;
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
