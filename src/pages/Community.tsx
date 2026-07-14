@@ -306,7 +306,7 @@ function NetworkUserCard({
         <div className="relative">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="shrink-0 rounded-3xl border border-gv-line/70 bg-gv-panel-soft p-1.5 shadow-sm">
+              <div className="shrink-0 overflow-hidden rounded-3xl border border-gv-line/70 bg-gv-panel-soft shadow-sm">
                 <Media
                   media={user.avatar}
                   size={76}
@@ -726,7 +726,7 @@ export default function Community() {
             <div className="relative flex min-h-80 flex-col justify-end gap-6 p-6 sm:p-7 lg:p-8">
               <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
                 <div className="flex min-w-0 items-end gap-4">
-                  <div className="rounded-3xl border-4 border-white/20 bg-gv-panel-soft/50 p-2 shadow-lg backdrop-blur-xl">
+                  <div className="overflow-hidden rounded-3xl border-4 border-white/20 bg-gv-panel-soft/50 shadow-lg backdrop-blur-xl">
                     <Media
                       media={selectedUser.avatar}
                       size={110}

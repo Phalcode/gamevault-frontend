@@ -92,7 +92,7 @@ export function Media({
         position: "relative",
         width: dimW,
         height: dimH,
-        borderRadius: square ? 18 : "50%",
+        borderRadius: square ? 0 : "50%",
         overflow: "hidden",
         background:
           "linear-gradient(110deg,#232230 8%,#2d2c3a 18%,#232230 33%)",
