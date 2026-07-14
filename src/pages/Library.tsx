@@ -1110,7 +1110,7 @@ export default function Library() {
                   }}
                 >
                   {filteredInstalledGames.map((g) => (
-                    <GameCard key={`installed-${g.id}`} game={g} />
+                    <GameCard key={`installed-${g.id}`} game={g} sortBy={sortBy} />
                   ))}
                 </div>
               </div>
@@ -1148,7 +1148,7 @@ export default function Library() {
             )}
             <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(152px,1fr))] py-2 pb-8">
               {games.map((g) => (
-                <GameCard key={g.id} game={g} />
+                <GameCard key={g.id} game={g} sortBy={sortBy} />
               ))}
             </div>
             {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
@@ -1184,7 +1184,7 @@ export default function Library() {
             )}
             <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(152px,1fr))] py-2 pb-8">
               {games.map((g) => (
-                <GameCard key={g.id} game={g} />
+                <GameCard key={g.id} game={g} sortBy={sortBy} />
               ))}
             </div>
             {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}

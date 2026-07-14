@@ -16,6 +16,10 @@ export default function DashboardLayout({
   const isGameViewRoute = Boolean(
     matchPath({ path: "/library/:id" }, location.pathname),
   );
+  const isCommunityProfileRoute = Boolean(
+    matchPath({ path: "/community/:id" }, location.pathname),
+  );
+  const isFullBleed = isGameViewRoute || isCommunityProfileRoute;
 
   useGameTimeTracker();
 
@@ -24,8 +28,8 @@ export default function DashboardLayout({
       <SidebarLayout
         sidebar={<Sidebar />}
         navbar={<Navbar />}
-        fullWidth={isGameViewRoute}
-        fullBleed={isGameViewRoute}
+        fullWidth={isFullBleed}
+        fullBleed={isFullBleed}
       >
         <Outlet />
       </SidebarLayout>

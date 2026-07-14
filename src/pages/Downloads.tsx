@@ -2,6 +2,7 @@ import { useDownloads, type ActiveDownload } from "@/context/DownloadContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { Button } from "@/components/tailwind/button";
 import { Media } from "@/components/Media";
+import CoverPlaceholder from "@/components/CoverPlaceholder";
 import { Heading } from "@tw/heading";
 import { Divider } from "@tw/divider";
 import { Badge } from "@/components/tailwind/badge";
@@ -617,31 +618,37 @@ export default function Downloads() {
                         alt={`${download.gameTitle} cover art`}
                         className="overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
                         fallback={
-                          <div className="px-3 text-center text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                            No Cover
-                          </div>
+                          <CoverPlaceholder
+                            title={download.gameTitle || "Game"}
+                            size="normal"
+                            className="h-full w-full"
+                          />
                         }
                       />
                     ) : (
-                      <div className="flex h-[136px] w-24 items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 text-center text-xs font-medium text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950/40 dark:text-zinc-400">
-                        No Cover
+                      <div className="h-34 w-24 overflow-hidden rounded-lg border border-dashed border-zinc-300 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950/40">
+                        <CoverPlaceholder
+                          title={download.gameTitle || "Game"}
+                          size="normal"
+                          className="h-full w-full"
+                        />
                       </div>
                     )}
                   </div>
 
                   {!installViewOpen && (
-                    <div className="pt-1 min-w-[180px]">
+                    <div className="pt-1 min-w-45">
                       <ol className="space-y-3">
                         <li className="flex items-center gap-2">
                           <StepDot state={downloadStep} />
                           <span className="text-sm font-medium">Download</span>
                         </li>
-                        <li className="pl-2 ml-[9px] h-4 border-l border-zinc-300 dark:border-zinc-700" />
+                        <li className="pl-2 ml-2.25 h-4 border-l border-zinc-300 dark:border-zinc-700" />
                         <li className="flex items-center gap-2">
                           <StepDot state={extractionStep} />
                           <span className="text-sm font-medium">Extraction</span>
                         </li>
-                        <li className="pl-2 ml-[9px] h-4 border-l border-zinc-300 dark:border-zinc-700" />
+                        <li className="pl-2 ml-2.25 h-4 border-l border-zinc-300 dark:border-zinc-700" />
                         <li className="flex items-center gap-2">
                           <StepDot state={installationStep} />
                           <span className="text-sm font-medium">Installation</span>

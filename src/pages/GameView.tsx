@@ -1,5 +1,6 @@
 import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { Progress, ProgressStateEnum } from "@/api/models/Progress";
+import CoverPlaceholder from "@/components/CoverPlaceholder";
 import { Media } from "@/components/Media";
 import MediaSlider from "@/components/MediaSlider";
 import MarkdownContent from "@/components/MarkdownContent";
@@ -570,10 +571,10 @@ export default function GameView() {
           </div>
         )}
         {!loading && !error && game && (
-          <div className="mx-auto grid w-full max-w-[1400px] gap-10 px-2 pt-4 xl:grid-cols-[1fr_20rem]">
+          <div className="mx-auto grid w-full max-w-350 gap-10 px-2 pt-4 xl:grid-cols-[1fr_20rem]">
           {/* Row 1: Cover/Title/Actions spans both columns on mobile but only left column on xl */}
           <div className="flex flex-row gap-4 items-start xl:col-span-1 xl:row-span-1 min-w-0">
-            <div className="w-32 aspect-[3/4] rounded-lg overflow-hidden bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-500">
+            <div className="w-32 aspect-3/4 rounded-lg overflow-hidden bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-500">
               {coverId ? (
                 <Media
                   media={game.metadata?.cover}
@@ -581,9 +582,20 @@ export default function GameView() {
                   className="w-full h-full object-contain"
                   square
                   alt={title}
+                  fallback={
+                    <CoverPlaceholder
+                      title={title || game.title || "Game"}
+                      size="large"
+                      className="h-full w-full"
+                    />
+                  }
                 />
               ) : (
-                <span>No Cover</span>
+                <CoverPlaceholder
+                  title={title || game.title || "Game"}
+                  size="large"
+                  className="h-full w-full"
+                />
               )}
             </div>
             <div className="flex-1 min-w-0 flex flex-col gap-3">
@@ -784,7 +796,7 @@ export default function GameView() {
             <div ref={detailsCardRef} className="contents">
               <Card
                 title="Details"
-                className="!mb-0"
+                className="mb-0!"
                 surfaceClassName={glassPanelClassName}
               >
                 <div className="flex border-b border-zinc-300/40 dark:border-zinc-700/50 mb-4 gap-6 text-sm">
@@ -822,7 +834,7 @@ export default function GameView() {
                     Tags
                   </button>
                 </div>
-                <div className="text-sm leading-relaxed space-y-4 min-h-[180px]">
+                <div className="text-sm leading-relaxed space-y-4 min-h-45">
                   {detailsTab === "description" &&
                     (description ? (
                       <MarkdownContent content={description} />
@@ -865,7 +877,7 @@ export default function GameView() {
             >
               <Card
                 title="Additional Metadata"
-                className="min-h-[160px] h-full"
+                className="min-h-40 h-full"
                 surfaceClassName={glassPanelClassName}
               >
                 <ul className="space-y-4 text-sm">
@@ -995,7 +1007,7 @@ export default function GameView() {
             >
               <Card
                 title="Activity"
-                className="!mb-0 h-full"
+                className="mb-0! h-full"
                 surfaceClassName={glassPanelClassName}
               >
                 {(() => {
@@ -1033,12 +1045,14 @@ export default function GameView() {
                         const hours = minutes / 60;
                         return (
                           <li key={p.id} className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full overflow-hidden bg-zinc-300 dark:bg-zinc-700 flex items-center justify-center text-[10px] text-zinc-600 dark:text-zinc-300">
+                            <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl bg-zinc-300 text-[10px] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
                               {avatarMedia ? (
                                 <Media
                                   media={avatarMedia}
-                                  size={64}
-                                  className="w-full h-full object-cover"
+                                  size={64}           className="h-full w-full"
+                       
+                                  square
+                                  fit="cover"
                                   alt={uname}
                                 />
                               ) : (

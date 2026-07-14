@@ -274,6 +274,7 @@ export default function Administration() {
                           size={48}
                           className="size-12"
                           square
+                          fit="cover"
                           alt={name}
                         />
                         <div>

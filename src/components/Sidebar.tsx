@@ -188,6 +188,7 @@ export function Sidebar() {
                   size={40}
                   className="size-10"
                   square
+                  fit="cover"
                   alt={username}
                 />
                 <span className="min-w-0">
@@ -215,7 +216,7 @@ export function Sidebar() {
                 <DropdownLabel>Edit profile</DropdownLabel>
               </DropdownItem>
               <DropdownDivider />
-              <DropdownItem href="/community">
+              <DropdownItem href={user?.id ? `/community/${user.id}` : "/community"}>
                 <UserIcon />
                 <DropdownLabel>My profile</DropdownLabel>
               </DropdownItem>

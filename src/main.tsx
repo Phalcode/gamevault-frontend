@@ -42,6 +42,7 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="library/:id" element={<GameView />} />
                 <Route path="downloads" element={<Downloads />} />
                 <Route path="community" element={<Community />} />
+                <Route path="community/:id" element={<Community />} />
                 <Route path="settings" element={<Settings />} />
                 <Route
                   path="admin"

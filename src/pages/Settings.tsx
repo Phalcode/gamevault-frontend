@@ -1,13 +1,18 @@
 import { Divider } from "@tw/divider";
-import { Heading, Subheading } from "@tw/heading";
+import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { useDownloads } from "@/context/DownloadContext";
 import { SwitchField, Switch } from "@tw/switch";
-import { Label } from "@/components/tailwind/fieldset";
+import { Field, Fieldset, Label, Legend } from "@/components/tailwind/fieldset";
+import { Text } from "@/components/tailwind/text";
 import { useEffect, useState } from "react";
 import { isTauriApp } from "@/utils/tauri";
 import { Button } from "@/components/tailwind/button";
-import { FolderIcon } from "@heroicons/react/24/outline";
+import {
+  FolderArrowDownIcon,
+  ClipboardDocumentIcon,
+  CheckIcon,
+} from "@heroicons/react/24/outline";
 
 const RETAIN_KEY = "app_retain_library_prefs";
 const DOWNLOAD_PATH_KEY = "tauri_download_path";
@@ -15,12 +20,10 @@ const DOWNLOAD_PATH_KEY = "tauri_download_path";
 export default function Settings() {
   const { speedLimitKB, setSpeedLimitKB, formatSpeed, formatLimit } =
     useDownloads() as any;
-  // speedLimitKB stored directly as KB/s (decimal). 0 = unlimited.
   const kbValue = speedLimitKB;
   const [retainLibraryPrefs, setRetainLibraryPrefs] = useState<boolean>(() => {
     try {
-      const v = localStorage.getItem(RETAIN_KEY);
-      return v === "1";
+      return localStorage.getItem(RETAIN_KEY) === "1";
     } catch {
       return false;
     }
@@ -32,6 +35,7 @@ export default function Settings() {
       return "";
     }
   });
+  const [pathCopied, setPathCopied] = useState(false);
   const isTauri = isTauriApp();
 
   useEffect(() => {
@@ -40,37 +44,26 @@ export default function Settings() {
     } catch {}
   }, [retainLibraryPrefs]);
 
+  const handleSpeedChange = (raw: number) => {
+    if (Number.isNaN(raw) || raw <= 0) {
+      setSpeedLimitKB(0);
+    } else {
+      setSpeedLimitKB(raw);
+    }
+  };
+
   const handleSelectDownloadFolder = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log("=== Browse button clicked ===");
-    console.log("isTauri:", isTauri);
-    if (!isTauri) {
-      console.error("Not in Tauri app, cannot select folder");
-      return;
-    }
+    if (!isTauri) return;
     try {
-      console.log("Importing dialog module...");
       const { open } = await import("@tauri-apps/plugin-dialog");
-      console.log("Dialog module imported successfully");
-      console.log("Opening folder picker...");
       const selected = await open({
         directory: true,
         multiple: false,
         title: "Select Download Directory",
       });
-      console.log("Selected path:", selected);
       if (selected && typeof selected === "string") {
-        console.log("Setting download path to:", selected);
-        console.log("Path type:", typeof selected);
-        console.log("Path length:", selected.length);
-        console.log(
-          "Path characters:",
-          selected
-            .split("")
-            .map((c, i) => `${i}: '${c}' (${c.charCodeAt(0)})`)
-            .join(", "),
-        );
         setDownloadPath(selected);
         localStorage.setItem(DOWNLOAD_PATH_KEY, selected);
 
@@ -79,99 +72,143 @@ export default function Settings() {
           const { join } = await import("@tauri-apps/api/path");
           const gameVaultRoot = await join(selected, "GameVault");
           await invoke("fs_create_dir_all", { path: gameVaultRoot });
-        } catch (folderError) {
-          console.error("Failed to create GameVault folder structure:", folderError);
+        } catch {
+          // Folder creation is best-effort; settings save succeeded
         }
-
-        console.log("Download path saved to localStorage");
-        console.log(
-          "Verifying saved path:",
-          localStorage.getItem(DOWNLOAD_PATH_KEY),
-        );
-      } else {
-        console.log("No folder selected or invalid selection");
       }
     } catch (error) {
       console.error("Error selecting download folder:", error);
     }
   };
 
+  const handleCopyPath = async () => {
+    if (!downloadPath) return;
+    try {
+      await navigator.clipboard.writeText(downloadPath);
+      setPathCopied(true);
+      setTimeout(() => setPathCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable
+    }
+  };
+
+  // Truncate path for display: show last 2 segments
+  const displayPath = downloadPath
+    ? downloadPath.split(/[\\/]/).slice(-2).join("/")
+    : "No folder selected";
+
   return (
     <div className="flex min-h-full flex-col pb-12">
       <Heading>Settings</Heading>
       <Divider />
-      <div className="max-w-xl space-y-8 p-2">
-        <section>
-          <Subheading level={2}>Downloads</Subheading>
-          <div className="flex flex-col gap-4">
+
+      <div className="max-w-2xl space-y-6 p-2">
+        {/* Downloads Section */}
+        <section className="rounded-2xl border border-gv-line bg-gv-panel p-6">
+          <Fieldset>
+            <Legend>Downloads</Legend>
+            <Text className="mt-1">
+              Configure where games are saved and manage transfer speeds.
+            </Text>
+
             {isTauri && (
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-medium text-fg-muted">
-                  Root folder
-                </label>
+              <Field className="mt-6">
+                <Label>Download folder</Label>
+                <Text className="mb-2">
+                  Game files will be stored in a GameVault subfolder at this
+                  location.
+                </Text>
                 <div className="flex items-center gap-2">
-                  <Input
-                    type="text"
-                    value={downloadPath || "No folder selected"}
-                    readOnly
-                    className="flex-1"
-                    placeholder="Select a download folder"
-                  />
+                  <div className="relative flex-1">
+                    <Input
+                      type="text"
+                      value={downloadPath}
+                      readOnly
+                      className="pr-16"
+                      placeholder="Select a download folder"
+                      title={downloadPath || undefined}
+                    />
+                    {downloadPath && (
+                      <button
+                        type="button"
+                        onClick={handleCopyPath}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl p-1.5 text-gv-muted transition-colors hover:bg-gv-panel-soft hover:text-gv-text"
+                        aria-label={pathCopied ? "Path copied" : "Copy path to clipboard"}
+                      >
+                        {pathCopied ? (
+                          <CheckIcon className="h-4 w-4 text-green-400" />
+                        ) : (
+                          <ClipboardDocumentIcon className="h-4 w-4" />
+                        )}
+                      </button>
+                    )}
+                  </div>
                   <Button
                     type="button"
                     color="zinc"
                     onClick={handleSelectDownloadFolder}
                   >
-                    <FolderIcon className="h-5 w-5" />
+                    <FolderArrowDownIcon className="h-5 w-5" />
                     Browse
                   </Button>
                 </div>
-              </div>
+                {downloadPath && (
+                  <Text className="mt-1 text-xs">
+                    {displayPath}
+                  </Text>
+                )}
+              </Field>
             )}
-            <div className="flex flex-col gap-2">
-              <label className="text-xs font-medium text-fg-muted flex flex-col gap-1">
-                Download Speed Limit (KB/s). Set 0 for unlimited
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={0}
-                    value={kbValue}
-                    onChange={(e: any) => {
-                      const raw = parseInt(e.target.value || "0", 10);
-                      if (Number.isNaN(raw) || raw <= 0) {
-                        setSpeedLimitKB(0); // unlimited
-                      } else {
-                        setSpeedLimitKB(raw); // store raw KB value
-                      }
-                    }}
-                    placeholder="0 (unlimited)"
-                    className="max-w-56"
-                  />
-                  {speedLimitKB > 0 && (
-                    <span className="text-[10px] text-fg-muted flex flex-col leading-3">
-                      <span>{formatLimit(speedLimitKB)}</span>
-                    </span>
-                  )}
-                </div>
-              </label>
-            </div>
-          </div>
+
+            <Field className="mt-8">
+              <Label>Download speed limit</Label>
+              <Text className="mb-2">
+                Limit the bandwidth used for game downloads. Set to 0 for no
+                limit.
+              </Text>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  value={kbValue}
+                  onChange={(e: any) =>
+                    handleSpeedChange(parseInt(e.target.value || "0", 10))
+                  }
+                  placeholder="0 (unlimited)"
+                  className="max-w-36"
+                />
+                <span className="text-xs text-gv-muted">KB/s</span>
+                {speedLimitKB > 0 && (
+                  <span className="rounded-full bg-gv-panel-soft px-2.5 py-1 text-xs text-gv-muted">
+                    {formatLimit(speedLimitKB)}
+                  </span>
+                )}
+              </div>
+            </Field>
+          </Fieldset>
         </section>
 
-        <section>
-          <Subheading level={2}>Library</Subheading>
-          <div className="flex flex-col gap-4">
-            <SwitchField>
-              <Switch
-                name="retainLibraryPrefs"
-                color="indigo"
-                aria-label="Retain Library sorting and filter preferences"
-                checked={retainLibraryPrefs}
-                onChange={(v: boolean) => setRetainLibraryPrefs(v)}
-              />
-              <Label>Retain Sorting and Filter preferences</Label>
-            </SwitchField>
-          </div>
+        {/* Library Section */}
+        <section className="rounded-2xl border border-gv-line bg-gv-panel p-6">
+          <Fieldset>
+            <Legend>Library</Legend>
+            <Text className="mt-1">
+              Control how your game library behaves across sessions.
+            </Text>
+
+            <Field className="mt-6">
+              <SwitchField>
+                <Switch
+                  name="retainLibraryPrefs"
+                  color="indigo"
+                  aria-label="Retain Library sorting and filter preferences"
+                  checked={retainLibraryPrefs}
+                  onChange={(v: boolean) => setRetainLibraryPrefs(v)}
+                />
+                <Label>Retain sorting and filter preferences</Label>
+              </SwitchField>
+            </Field>
+          </Fieldset>
         </section>
       </div>
     </div>

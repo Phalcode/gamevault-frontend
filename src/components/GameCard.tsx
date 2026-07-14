@@ -1,5 +1,6 @@
 import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { Media } from "@/components/Media";
+import CoverPlaceholder from "@/components/CoverPlaceholder";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useDownloads } from "@/context/DownloadContext";
@@ -27,7 +28,13 @@ import { useCallback, useMemo, useState, useEffect } from "react";
 import { Link } from "react-router";
 import { GameVersion } from "@/api/models/GameVersion";
 
-export function GameCard({ game }: { game: GamevaultGame }) {
+export function GameCard({
+  game,
+  sortBy,
+}: {
+  game: GamevaultGame;
+  sortBy?: string;
+}) {
   const { serverUrl, user, authFetch } = useAuth();
   const { showAlert } = useAlertDialog();
   // Detect if this is a locally installed game (set by Library for installed games)
@@ -106,6 +113,42 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   const formattedSize = formatBytes(
     typeof rawSize === "number" ? rawSize : Number(rawSize),
   );
+
+  // Dynamic metric based on current sort
+  const sortMetric = useMemo(() => {
+    switch (sortBy) {
+      case "size":
+        return formattedSize;
+      case "created_at":
+        return localGame.created_at
+          ? new Intl.DateTimeFormat(undefined, {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            }).format(new Date(localGame.created_at))
+          : null;
+      case "metadata.release_date":
+        return localGame.metadata?.release_date
+          ? new Intl.DateTimeFormat(undefined, {
+              year: "numeric",
+            }).format(new Date(localGame.metadata.release_date))
+          : null;
+      case "metadata.rating":
+        return localGame.metadata?.rating != null
+          ? `★ ${(localGame.metadata.rating / 20).toFixed(1)}`
+          : null;
+      case "download_count":
+        return localGame.download_count != null
+          ? `${localGame.download_count.toLocaleString()} ↓`
+          : null;
+      case "metadata.average_playtime":
+        return (localGame as any).metadata?.average_playtime != null
+          ? `${Math.round((localGame as any).metadata.average_playtime / 3600)}h`
+          : null;
+      default:
+        return formattedSize;
+    }
+  }, [sortBy, formattedSize, localGame]);
 
   const resolveVersions = useCallback(async (): Promise<GameVersion[]> => {
     if (Array.isArray(localGame.versions) && localGame.versions.length > 0) {
@@ -303,11 +346,20 @@ export function GameCard({ game }: { game: GamevaultGame }) {
       <Link
         to={gameViewUrl}
         className={clsx(
-          "group flex flex-col overflow-hidden rounded-3xl border border-gv-line bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)] shadow-(--shadow-card) focus:outline-none focus:ring-2 focus:ring-gv-accent-cool",
-          "cursor-pointer transition-[transform,box-shadow,border-color] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)",
+          "group/card relative flex flex-col overflow-hidden rounded-3xl border border-gv-line bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)] shadow-(--shadow-card)",
+          "cursor-pointer transition-[transform,box-shadow,border-color] duration-200 ease-out",
+          "hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)",
+          "focus:outline-none focus:ring-2 focus:ring-gv-accent-cool",
         )}
       >
-        <div className="relative flex aspect-3/4 w-full items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,rgba(100,89,223,0.14),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0))]">
+        {/* Cover art container */}
+        <div
+          className={clsx(
+            "relative flex aspect-3/4 w-full items-center justify-center overflow-hidden",
+            coverId &&
+              "bg-[radial-gradient(circle_at_top,rgba(100,89,223,0.14),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0))]",
+          )}
+        >
           {coverId ? (
             <Media
               media={
@@ -321,14 +373,41 @@ export function GameCard({ game }: { game: GamevaultGame }) {
                 } as any
               }
               size={300}
-              className="h-full w-full object-contain rounded-none transition-transform duration-300 ease-out group-hover:scale-[1.02]"
+              className="h-full w-full object-contain rounded-none transition-transform duration-300 ease-out group-hover/card:scale-[1.02]"
               square
               alt={localGame.title}
+              fallback={
+                <CoverPlaceholder
+                  title={localGame.metadata?.title || localGame.title || "Game"}
+                  size="large"
+                  className="h-full w-full"
+                />
+              }
             />
           ) : (
-            <div className="text-xs text-gv-muted">No Cover</div>
+            <CoverPlaceholder
+              title={localGame.metadata?.title || localGame.title || "Game"}
+              size="large"
+              className="h-full w-full"
+            />
           )}
-          {/* Top-right bookmark toggle */}
+
+          {/* Animated glare overlay */}
+          <div
+            className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 ease-out group-hover/card:opacity-100"
+            aria-hidden="true"
+          >
+            <div
+              className="absolute inset-0 -translate-x-full animate-[shimmer_1.2s_ease-in-out_infinite] bg-[linear-gradient(105deg,transparent_30%,rgba(255,255,255,0.06)_40%,rgba(255,255,255,0.12)_45%,rgba(255,255,255,0.06)_50%,transparent_60%)] group-hover/card:[animation-play-state:running]"
+              style={{ animationPlayState: "paused" }}
+            />
+          </div>
+
+          {/* Gradient fade at bottom for button contrast */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 transition-opacity duration-200 group-hover/card:opacity-100" />
+
+          {/* Corner action buttons - hidden until hover */}
+          {/* Bookmark */}
           <button
             type="button"
             onClick={toggleBookmark}
@@ -336,105 +415,129 @@ export function GameCard({ game }: { game: GamevaultGame }) {
             aria-pressed={bookmarked}
             disabled={!currentUserId || bookmarkBusy}
             className={clsx(
-              "absolute top-2 right-2 flex h-9 w-9 items-center justify-center rounded-xl border backdrop-blur-xl transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+              "absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-lg border backdrop-blur-xl transition-all duration-200",
+              "opacity-0 translate-y-1 group-hover/card:opacity-100 group-hover/card:translate-y-0",
+              "disabled:cursor-not-allowed disabled:opacity-50",
               bookmarked
-                ? "border-gv-warning bg-gv-warning/15"
-                : "border-gv-line bg-gv-panel-soft hover:border-gv-line-strong hover:bg-gv-panel",
+                ? "border-gv-warning/40 bg-gv-warning/15"
+                : "border-gv-line bg-gv-panel-soft/80 hover:border-gv-line-strong hover:bg-gv-panel",
             )}
           >
             {bookmarked ? (
-              <StarSolid className="h-5 w-5 text-gv-warning" />
+              <StarSolid className="h-4 w-4 text-gv-warning" />
             ) : (
-              <StarOutline className="h-5 w-5 text-gv-text" />
+              <StarOutline className="h-4 w-4 text-gv-muted" />
             )}
           </button>
-          {/* Top-left settings button */}
+
+          {/* Settings */}
           <button
             type="button"
             onClick={handleOpenSettings}
             aria-label="Settings"
-            className="absolute top-2 left-2 flex h-9 w-9 items-center justify-center rounded-xl border border-gv-line bg-gv-panel-soft text-gv-text backdrop-blur-xl transition-colors hover:border-gv-line-strong hover:bg-gv-panel"
+            className={clsx(
+              "absolute top-2 left-2 flex h-8 w-8 items-center justify-center rounded-lg border border-gv-line bg-gv-panel-soft/80 text-gv-muted backdrop-blur-xl transition-all duration-200",
+              "opacity-0 translate-y-1 group-hover/card:opacity-100 group-hover/card:translate-y-0",
+              "hover:border-gv-line-strong hover:bg-gv-panel hover:text-gv-text",
+            )}
             title="Settings"
           >
-            <Cog8ToothIcon className="h-5 w-5 text-current" />
+            <Cog8ToothIcon className="h-4 w-4" />
           </button>
-          {/* Bottom-right download/play actions */}
-          <div className="absolute bottom-0 right-0 z-10 flex justify-end p-2 opacity-90">
-            {isInstalled ? (
-              <button
-                type="button"
-                aria-label="Play"
-                onClick={handlePlayGame}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-400/40 bg-emerald-500/85 shadow-md shadow-black/20 backdrop-blur-sm transition-colors hover:bg-emerald-400"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-5 h-5 fill-white">
-                  <path d="M8 17.175V6.825q0-.425.3-.713t.7-.287q.125 0 .263.037t.262.113l8.15 5.175q.225.15.338.375t.112.475t-.112.475t-.338.375l-8.15 5.175q-.125.075-.262.113T9 18.175q-.4 0-.7-.288t-.3-.712"/>
-                </svg>
-              </button>
-            ) : isTauri ? (
-              <Button
-                color="zinc"
-                aria-label="Download"
-                className="flex h-9 items-center justify-center gap-1 border-gv-line-strong text-sm shadow-md shadow-black/20 backdrop-blur-sm"
-                onClick={handleTauriDownload}
-              >
-                <CloudArrowDownIcon className="h-5 w-5 fill-current" />
-              </Button>
-            ) : (
-              <Dropdown>
-                <DropdownButton
-                  as={Button}
-                  color="zinc"
-                  aria-label="Download"
-                  className="flex h-9 items-center justify-center gap-1 border-gv-line-strong text-sm shadow-md shadow-black/20 backdrop-blur-sm"
-                  onClick={(e: React.MouseEvent) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
+
+          {/* Centered primary action: Download / Play */}
+          {isInstalled ? (
+            <button
+              type="button"
+              aria-label="Play"
+              onClick={handlePlayGame}
+              className={clsx(
+                "absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center justify-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-500/90 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/30 backdrop-blur-sm transition-all duration-200",
+                "opacity-0 translate-y-2 group-hover/card:opacity-100 group-hover/card:translate-y-0",
+                "hover:bg-emerald-400 active:scale-[0.97]",
+              )}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4 fill-current">
+                <path d="M8 17.175V6.825q0-.425.3-.713t.7-.287q.125 0 .263.037t.262.113l8.15 5.175q.225.15.338.375t.112.475t-.112.475t-.338.375l-8.15 5.175q-.125.075-.262.113T9 18.175q-.4 0-.7-.288t-.3-.712"/>
+              </svg>
+              Play
+            </button>
+          ) : (
+            <div
+              className={clsx(
+                "absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center transition-all duration-200",
+                "opacity-0 translate-y-2 group-hover/card:opacity-100 group-hover/card:translate-y-0",
+              )}
+            >
+              {isTauri ? (
+                <button
+                  type="button"
+                  aria-label={`Download ${localGame.title}`}
+                  onClick={handleTauriDownload}
+                  className="flex items-center gap-2 rounded-xl border border-gv-accent/30 bg-gv-accent px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/30 backdrop-blur-sm transition-all duration-200 hover:bg-gv-accent-strong active:scale-[0.97]"
                 >
-                  <CloudArrowDownIcon className="h-5 w-5 fill-current" />
-                </DropdownButton>
-                <DropdownMenu className="min-w-48" anchor="top end">
-                  <DropdownItem
+                  <CloudArrowDownIcon className="h-4 w-4 fill-current" />
+                  {formattedSize ? (
+                    <span>{formattedSize}</span>
+                  ) : (
+                    <span>Download</span>
+                  )}
+                </button>
+              ) : (
+                <Dropdown>
+                  <DropdownButton
+                    as={Button}
+                    color="dark/zinc"
+                    aria-label={`Download ${localGame.title}`}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold shadow-lg shadow-black/30 backdrop-blur-sm"
                     onClick={(e: React.MouseEvent) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      void handleDirectDownload();
                     }}
                   >
-                    <DropdownLabel>Direct Download</DropdownLabel>
-                  </DropdownItem>
-                  <DropdownItem
-                    onClick={(e: React.MouseEvent) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void handleClientDownload();
-                    }}
-                  >
-                    <DropdownLabel>Download via GameVault Client</DropdownLabel>
-                  </DropdownItem>
-                </DropdownMenu>
-              </Dropdown>
-            )}
-          </div>
+                    <CloudArrowDownIcon className="h-4 w-4 fill-current" />
+                    {formattedSize ? (
+                      <span>{formattedSize}</span>
+                    ) : (
+                      <span>Download</span>
+                    )}
+                  </DropdownButton>
+                  <DropdownMenu className="min-w-48" anchor="top end">
+                    <DropdownItem
+                      onClick={(e: React.MouseEvent) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void handleDirectDownload();
+                      }}
+                    >
+                      <DropdownLabel>Direct Download</DropdownLabel>
+                    </DropdownItem>
+                    <DropdownItem
+                      onClick={(e: React.MouseEvent) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void handleClientDownload();
+                      }}
+                    >
+                      <DropdownLabel>Download via GameVault Client</DropdownLabel>
+                    </DropdownItem>
+                  </DropdownMenu>
+                </Dropdown>
+              )}
+            </div>
+          )}
         </div>
-        <div className="p-3 pt-2.5">
-          <h3 className="truncate text-sm font-semibold tracking-[-0.02em] text-gv-text" title={localGame.title}>
+
+        {/* Metadata footer */}
+        <div className="flex flex-col gap-0.5 px-3 pb-3 pt-2.5">
+          <h3
+            className="truncate text-sm font-semibold tracking-[-0.02em] text-gv-text"
+            title={localGame.metadata?.title || localGame.title}
+          >
             {localGame.metadata?.title || localGame.title}
           </h3>
-          {(localGame as any).sort_title &&
-            (localGame as any).sort_title !== localGame.title && (
-              <p
-                className="mt-1 truncate text-xs text-gv-muted"
-                title={localGame.title}
-              >
-                {localGame.title}
-              </p>
-            )}
-          {formattedSize && (
-            <p className="mt-1 text-xs text-gv-accent-cool" title={formattedSize}>
-              {formattedSize}
-            </p>
+          {sortMetric && (
+            <p className="truncate text-xs text-gv-muted">{sortMetric}</p>
           )}
         </div>
       </Link>

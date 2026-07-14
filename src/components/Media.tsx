@@ -10,6 +10,7 @@ interface Props {
   className?: string;
   alt?: string;
   square?: boolean;
+  fit?: "contain" | "cover";
   fallback?: React.ReactNode;
   onClick?: React.MouseEventHandler;
 }
@@ -22,6 +23,7 @@ export function Media({
   className,
   alt = "",
   square = false,
+  fit = "contain",
   fallback,
   onClick = () => {},
 }: Props) {
@@ -29,6 +31,7 @@ export function Media({
   const { authFetch, serverUrl } = useAuth();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stalled, setStalled] = useState(false);
   const revokeRef = useRef<string | null>(null);
 
   useEffect(
@@ -45,8 +48,12 @@ export function Media({
     }
     setBlobUrl(null);
     setError(null);
+    setStalled(false);
     if (!imageId || !serverUrl) return;
     let cancelled = false;
+    const stallTimer = window.setTimeout(() => {
+      if (!cancelled) setStalled(true);
+    }, 1200);
     (async () => {
       try {
         const base = serverUrl.replace(/\/+$/, "");
@@ -55,20 +62,29 @@ export function Media({
         if (!res.ok) throw new Error(`Media fetch failed (${res.status})`);
         const blob = await res.blob();
         if (cancelled) return;
+        window.clearTimeout(stallTimer);
+        setStalled(false);
         const url = URL.createObjectURL(blob);
         revokeRef.current = url;
         setBlobUrl(url);
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Failed to load image");
+        if (!cancelled) {
+          window.clearTimeout(stallTimer);
+          setError(e?.message || "Failed to load image");
+        }
       }
     })();
     return () => {
       cancelled = true;
+      window.clearTimeout(stallTimer);
     };
   }, [imageId, serverUrl, authFetch]);
 
   const dimW = (width ?? size) + "px";
   const dimH = (height ?? size) + "px";
+  const showFallback =
+    Boolean(fallback) && (!imageId || !!error || (stalled && !blobUrl));
+
   return (
     <div
       className={className}
@@ -76,14 +92,14 @@ export function Media({
         position: "relative",
         width: dimW,
         height: dimH,
-        borderRadius: square ? 12 : "50%",
+        borderRadius: square ? 18 : "50%",
         overflow: "hidden",
         background:
           "linear-gradient(110deg,#232230 8%,#2d2c3a 18%,#232230 33%)",
       }}
       title={error || (imageId ? `Media ID: ${imageId}` : "No avatar")}
     >
-      {!blobUrl && !error && (
+      {imageId && !blobUrl && !error && (
         <div
           style={{
             position: "absolute",
@@ -95,7 +111,7 @@ export function Media({
           }}
         />
       )}
-      {error && (
+      {error && !fallback && (
         <div
           style={{
             position: "absolute",
@@ -116,12 +132,13 @@ export function Media({
         <img
           src={blobUrl}
           alt={alt}
-          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+          style={{ width: "100%", height: "100%", objectFit: fit }}
           draggable={false}
           onClick={onClick}
+          onError={() => setError("Failed to decode image")}
         />
       )}
-      {fallback && !blobUrl && !error && (
+      {showFallback && (
         <div
           style={{
             position: "absolute",
