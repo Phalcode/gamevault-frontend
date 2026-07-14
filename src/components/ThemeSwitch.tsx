@@ -16,14 +16,14 @@ export default function ThemeSwitch({ className }: { className?: string }) {
       <SwitchField>
         <div
           data-slot="label"
-          className="flex items-center gap-2 text-sm text-zinc-900 dark:text-zinc-100"
+          className="flex items-center gap-2 text-sm text-gv-muted"
         >
           {darkMode.value ? (
             <MoonIcon className="size-4" aria-hidden="true" />
           ) : (
             <SunIcon className="size-4" aria-hidden="true" />
           )}
-          <span>Toggle Theme</span>
+          <span>Theme</span>
         </div>
 
         <Switch

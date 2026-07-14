@@ -36,7 +36,7 @@ import {
   Sidebar as TailwindSidebar,
 } from "@tw/sidebar";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { GamevaultUserRoleEnum } from "../api";
 import { useNews } from "../hooks/useNews";
 import ThemeSwitch from "./ThemeSwitch";
@@ -46,6 +46,7 @@ import { NewsDialog } from "./news/NewsDialog";
 export function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [showNews, setShowNews] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const username = user?.username || "Unknown User";
@@ -72,6 +73,19 @@ export function Sidebar() {
   const roleVal = user?.role;
   const isAdmin = Number(roleVal) >= Number(GamevaultUserRoleEnum._3);
   const isTauri = isTauriApp();
+  const isCurrentPath = (path: string) => {
+    if (path === "/library") {
+      return (
+        location.pathname === "/library" ||
+        location.pathname.startsWith("/library/")
+      );
+    }
+
+    return (
+      location.pathname === path ||
+      location.pathname.startsWith(`${path}/`)
+    );
+  };
 
   return (
     <>
@@ -81,34 +95,37 @@ export function Sidebar() {
         </SidebarHeader>
         <SidebarBody>
           <SidebarSection>
-            <SidebarItem href="/library">
+            <SidebarItem href="/library" current={isCurrentPath("/library")}>
               <Squares2X2Icon />
               <SidebarLabel className="flex justify-between w-full">
                 Library
               </SidebarLabel>
             </SidebarItem>
             {isTauri && (
-              <SidebarItem href="/downloads">
+              <SidebarItem
+                href="/downloads"
+                current={isCurrentPath("/downloads")}
+              >
                 <ArrowDownTrayIcon />
                 <SidebarLabel className="flex justify-between w-full">
                   Downloads
                 </SidebarLabel>
               </SidebarItem>
             )}
-            <SidebarItem href="/community">
+            <SidebarItem href="/community" current={isCurrentPath("/community")}>
               <UserGroupIcon />
               <SidebarLabel className="flex justify-between w-full">
                 Community
               </SidebarLabel>
             </SidebarItem>
-            <SidebarItem href="/settings">
+            <SidebarItem href="/settings" current={isCurrentPath("/settings")}>
               <Cog6ToothIcon />
               <SidebarLabel className="flex justify-between w-full">
                 Settings
               </SidebarLabel>
             </SidebarItem>
             {isAdmin ? (
-              <SidebarItem href="/admin">
+              <SidebarItem href="/admin" current={isCurrentPath("/admin")}>
                 <ShieldExclamationIcon />
                 <SidebarLabel>Administration</SidebarLabel>
               </SidebarItem>
@@ -144,7 +161,7 @@ export function Sidebar() {
               <SidebarLabel className="flex justify-between w-full items-center">
                 News
                 {badgeVisible && (
-                  <Badge color="indigo" className="ml-2 animate-pulse">
+                  <Badge color="amber" className="ml-2 animate-pulse">
                     New
                   </Badge>
                 )}
@@ -157,9 +174,9 @@ export function Sidebar() {
               <RocketLaunchIcon />
               <SidebarLabel>GameVault+</SidebarLabel>
             </SidebarItem>
-            <SidebarItem>
+            <div className="rounded-2xl border border-gv-line/70 bg-white/25 px-3 py-2.5 dark:bg-white/3">
               <ThemeSwitch />
-            </SidebarItem>
+            </div>
           </SidebarSection>
         </SidebarBody>
         <SidebarFooter>

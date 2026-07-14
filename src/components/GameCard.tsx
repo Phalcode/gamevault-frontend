@@ -303,11 +303,11 @@ export function GameCard({ game }: { game: GamevaultGame }) {
       <Link
         to={gameViewUrl}
         className={clsx(
-          "group flex flex-col rounded-xl bg-zinc-100 dark:bg-zinc-800 shadow-sm ring-1 ring-zinc-950/10 dark:ring-white/5 overflow-hidden focus:outline-none focus:ring-2 focus:ring-indigo-500",
-          "transition-colors hover:bg-zinc-200/60 dark:hover:bg-zinc-700/70 cursor-pointer",
+          "group flex flex-col overflow-hidden rounded-3xl border border-gv-line bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)] shadow-(--shadow-card) focus:outline-none focus:ring-2 focus:ring-gv-accent-cool",
+          "cursor-pointer transition-[transform,box-shadow,border-color] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)",
         )}
       >
-        <div className="relative aspect-[3/4] w-full bg-bg-muted flex items-center justify-center overflow-hidden">
+        <div className="relative flex aspect-3/4 w-full items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,rgba(100,89,223,0.14),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0))]">
           {coverId ? (
             <Media
               media={
@@ -321,12 +321,12 @@ export function GameCard({ game }: { game: GamevaultGame }) {
                 } as any
               }
               size={300}
-              className="h-full w-full object-contain rounded-none"
+              className="h-full w-full object-contain rounded-none transition-transform duration-300 ease-out group-hover:scale-[1.02]"
               square
               alt={localGame.title}
             />
           ) : (
-            <div className="text-xs text-fg-muted">No Cover</div>
+            <div className="text-xs text-gv-muted">No Cover</div>
           )}
           {/* Top-right bookmark toggle */}
           <button
@@ -336,17 +336,16 @@ export function GameCard({ game }: { game: GamevaultGame }) {
             aria-pressed={bookmarked}
             disabled={!currentUserId || bookmarkBusy}
             className={clsx(
-              "absolute top-1 right-1 h-8 w-8 flex items-center justify-center rounded-md border shadow-sm backdrop-blur-sm transition-colors",
-              "disabled:opacity-50 disabled:cursor-not-allowed",
+              "absolute top-2 right-2 flex h-9 w-9 items-center justify-center rounded-xl border backdrop-blur-xl transition-colors disabled:cursor-not-allowed disabled:opacity-50",
               bookmarked
-                ? "bg-yellow-400/20 border-yellow-400"
-                : "bg-zinc-900/40 dark:bg-zinc-700/50 border-white/20 hover:bg-zinc-800/60 dark:hover:bg-zinc-600/60",
+                ? "border-gv-warning bg-gv-warning/15"
+                : "border-gv-line bg-gv-panel-soft hover:border-gv-line-strong hover:bg-gv-panel",
             )}
           >
             {bookmarked ? (
-              <StarSolid className="h-5 w-5 text-yellow-400" />
+              <StarSolid className="h-5 w-5 text-gv-warning" />
             ) : (
-              <StarOutline className="h-5 w-5 text-white" />
+              <StarOutline className="h-5 w-5 text-gv-text" />
             )}
           </button>
           {/* Top-left settings button */}
@@ -354,19 +353,19 @@ export function GameCard({ game }: { game: GamevaultGame }) {
             type="button"
             onClick={handleOpenSettings}
             aria-label="Settings"
-            className="absolute top-1 left-1 h-8 w-8 flex items-center justify-center rounded-md border shadow-sm backdrop-blur-sm transition-colors bg-zinc-900/40 dark:bg-zinc-700/50 border-white/20 hover:bg-zinc-800/60 dark:hover:bg-zinc-600/60"
+            className="absolute top-2 left-2 flex h-9 w-9 items-center justify-center rounded-xl border border-gv-line bg-gv-panel-soft text-gv-text backdrop-blur-xl transition-colors hover:border-gv-line-strong hover:bg-gv-panel"
             title="Settings"
           >
-            <Cog8ToothIcon className="h-5 w-5 text-white" />
+            <Cog8ToothIcon className="h-5 w-5 text-current" />
           </button>
           {/* Bottom-right download/play actions */}
-          <div className="absolute bottom-0 right-0 p-1 z-10 flex justify-end opacity-85">
+          <div className="absolute bottom-0 right-0 z-10 flex justify-end p-2 opacity-90">
             {isInstalled ? (
               <button
                 type="button"
                 aria-label="Play"
                 onClick={handlePlayGame}
-                className="h-8 w-8 flex items-center justify-center rounded-md border shadow-md backdrop-blur-sm transition-colors bg-emerald-600/90 border-emerald-500/60 hover:bg-emerald-500 shadow-black/20"
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-400/40 bg-emerald-500/85 shadow-md shadow-black/20 backdrop-blur-sm transition-colors hover:bg-emerald-400"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-5 h-5 fill-white">
                   <path d="M8 17.175V6.825q0-.425.3-.713t.7-.287q.125 0 .263.037t.262.113l8.15 5.175q.225.15.338.375t.112.475t-.112.475t-.338.375l-8.15 5.175q-.125.075-.262.113T9 18.175q-.4 0-.7-.288t-.3-.712"/>
@@ -376,10 +375,10 @@ export function GameCard({ game }: { game: GamevaultGame }) {
               <Button
                 color="zinc"
                 aria-label="Download"
-                className="flex justify-center h-8 text-md font-medium items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm"
+                className="flex h-9 items-center justify-center gap-1 border-gv-line-strong text-sm shadow-md shadow-black/20 backdrop-blur-sm"
                 onClick={handleTauriDownload}
               >
-                <CloudArrowDownIcon className="w-6 h-6 fill-white" />
+                <CloudArrowDownIcon className="h-5 w-5 fill-current" />
               </Button>
             ) : (
               <Dropdown>
@@ -387,13 +386,13 @@ export function GameCard({ game }: { game: GamevaultGame }) {
                   as={Button}
                   color="zinc"
                   aria-label="Download"
-                  className="flex justify-center h-8 text-md font-medium items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm"
+                  className="flex h-9 items-center justify-center gap-1 border-gv-line-strong text-sm shadow-md shadow-black/20 backdrop-blur-sm"
                   onClick={(e: React.MouseEvent) => {
                     e.preventDefault();
                     e.stopPropagation();
                   }}
                 >
-                  <CloudArrowDownIcon className="w-6 h-6 fill-white" />
+                  <CloudArrowDownIcon className="h-5 w-5 fill-current" />
                 </DropdownButton>
                 <DropdownMenu className="min-w-48" anchor="top end">
                   <DropdownItem
@@ -419,21 +418,21 @@ export function GameCard({ game }: { game: GamevaultGame }) {
             )}
           </div>
         </div>
-        <div className="p-2 pt-2">
-          <h3 className="text-sm font-medium truncate" title={localGame.title}>
+        <div className="p-3 pt-2.5">
+          <h3 className="truncate text-sm font-semibold tracking-[-0.02em] text-gv-text" title={localGame.title}>
             {localGame.metadata?.title || localGame.title}
           </h3>
           {(localGame as any).sort_title &&
             (localGame as any).sort_title !== localGame.title && (
               <p
-                className="mt-0.5 text-xs text-fg-muted truncate"
+                className="mt-1 truncate text-xs text-gv-muted"
                 title={localGame.title}
               >
                 {localGame.title}
               </p>
             )}
           {formattedSize && (
-            <p className="mt-0.5 text-xs text-fg-muted" title={formattedSize}>
+            <p className="mt-1 text-xs text-gv-accent-cool" title={formattedSize}>
               {formattedSize}
             </p>
           )}

@@ -152,10 +152,16 @@ export function Register() {
   return (
     <form
       onSubmit={confirmedServer ? handleSubmit : handleContinue}
-      className="grid w-full max-w-sm grid-cols-1 gap-8"
+      className="grid w-full max-w-sm grid-cols-1 gap-6"
     >
       <Logo variant="text" className="w-full" height="h-full" />
-      <Heading>Create your account</Heading>
+      <div className="space-y-3">
+        <Heading>Create your account</Heading>
+        <Text>
+          Point at your server, confirm requirements, then create a local
+          launcher account.
+        </Text>
+      </div>
 
       {!confirmedServer && (
         <>
@@ -193,8 +199,9 @@ export function Register() {
               />
               <Button
                 type="button"
+                outline
                 onClick={handleChangeServer}
-                className="shrink-0 bg-gray-200 text-gray-800 hover:bg-gray-300"
+                className="shrink-0"
               >
                 Change
               </Button>
@@ -424,7 +431,9 @@ export function Register() {
           <Strong>Sign in</Strong>
         </TextLink>
       </Text>
-      <ThemeSwitch />
+      <div className="surface-panel-soft rounded-[1.25rem] px-4 py-3">
+        <ThemeSwitch />
+      </div>
     </form>
   );
 }

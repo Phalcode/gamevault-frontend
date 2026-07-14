@@ -97,7 +97,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="flex flex-col h-full overflow-auto pb-12">
+    <div className="flex min-h-full flex-col pb-12">
       <Heading>Settings</Heading>
       <Divider />
       <div className="max-w-xl space-y-8 p-2">

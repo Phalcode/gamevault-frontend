@@ -29,13 +29,13 @@ function MobileSidebar({
     <Headless.Dialog open={open} onClose={close} className="lg:hidden">
       <Headless.DialogBackdrop
         transition
-        className="fixed inset-0 bg-black/30 transition data-closed:opacity-0 data-enter:duration-300 data-enter:ease-out data-leave:duration-200 data-leave:ease-in"
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm transition data-closed:opacity-0 data-enter:duration-300 data-enter:ease-out data-leave:duration-200 data-leave:ease-in"
       />
       <Headless.DialogPanel
         transition
-        className="fixed inset-y-0 w-full max-w-80 p-2 transition duration-300 ease-in-out data-closed:-translate-x-full"
+        className="fixed inset-y-0 w-full max-w-88 p-3 transition duration-300 ease-out data-closed:-translate-x-full"
       >
-        <div className="flex h-full flex-col rounded-lg bg-white shadow-xs ring-1 ring-zinc-950/5 dark:bg-zinc-900 dark:ring-white/10">
+        <div className="surface-shell flex h-full flex-col overflow-hidden rounded-[1.75rem]">
           <div className="-mb-3 px-4 pt-3">
             <Headless.CloseButton as={NavbarItem} aria-label="Close navigation">
               <CloseMenuIcon />
@@ -62,17 +62,18 @@ export function SidebarLayout({
 }>) {
   let [showSidebar, setShowSidebar] = useState(false);
 
-  const mainClassName = fullBleed
-    ? "flex flex-1 flex-col lg:min-w-0 lg:pl-64"
-    : "flex flex-1 flex-col pb-2 lg:min-w-0 lg:pt-2 lg:pr-2 lg:pl-64";
-  const contentClassName = fullBleed
-    ? "grow"
-    : "grow p-6 lg:rounded-lg lg:bg-white lg:p-10 lg:shadow-xs lg:ring-1 lg:ring-zinc-950/5 dark:lg:bg-zinc-900 dark:lg:ring-white/10";
+  const mainClassName =
+    "flex min-h-0 flex-1 flex-col pb-3 lg:min-w-0 lg:pb-4 lg:pl-72 lg:pr-4 lg:pt-4";
+  const contentClassName =
+    "surface-shell flex min-h-0 grow flex-col overflow-hidden rounded-[1.75rem] p-2 sm:p-3";
+  const scrollAreaClassName = fullBleed
+    ? "min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+    : "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-5 sm:py-6 lg:px-8 lg:py-8";
 
   return (
-    <div className="relative isolate flex min-h-svh w-full bg-white max-lg:flex-col lg:bg-zinc-100 dark:bg-zinc-900 dark:lg:bg-zinc-950">
+    <div className="relative isolate flex h-full min-h-0 w-full bg-gv-bg text-gv-text max-lg:flex-col">
       {/* Sidebar on desktop */}
-      <div className="fixed inset-y-0 left-0 w-64 max-lg:hidden">{sidebar}</div>
+      <div className="fixed inset-y-0 left-0 z-20 w-72 p-4 max-lg:hidden">{sidebar}</div>
 
       {/* Sidebar on mobile */}
       <MobileSidebar open={showSidebar} close={() => setShowSidebar(false)}>
@@ -80,8 +81,8 @@ export function SidebarLayout({
       </MobileSidebar>
 
       {/* Navbar on mobile */}
-      <header className="flex items-center px-4 lg:hidden">
-        <div className="py-2.5">
+      <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-gv-line bg-gv-shell/90 px-3 backdrop-blur-xl lg:hidden">
+        <div className="py-3">
           <NavbarItem
             onClick={() => setShowSidebar(true)}
             aria-label="Open navigation"
@@ -89,14 +90,22 @@ export function SidebarLayout({
             <OpenMenuIcon />
           </NavbarItem>
         </div>
-        <div className="min-w-0 flex-1">{navbar}</div>
+        <div className="min-w-0 flex-1 py-3">{navbar}</div>
       </header>
 
       {/* Content */}
       <main className={mainClassName}>
         <div className={contentClassName}>
-          <div className={fullWidth ? "h-full w-full" : "mx-auto h-full max-w-6xl"}>
-            {children}
+          <div className={scrollAreaClassName}>
+            <div
+              className={
+                fullWidth
+                  ? "min-h-full w-full"
+                  : "mx-auto min-h-full max-w-7xl"
+              }
+            >
+              {children}
+            </div>
           </div>
         </div>
       </main>

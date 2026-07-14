@@ -224,12 +224,17 @@ export function Login() {
     <form
       onSubmit={confirmedServer ? onSubmit : handleContinue}
       onKeyDown={handleTrapKey}
-      className="grid w-full max-w-sm grid-cols-1 gap-8"
+      className="grid w-full max-w-sm grid-cols-1 gap-6"
     >
       <div tabIndex={-1} aria-hidden="true">
         <Logo variant="text" className="w-full" height="h-full" />
       </div>
-      <Heading tabIndex={-1}>Sign in to your account</Heading>
+      <div className="space-y-3">
+        <Heading tabIndex={-1}>Sign in to your account</Heading>
+        <Text>
+          Connect to your GameVault node, then enter with local auth or SSO.
+        </Text>
+      </div>
 
       {!confirmedServer && (
         <>
@@ -268,8 +273,9 @@ export function Login() {
               />
               <Button
                 type="button"
+                outline
                 onClick={handleChangeServer}
-                className="shrink-0 bg-gray-200 text-gray-800 hover:bg-gray-300"
+                className="shrink-0"
               >
                 Change
               </Button>
@@ -331,13 +337,13 @@ export function Login() {
                 </CheckboxField>
               )}
               {noAuthAvailable && (
-                <div className="text-sm text-rose-500" role="alert">
+                <div className="rounded-2xl bg-rose-500/10 px-3 py-2 text-sm text-rose-500" role="alert">
                   No authentication methods are currently available on this
                   server.
                 </div>
               )}
               {error && (
-                <div className="text-sm text-red-500 -mt-4" role="alert">
+                <div className="-mt-2 rounded-2xl bg-red-500/10 px-3 py-2 text-sm text-red-500" role="alert">
                   {error}
                 </div>
               )}
@@ -369,7 +375,11 @@ export function Login() {
           <Strong>Sign up</Strong>
         </TextLink>
       </Text>
-      <div tabIndex={-1} aria-hidden="true">
+      <div
+        tabIndex={-1}
+        aria-hidden="true"
+        className="surface-panel-soft rounded-[1.25rem] px-4 py-3"
+      >
         <ThemeSwitch />
       </div>
     </form>

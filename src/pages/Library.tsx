@@ -28,7 +28,7 @@ import { ProgressStateEnum } from "@/api/models/Progress";
 import MultiSelectFilterDialog, {
   FilterItem,
 } from "@/components/MultiSelectFilterDialog";
-import { Strong, TextLink } from "@/components/tailwind/text";
+import { Strong, Text, TextLink } from "@/components/tailwind/text";
 import { isTauriApp } from "@/utils/tauri";
 import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { SectionExpander } from "@/components/SectionExpander";
@@ -646,32 +646,56 @@ export default function Library() {
   ]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <Heading className="flex items-center">
-        Library {count && <Badge className="ml-2">{count}</Badge>}
-      </Heading>
-      <Divider />
-      <div className="pb-4 flex flex-col gap-3">
-        {/* Search - Full width */}
-        <div className="w-full">
-          <label className="block text-xs font-medium text-fg-muted mb-1">
-            Search
-          </label>
-          <Input
-            name="search"
-            value={search}
-            onChange={(e: any) => setSearch(e.target.value)}
-            clearable
-            onClear={() => setSearch("")}
-            placeholder="Search games..."
-            disabled={!serverUrl}
-          />
+    <div className="flex min-h-full flex-col gap-5">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-2">
+            <Heading className="flex items-center gap-3">
+              Library {count && <Badge className="ml-1">{count}</Badge>}
+            </Heading>
+            <Text className="max-w-2xl">
+              Browse your store and client catalog with faster scan paths,
+              denser controls, and clearer action hierarchy.
+            </Text>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <span className="data-chip">
+              <strong data-numeric>{games.length}</strong>
+              Visible now
+            </span>
+            <span className="data-chip">
+              <strong data-numeric>{count ?? 0}</strong>
+              Total indexed
+            </span>
+            <span className="data-chip">
+              <strong>{hasActiveFilters ? "Live" : "Off"}</strong>
+              Filters
+            </span>
+          </div>
         </div>
-        {/* Sort, Order, and Filters Button - Same row */}
-        <div className="flex gap-3 items-end">
-          <div className="flex-1 min-w-0">
-            <label className="block text-xs font-medium text-fg-muted mb-1">
-              Sort & Filter
+        <Divider className="border-gv-line/80" />
+      </div>
+
+      <section className="surface-panel rounded-3xl p-5 sm:p-6">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto_auto] lg:items-end">
+          <div className="w-full lg:col-span-1">
+            <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
+              Search
+            </label>
+            <Input
+              name="search"
+              value={search}
+              onChange={(e: any) => setSearch(e.target.value)}
+              clearable
+              onClear={() => setSearch("")}
+              placeholder="Search games..."
+              disabled={!serverUrl}
+            />
+          </div>
+
+          <div className="min-w-0 lg:col-span-1">
+            <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
+              Sort by
             </label>
             <Listbox
               name="sortBy"
@@ -685,10 +709,11 @@ export default function Library() {
               ))}
             </Listbox>
           </div>
+
           <div className="flex-none">
             <Button
               outline
-              className={`${CONTROL_HEIGHT_CLASS} px-3 gap-1.5`}
+              className={`${CONTROL_HEIGHT_CLASS} px-4 gap-1.5`}
               aria-label="Toggle sorting direction"
               onClick={() => setOrder((o) => (o === "ASC" ? "DESC" : "ASC"))}
             >
@@ -697,34 +722,31 @@ export default function Library() {
               ) : (
                 <ArrowDownIcon className="h-4 w-4" />
               )}
-              <span className="hidden sm:inline">
-                {order === "ASC" ? "Ascending" : "Descending"}
-              </span>
+              <span>{order === "ASC" ? "Ascending" : "Descending"}</span>
             </Button>
           </div>
+
           <div className="flex-none">
             <Button
               outline
-              className={`${CONTROL_HEIGHT_CLASS} px-3`}
+              className={`${CONTROL_HEIGHT_CLASS} px-4`}
               aria-label={showFilters ? "Hide filters" : "Show filters"}
               onClick={() => setShowFilters((s) => !s)}
             >
               <FunnelIcon className="h-4 w-4 sm:mr-1" />
-              <span className="hidden sm:inline">
-                {showFilters ? "Hide" : "Filters"}
-              </span>
+              <span>{showFilters ? "Hide filters" : "Filters"}</span>
             </Button>
           </div>
         </div>
-      </div>
+      </section>
       {showFilters && (
-        <div className="overflow-hidden rounded-lg dark:bg-zinc-800 bg-zinc-100 shadow-sm mb-4 shrink-0">
+        <div className="surface-panel mb-2 shrink-0 rounded-3xl">
           <div className="px-4 pt-4 pb-4 sm:px-6 sm:pt-5 sm:pb-5">
             {/* Header with Clear All Filters Button */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <FunnelIcon className="h-4 w-4 text-fg-muted" />
-                <span className="text-xs text-fg-muted">
+                <FunnelIcon className="h-4 w-4 text-gv-muted" />
+                <span className="text-xs text-gv-muted">
                   {hasActiveFilters ? "Filters active" : "No filters active"}
                 </span>
               </div>
@@ -744,7 +766,7 @@ export default function Library() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               {/* Types */}
               <div className="col-span-1">
-                <label className="block text-xs font-medium text-fg-muted mb-1">
+                <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
                   Type
                 </label>
                 <Button
@@ -753,7 +775,7 @@ export default function Library() {
                   className={`w-full justify-start ${CONTROL_HEIGHT_CLASS} px-3`}
                 >
                   <span
-                    className={`truncate ${selectedGameTypes.length > 0 ? "text-pink-600 dark:text-pink-400" : ""}`}
+                    className={`truncate ${selectedGameTypes.length > 0 ? "text-gv-accent-cool" : ""}`}
                   >
                     {selectedGameTypes.length > 0
                       ? `${selectedGameTypes.length} selected`
@@ -764,7 +786,7 @@ export default function Library() {
 
               {/* Tags */}
               <div className="col-span-1">
-                <label className="block text-xs font-medium text-fg-muted mb-1">
+                <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
                   Tags
                 </label>
                 <Button
@@ -773,7 +795,7 @@ export default function Library() {
                   className={`w-full justify-start ${CONTROL_HEIGHT_CLASS} px-3`}
                 >
                   <span
-                    className={`truncate ${selectedTags.length > 0 ? "text-blue-600 dark:text-blue-400" : ""}`}
+                    className={`truncate ${selectedTags.length > 0 ? "text-gv-accent-cool" : ""}`}
                   >
                     {selectedTags.length > 0
                       ? `${selectedTags.length} selected`
@@ -784,7 +806,7 @@ export default function Library() {
 
               {/* Genres */}
               <div className="col-span-1">
-                <label className="block text-xs font-medium text-fg-muted mb-1">
+                <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
                   Genres
                 </label>
                 <Button
@@ -793,7 +815,7 @@ export default function Library() {
                   className={`w-full justify-start ${CONTROL_HEIGHT_CLASS} px-3`}
                 >
                   <span
-                    className={`truncate ${selectedGenres.length > 0 ? "text-green-600 dark:text-green-400" : ""}`}
+                    className={`truncate ${selectedGenres.length > 0 ? "text-gv-accent-cool" : ""}`}
                   >
                     {selectedGenres.length > 0
                       ? `${selectedGenres.length} selected`
@@ -804,7 +826,7 @@ export default function Library() {
 
               {/* Developers */}
               <div className="col-span-1">
-                <label className="block text-xs font-medium text-fg-muted mb-1">
+                <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
                   Developers
                 </label>
                 <Button
@@ -813,7 +835,7 @@ export default function Library() {
                   className={`w-full justify-start ${CONTROL_HEIGHT_CLASS} px-3`}
                 >
                   <span
-                    className={`truncate ${selectedDevelopers.length > 0 ? "text-purple-600 dark:text-purple-400" : ""}`}
+                    className={`truncate ${selectedDevelopers.length > 0 ? "text-gv-accent-cool" : ""}`}
                   >
                     {selectedDevelopers.length > 0
                       ? `${selectedDevelopers.length} selected`
@@ -824,7 +846,7 @@ export default function Library() {
 
               {/* Publishers */}
               <div className="col-span-1">
-                <label className="block text-xs font-medium text-fg-muted mb-1">
+                <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
                   Publishers
                 </label>
                 <Button
@@ -833,7 +855,7 @@ export default function Library() {
                   className={`w-full justify-start ${CONTROL_HEIGHT_CLASS} px-3`}
                 >
                   <span
-                    className={`truncate ${selectedPublishers.length > 0 ? "text-orange-600 dark:text-orange-400" : ""}`}
+                    className={`truncate ${selectedPublishers.length > 0 ? "text-gv-accent-cool" : ""}`}
                   >
                     {selectedPublishers.length > 0
                       ? `${selectedPublishers.length} selected`
@@ -847,7 +869,7 @@ export default function Library() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
               {/* Game State */}
               <div className="col-span-1">
-                <label className="block text-xs font-medium text-fg-muted mb-1">
+                <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
                   State
                 </label>
                 <Listbox
@@ -871,7 +893,7 @@ export default function Library() {
 
               {/* Release Date From */}
               <div className="col-span-1">
-                <label className="block text-xs font-medium text-fg-muted mb-1">
+                <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
                   Released After
                 </label>
                 <Input
@@ -884,7 +906,7 @@ export default function Library() {
 
               {/* Release Date To */}
               <div className="col-span-1">
-                <label className="block text-xs font-medium text-fg-muted mb-1">
+                <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
                   Released Before
                 </label>
                 <Input
@@ -897,7 +919,7 @@ export default function Library() {
 
               {/* Early Access */}
               <div className="col-span-1">
-                <label className="block text-xs font-medium text-fg-muted mb-1">
+                <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
                   Early Access
                 </label>
                 <Listbox
@@ -915,7 +937,7 @@ export default function Library() {
 
               {/* Bookmarks */}
               <div className="col-span-1">
-                <label className="block text-xs font-medium text-fg-muted mb-1">
+                <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
                   Bookmarked
                 </label>
                 <Listbox
@@ -939,7 +961,7 @@ export default function Library() {
               selectedGenres.length > 0 ||
               selectedDevelopers.length > 0 ||
               selectedPublishers.length > 0) && (
-              <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-700">
+              <div className="mt-4 border-t border-gv-line pt-4">
                 <div className="flex flex-wrap gap-1.5">
                   {selectedGameTypes.map((item) => (
                     <Badge
@@ -1047,14 +1069,14 @@ export default function Library() {
           </div>
         </div>
       )}
-      <div className="flex-1 overflow-y-scroll overflow-x-hidden text-center">
+      <div className="flex flex-col text-center">
         {!serverUrl && (
-          <div className="p-8 text-sm text-fg-muted">
+          <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
             Connect to a server to load games.
           </div>
         )}
         {serverUrl && error && (
-          <div className="p-4 mb-4 rounded-md bg-red-500/10 text-red-500 text-sm">
+          <div className="mb-4 rounded-2xl bg-red-500/10 p-4 text-sm text-red-500">
             {error}
           </div>
         )}
@@ -1072,7 +1094,7 @@ export default function Library() {
             }
           >
             {filteredInstalledGames.length === 0 ? (
-              <div className="p-4 text-sm text-fg-muted">
+              <div className="surface-panel-soft rounded-2xl p-4 text-sm text-gv-muted">
                 No installed games found.
               </div>
             ) : (
@@ -1080,11 +1102,11 @@ export default function Library() {
                 className="overflow-x-auto overflow-y-hidden pb-3"
               >
                 <div
-                  className="grid gap-4 pb-1"
+                  className="grid gap-5 py-2"
                   style={{
                     gridTemplateRows: `repeat(${Math.min(installedRows, filteredInstalledGames.length)}, auto)`,
                     gridAutoFlow: "column",
-                    gridAutoColumns: "150px",
+                    gridAutoColumns: "160px",
                   }}
                 >
                   {filteredInstalledGames.map((g) => (
@@ -1103,10 +1125,10 @@ export default function Library() {
             defaultOpen={true}
           >
             {serverUrl && loading && games.length === 0 && (
-              <div className="p-8 text-sm text-fg-muted">Loading games…</div>
+              <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">Loading games…</div>
             )}
             {serverUrl && !loading && games.length === 0 && !error && (
-              <div className="p-8 text-sm text-fg-muted">
+              <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
                 No games found.
                 {(search.trim() || hasActiveFilters) && (
                   <div className="mt-2">
@@ -1124,14 +1146,14 @@ export default function Library() {
                 )}
               </div>
             )}
-            <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] pb-8">
+            <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(152px,1fr))] py-2 pb-8">
               {games.map((g) => (
                 <GameCard key={g.id} game={g} />
               ))}
             </div>
             {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
             {loading && games.length > 0 && (
-              <div className="p-4 text-center text-xs text-fg-muted">
+              <div className="p-4 text-center text-xs text-gv-muted">
                 Loading more…
               </div>
             )}
@@ -1139,10 +1161,10 @@ export default function Library() {
         ) : (
           <>
             {serverUrl && loading && games.length === 0 && (
-              <div className="p-8 text-sm text-fg-muted">Loading games…</div>
+              <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">Loading games…</div>
             )}
             {serverUrl && !loading && games.length === 0 && !error && (
-              <div className="p-8 text-sm text-fg-muted">
+              <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
                 No games found.
                 {(search.trim() || hasActiveFilters) && (
                   <div className="mt-2">
@@ -1160,14 +1182,14 @@ export default function Library() {
                 )}
               </div>
             )}
-            <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] pb-8">
+            <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(152px,1fr))] py-2 pb-8">
               {games.map((g) => (
                 <GameCard key={g.id} game={g} />
               ))}
             </div>
             {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
             {loading && games.length > 0 && (
-              <div className="p-4 text-center text-xs text-fg-muted">
+              <div className="p-4 text-center text-xs text-gv-muted">
                 Loading more…
               </div>
             )}
