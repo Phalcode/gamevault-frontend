@@ -473,14 +473,18 @@ export default function Library() {
         const n = parseInt(saved, 10);
         if (n >= 1 && n <= 5) return n;
       }
-    } catch {}
+    } catch {
+      console.warn("Failed to read installed rows from localStorage");
+    }
     return 1;
   });
   const handleRowsChange = useCallback((n: number) => {
     setInstalledRows(n);
     try {
       localStorage.setItem(INSTALLED_ROWS_KEY, String(n));
-    } catch {}
+    } catch {
+      console.warn("Failed to persist installed rows to localStorage");
+    }
   }, []);
 
   // Map installed games to a GamevaultGame-compatible shape for GameCard
@@ -654,23 +658,8 @@ export default function Library() {
               Library {count && <Badge className="ml-1">{count}</Badge>}
             </Heading>
             <Text className="max-w-2xl">
-              Browse your store and client catalog with faster scan paths,
-              denser controls, and clearer action hierarchy.
+              Browse, search, and manage your entire game collection.
             </Text>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <span className="data-chip">
-              <strong data-numeric>{games.length}</strong>
-              Visible now
-            </span>
-            <span className="data-chip">
-              <strong data-numeric>{count ?? 0}</strong>
-              Total indexed
-            </span>
-            <span className="data-chip">
-              <strong>{hasActiveFilters ? "Live" : "Off"}</strong>
-              Filters
-            </span>
           </div>
         </div>
         <Divider className="border-gv-line/80" />
@@ -1125,7 +1114,11 @@ export default function Library() {
             defaultOpen={true}
           >
             {serverUrl && loading && games.length === 0 && (
-              <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">Loading games…</div>
+              <div className="grid gap-4 sm:gap-6 grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(12rem,1fr))]">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="aspect-3/4 rounded-3xl bg-gv-panel-strong motion-safe:animate-pulse" aria-hidden="true" />
+                ))}
+              </div>
             )}
             {serverUrl && !loading && games.length === 0 && !error && (
               <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
@@ -1153,7 +1146,11 @@ export default function Library() {
             </div>
             {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
             {loading && games.length > 0 && (
-              <div className="p-4 text-center text-xs text-gv-muted">
+              <div className="flex items-center justify-center gap-2 p-4 text-xs text-gv-muted">
+                <svg className="h-3.5 w-3.5 motion-safe:animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
                 Loading more…
               </div>
             )}
@@ -1161,7 +1158,11 @@ export default function Library() {
         ) : (
           <>
             {serverUrl && loading && games.length === 0 && (
-              <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">Loading games…</div>
+              <div className="grid gap-4 sm:gap-6 grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(12rem,1fr))]">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="aspect-3/4 rounded-3xl bg-gv-panel-strong motion-safe:animate-pulse" aria-hidden="true" />
+                ))}
+              </div>
             )}
             {serverUrl && !loading && games.length === 0 && !error && (
               <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
@@ -1189,7 +1190,11 @@ export default function Library() {
             </div>
             {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
             {loading && games.length > 0 && (
-              <div className="p-4 text-center text-xs text-gv-muted">
+              <div className="flex items-center justify-center gap-2 p-4 text-xs text-gv-muted">
+                <svg className="h-3.5 w-3.5 motion-safe:animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
                 Loading more…
               </div>
             )}

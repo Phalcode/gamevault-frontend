@@ -185,7 +185,7 @@ export const Button = forwardRef(function Button(
   return typeof props.href === "string" ? (
     <Link
       {...props}
-      className={classes}
+      className={clsx(classes, "cursor-pointer")}
       ref={ref as React.ForwardedRef<HTMLAnchorElement>}
     >
       <TouchTarget>{children}</TouchTarget>

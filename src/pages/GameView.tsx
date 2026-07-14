@@ -4,6 +4,7 @@ import CoverPlaceholder from "@/components/CoverPlaceholder";
 import { Media } from "@/components/Media";
 import MediaSlider from "@/components/MediaSlider";
 import MarkdownContent from "@/components/MarkdownContent";
+import { Spinner } from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { Button } from "@tw/button";
@@ -481,7 +482,7 @@ export default function GameView() {
     (game as any)?.metadata?.average_playtime ||
     null;
   const floatingIconButtonClassName =
-    "h-9 w-9 p-0 flex items-center justify-center border-white/35 bg-white/60 shadow-sm backdrop-blur-md hover:bg-white/78 dark:border-white/20 dark:bg-zinc-950/58 dark:hover:bg-zinc-900/72";
+    "size-11 p-0 flex items-center justify-center border-white/35 bg-white/60 shadow-sm backdrop-blur-md hover:bg-white/78 dark:border-white/20 dark:bg-zinc-950/58 dark:hover:bg-zinc-900/72";
   const glassPanelClassName =
     "border border-white/35 bg-white/[0.42] backdrop-blur-md dark:border-white/10 dark:bg-zinc-950/72 dark:backdrop-blur-md";
   const darkGlassInsetClassName =
@@ -558,12 +559,12 @@ export default function GameView() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.09),transparent_40%)] dark:bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.04),transparent_40%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.06)_18%,rgba(255,255,255,0)_42%,rgba(255,255,255,0)_100%)] dark:bg-[linear-gradient(180deg,rgba(9,9,11,0.16)_0%,rgba(9,9,11,0.08)_18%,rgba(9,9,11,0)_42%,rgba(9,9,11,0)_100%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(244,244,245,0.12)_0%,rgba(244,244,245,0.04)_24%,rgba(244,244,245,0)_45%,rgba(99,102,241,0.03)_100%)] dark:bg-[linear-gradient(135deg,rgba(24,24,27,0.12)_0%,rgba(24,24,27,0.05)_24%,rgba(24,24,27,0)_45%,rgba(99,102,241,0.05)_100%)]" />
-        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-white/10 to-transparent dark:from-zinc-950/10 dark:to-transparent sm:h-20 xl:h-24" />
+        <div className="absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-white/10 to-transparent dark:from-zinc-950/10 dark:to-transparent sm:h-20 xl:h-24" />
       </div>
 
       <div className="relative z-10 flex w-full flex-col">
         {loading && (
-          <div className="p-6 text-sm text-fg-muted">Loading game…</div>
+          <Spinner label="Loading game…" className="py-20" />
         )}
         {error && (
           <div className="p-6 text-sm text-red-500 bg-red-500/10 rounded-md max-w-xl">

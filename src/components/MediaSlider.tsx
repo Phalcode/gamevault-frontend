@@ -248,7 +248,7 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
           <button
             type="button"
             onClick={prev}
-            className="absolute top-1/2 left-2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="absolute top-1/2 left-2 -translate-y-1/2 p-2.5 rounded-full bg-black/50 text-white hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
             aria-label="Previous media"
           >
             <ChevronLeftIcon className="w-5 h-5" />
@@ -256,7 +256,7 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
           <button
             type="button"
             onClick={next}
-            className="absolute top-1/2 right-2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="absolute top-1/2 right-2 -translate-y-1/2 p-2.5 rounded-full bg-black/50 text-white hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
             aria-label="Next media"
           >
             <ChevronRightIcon className="w-5 h-5" />
@@ -266,7 +266,7 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
 
       <div
         className={
-          `absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 flex items-center justify-between text-[11px] text-white` +
+          `absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/70 to-transparent p-2 flex items-center justify-between text-[11px] text-white` +
           (isYT ? " pointer-events-none" : "")
         }
       >

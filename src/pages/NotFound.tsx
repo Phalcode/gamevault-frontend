@@ -49,7 +49,9 @@ export default function NotFound() {
         <img
           src="/crackpipe.png"
           alt="Dead End Roadsign"
-          className={`mb-4 h-40 cursor-pointer ${
+          width={160}
+          height={160}
+          className={`mb-4 h-40 cursor-pointer motion-reduce:animate-none ${
             isPlaying ? "animate-[spin_7s_linear_infinite]" : ""
           }`}
           onClick={togglePlayPause}

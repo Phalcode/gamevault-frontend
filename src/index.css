@@ -52,6 +52,15 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .motion-safe\:animate-pulse {
+    animation: none !important;
+  }
+  .motion-safe\:animate-spin {
+    animation: none !important;
+  }
+}
+
 @layer base {
   :root {
     color-scheme: light;
@@ -61,7 +70,7 @@
     --color-gv-panel-strong: #ffffff;
     --color-gv-panel-soft: rgba(230, 227, 244, 0.94);
     --color-gv-text: #1c1e21;
-    --color-gv-muted: #5f6072;
+    --color-gv-muted: #4a4b5a;
     --color-gv-line: rgba(28, 30, 33, 0.1);
     --color-gv-line-strong: rgba(65, 58, 146, 0.2);
     --color-gv-accent: #5449c6;

@@ -130,16 +130,18 @@ export function GameCard({
       case "metadata.release_date":
         return localGame.metadata?.release_date
           ? new Intl.DateTimeFormat(undefined, {
+              month: "short",
+              day: "numeric",
               year: "numeric",
             }).format(new Date(localGame.metadata.release_date))
           : null;
       case "metadata.rating":
         return localGame.metadata?.rating != null
-          ? `★ ${(localGame.metadata.rating / 20).toFixed(1)}`
+          ? `${localGame.metadata.rating.toFixed(1)}%`
           : null;
       case "download_count":
         return localGame.download_count != null
-          ? `${localGame.download_count.toLocaleString()} ↓`
+          ? localGame.download_count.toLocaleString()
           : null;
       case "metadata.average_playtime":
         return (localGame as any).metadata?.average_playtime != null
@@ -287,7 +289,9 @@ export function GameCard({
             launchExe = raw.launchexecutable;
             launchParams = raw.launchparameters;
             launchAsAdmin = !!raw.launchasadmin;
-          } catch {}
+          } catch {
+            console.warn("Failed to parse game config:", configPath);
+          }
         }
 
         if (!launchExe) {
@@ -415,7 +419,7 @@ export function GameCard({
             aria-pressed={bookmarked}
             disabled={!currentUserId || bookmarkBusy}
             className={clsx(
-              "absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-lg border backdrop-blur-xl transition-all duration-200",
+              "absolute top-2 right-2 flex size-11 items-center justify-center rounded-lg border backdrop-blur-xl transition-all duration-200",
               "opacity-0 translate-y-1 group-hover/card:opacity-100 group-hover/card:translate-y-0",
               "disabled:cursor-not-allowed disabled:opacity-50",
               bookmarked
@@ -424,9 +428,9 @@ export function GameCard({
             )}
           >
             {bookmarked ? (
-              <StarSolid className="h-4 w-4 text-gv-warning" />
+              <StarSolid className="h-5 w-5 text-gv-warning" />
             ) : (
-              <StarOutline className="h-4 w-4 text-gv-muted" />
+              <StarOutline className="h-5 w-5 text-gv-muted" />
             )}
           </button>
 
@@ -436,13 +440,13 @@ export function GameCard({
             onClick={handleOpenSettings}
             aria-label="Settings"
             className={clsx(
-              "absolute top-2 left-2 flex h-8 w-8 items-center justify-center rounded-lg border border-gv-line bg-gv-panel-soft/80 text-gv-muted backdrop-blur-xl transition-all duration-200",
+              "absolute top-2 left-2 flex size-11 items-center justify-center rounded-lg border border-gv-line bg-gv-panel-soft/80 text-gv-muted backdrop-blur-xl transition-all duration-200",
               "opacity-0 translate-y-1 group-hover/card:opacity-100 group-hover/card:translate-y-0",
               "hover:border-gv-line-strong hover:bg-gv-panel hover:text-gv-text",
             )}
             title="Settings"
           >
-            <Cog8ToothIcon className="h-4 w-4" />
+            <Cog8ToothIcon className="h-5 w-5" />
           </button>
 
           {/* Centered primary action: Download / Play */}
@@ -474,13 +478,13 @@ export function GameCard({
                   type="button"
                   aria-label={`Download ${localGame.title}`}
                   onClick={handleTauriDownload}
-                  className="flex items-center gap-2 rounded-xl border border-gv-accent/30 bg-gv-accent px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/30 backdrop-blur-sm transition-all duration-200 hover:bg-gv-accent-strong active:scale-[0.97]"
+                  className="group/btn flex flex-col items-center gap-1.5 rounded-2xl border border-white/15 bg-gv-accent/85 px-5 py-3.5 text-white shadow-[0_0_20px_rgba(109,124,255,0.25),0_4px_16px_rgba(0,0,0,0.3)] backdrop-blur-xl transition-all duration-300 hover:bg-gv-accent hover:shadow-[0_0_28px_rgba(109,124,255,0.4),0_6px_20px_rgba(0,0,0,0.4)] hover:-translate-y-0.5 active:scale-[0.96] active:translate-y-0"
                 >
-                  <CloudArrowDownIcon className="h-4 w-4 fill-current" />
+                  <CloudArrowDownIcon className="h-5 w-5 fill-white drop-shadow-sm transition-transform duration-300 group-hover/btn:scale-110" />
                   {formattedSize ? (
-                    <span>{formattedSize}</span>
+                    <span className="text-[11px] font-semibold leading-none tracking-wide opacity-90">{formattedSize}</span>
                   ) : (
-                    <span>Download</span>
+                    <span className="text-[11px] font-semibold leading-none tracking-wide opacity-90">Download</span>
                   )}
                 </button>
               ) : (
@@ -489,17 +493,17 @@ export function GameCard({
                     as={Button}
                     color="dark/zinc"
                     aria-label={`Download ${localGame.title}`}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold shadow-lg shadow-black/30 backdrop-blur-sm"
+                    className="group/btn flex flex-col! items-center gap-1.5 px-5 py-3.5 text-sm font-semibold transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.96]"
                     onClick={(e: React.MouseEvent) => {
                       e.preventDefault();
                       e.stopPropagation();
                     }}
                   >
-                    <CloudArrowDownIcon className="h-4 w-4 fill-current" />
+                    <CloudArrowDownIcon className="h-5 w-5 transition-transform duration-300 group-hover/btn:scale-110" />
                     {formattedSize ? (
-                      <span>{formattedSize}</span>
+                      <span className="text-[11px] font-semibold leading-none tracking-wide opacity-60">{formattedSize}</span>
                     ) : (
-                      <span>Download</span>
+                      <span className="text-[11px] font-medium leading-none opacity-60">Download</span>
                     )}
                   </DropdownButton>
                   <DropdownMenu className="min-w-48" anchor="top end">

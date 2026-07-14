@@ -41,7 +41,9 @@ export default function Settings() {
   useEffect(() => {
     try {
       localStorage.setItem(RETAIN_KEY, retainLibraryPrefs ? "1" : "0");
-    } catch {}
+    } catch {
+      console.warn("Failed to persist retain library prefs");
+    }
   }, [retainLibraryPrefs]);
 
   const handleSpeedChange = (raw: number) => {
@@ -100,6 +102,9 @@ export default function Settings() {
   return (
     <div className="flex min-h-full flex-col pb-12">
       <Heading>Settings</Heading>
+      <Text className="mt-1 max-w-2xl">
+        Configure download paths, speed limits, and library preferences.
+      </Text>
       <Divider />
 
       <div className="max-w-2xl space-y-6 p-2">
@@ -132,7 +137,7 @@ export default function Settings() {
                       <button
                         type="button"
                         onClick={handleCopyPath}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl p-1.5 text-gv-muted transition-colors hover:bg-gv-panel-soft hover:text-gv-text"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl p-2 text-gv-muted transition-colors hover:bg-gv-panel-soft hover:text-gv-text cursor-pointer"
                         aria-label={pathCopied ? "Path copied" : "Copy path to clipboard"}
                       >
                         {pathCopied ? (

@@ -12,10 +12,11 @@ export function Dropdown(props: Headless.MenuProps) {
 
 export function DropdownButton<T extends React.ElementType = typeof Button>({
   as = Button,
+  className,
   ...props
 }: { className?: string } & Omit<Headless.MenuButtonProps<T>, "className">) {
   return (
-    <Headless.MenuButton as={as} {...props} className={"cursor-pointer"} />
+    <Headless.MenuButton as={as} {...props} className={clsx(className, "cursor-pointer")} />
   );
 }
 

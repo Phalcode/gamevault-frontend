@@ -127,7 +127,7 @@ export function VersionSelectDialog({
                 <button
                   type="button"
                   onClick={() => handleSort("version")}
-                  className="inline-flex items-center gap-1"
+                  className="inline-flex items-center gap-1 cursor-pointer"
                 >
                   Version {sortIndicator("version")}
                 </button>
@@ -136,7 +136,7 @@ export function VersionSelectDialog({
                 <button
                   type="button"
                   onClick={() => handleSort("indexed_at")}
-                  className="inline-flex items-center gap-1"
+                  className="inline-flex items-center gap-1 cursor-pointer"
                 >
                   Date Added {sortIndicator("indexed_at")}
                 </button>
@@ -145,7 +145,7 @@ export function VersionSelectDialog({
                 <button
                   type="button"
                   onClick={() => handleSort("type")}
-                  className="inline-flex items-center gap-1"
+                  className="inline-flex items-center gap-1 cursor-pointer"
                 >
                   Game Type {sortIndicator("type")}
                 </button>
@@ -154,7 +154,7 @@ export function VersionSelectDialog({
                 <button
                   type="button"
                   onClick={() => handleSort("early_access")}
-                  className="inline-flex items-center gap-1"
+                  className="inline-flex items-center gap-1 cursor-pointer"
                 >
                   Early Access {sortIndicator("early_access")}
                 </button>
@@ -163,7 +163,7 @@ export function VersionSelectDialog({
                 <button
                   type="button"
                   onClick={() => handleSort("size")}
-                  className="inline-flex items-center gap-1"
+                  className="inline-flex items-center gap-1 cursor-pointer"
                 >
                   Size {sortIndicator("size")}
                 </button>

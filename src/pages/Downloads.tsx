@@ -567,7 +567,7 @@ export default function Downloads() {
       <div className="mb-8">
         <Heading>Downloads</Heading>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Manage your game downloads for the GameVault desktop application
+          Track active, queued, and completed game downloads.
         </p>
       </div>
 

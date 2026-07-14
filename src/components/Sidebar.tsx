@@ -161,7 +161,7 @@ export function Sidebar() {
               <SidebarLabel className="flex justify-between w-full items-center">
                 News
                 {badgeVisible && (
-                  <Badge color="amber" className="ml-2 animate-pulse">
+                  <Badge color="amber" className="ml-2 motion-safe:animate-pulse">
                     New
                   </Badge>
                 )}
