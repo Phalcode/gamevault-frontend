@@ -86,7 +86,7 @@ export default function Administration() {
 
   try {
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex min-h-full flex-col gap-6">
         <Heading>Administration</Heading>
         <Text className="mt-1 max-w-2xl">
           Manage users, monitor server health, and configure system settings.

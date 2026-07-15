@@ -103,14 +103,14 @@ export default function Settings() {
     : "No folder selected";
 
   return (
-    <div className="flex min-h-full flex-col pb-12">
+    <div className="flex min-h-full flex-col gap-6">
       <Heading>Settings</Heading>
       <Text className="mt-1 max-w-2xl">
         Configure download paths, speed limits, and library preferences.
       </Text>
       <Divider />
 
-      <div className="max-w-2xl space-y-6 p-2">
+      <div className="max-w-2xl space-y-6">
         {/* Downloads Section */}
         <section className="rounded-2xl border border-gv-line bg-gv-panel p-6">
           <Fieldset>

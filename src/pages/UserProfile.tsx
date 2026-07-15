@@ -405,7 +405,7 @@ export default function UserProfile() {
 
   if (!serverUrl) {
     return (
-      <div className="flex min-h-full flex-col gap-4">
+      <div className="flex min-h-full flex-col gap-6">
         <Heading>Community</Heading>
         <Divider className="border-gv-line/80" />
         <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
