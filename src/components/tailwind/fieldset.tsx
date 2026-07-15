@@ -76,7 +76,7 @@ export function Label({
       {...props}
       className={clsx(
         className,
-        "text-base/6 text-gv-text select-none data-disabled:opacity-50 sm:text-sm/6",
+        "text-base/6 text-gv-text select-none cursor-pointer data-disabled:opacity-50 sm:text-sm/6",
       )}
     />
   );

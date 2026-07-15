@@ -32,7 +32,7 @@ export function SwitchField({
       className={clsx(
         className,
         // Base layout
-        "grid grid-cols-[1fr_auto] gap-x-8 gap-y-1 sm:grid-cols-[1fr_auto]",
+        "grid cursor-pointer grid-cols-[1fr_auto] gap-x-8 gap-y-1 sm:grid-cols-[1fr_auto]",
         // Control layout
         "*:data-[slot=control]:col-start-2 *:data-[slot=control]:self-start sm:*:data-[slot=control]:mt-0.5",
         // Label layout
