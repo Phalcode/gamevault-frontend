@@ -17,6 +17,7 @@ import ProtectedRoute from "./guards/ProtectedRoute";
 import Community from "./pages/Community";
 import Library from "./pages/Library";
 import GameView from "./pages/GameView";
+import UserProfile from "./pages/UserProfile";
 import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
 import Downloads from "./pages/Downloads";
@@ -42,7 +43,7 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="library/:id" element={<GameView />} />
                 <Route path="downloads" element={<Downloads />} />
                 <Route path="community" element={<Community />} />
-                <Route path="community/:id" element={<Community />} />
+                <Route path="community/:id" element={<UserProfile />} />
                 <Route path="settings" element={<Settings />} />
                 <Route
                   path="admin"

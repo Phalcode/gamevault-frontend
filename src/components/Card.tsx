@@ -17,7 +17,7 @@ export default function Card({
   return (
     <div
       className={
-        "overflow-hidden rounded-[1.5rem] mb-6 border border-gv-line " +
+        "overflow-hidden rounded-[1.5rem] border border-gv-line " +
         surfaceClassName
       }
     >

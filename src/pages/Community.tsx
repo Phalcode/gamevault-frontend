@@ -6,6 +6,7 @@ import { Heading, Subheading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
 import { Text } from "@tw/text";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Media } from "@/components/Media";
 import { useAuth } from "@/context/AuthContext";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
@@ -306,17 +307,13 @@ function NetworkUserCard({
         <div className="relative">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="shrink-0 overflow-hidden rounded-3xl border border-gv-line/70 bg-gv-panel-soft shadow-sm">
-                <Media
-                  media={user.avatar}
-                  size={76}
-                  square
-                  fit="cover"
-                  className="size-19"
-                  alt={getDisplayName(user)}
-                  fallback={getAvatarFallback(user)}
-                />
-              </div>
+              <UserAvatar
+                media={user.avatar}
+                size={76}
+                alt={getDisplayName(user)}
+                fallback={getAvatarFallback(user)}
+                className="border border-gv-line/70 bg-gv-panel-soft shadow-sm"
+              />
               <div className="min-w-0 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="truncate text-lg font-semibold tracking-[-0.02em] text-gv-text">
@@ -451,13 +448,9 @@ export default function Community() {
   const [loading, setLoading] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progressSearch, setProgressSearch] = useState("");
-  const [progressFilter, setProgressFilter] = useState<string>("all");
-  const [progressSort, setProgressSort] = useState<ProfileProgressSort>("last");
+  const [userSearch, setUserSearch] = useState("");
 
   const currentUserId = (loggedIn as any)?.id ?? (loggedIn as any)?.ID ?? null;
-  const selectedUserId = id ? Number(id) : null;
-  const showProfile = selectedUserId != null && !Number.isNaN(selectedUserId);
   const recentCutoff = useMemo(() => Date.now() - TWO_WEEKS_MS, []);
 
   const fetchUserDetail = useCallback(
@@ -568,70 +561,15 @@ export default function Community() {
     [users, detailsById, currentUserId],
   );
 
-  const selectedUser = useMemo(() => {
-    if (!showProfile) return null;
-    return (
-      detailsById[selectedUserId!] ||
-      users.find((entry) => entry.id === selectedUserId) ||
-      null
-    );
-  }, [showProfile, selectedUserId, detailsById, users]);
-
-  const selectedStats = useMemo(() => getUserStats(selectedUser), [selectedUser]);
-  const selectedRecent = useMemo(
-    () => getRecentWindowProgresses(selectedUser, recentCutoff).slice(0, 8),
-    [selectedUser, recentCutoff],
-  );
-  const selectedBookmarks = useMemo(
-    () => getBookmarkedGames(selectedUser).slice(0, 8),
-    [selectedUser],
-  );
-  const selectedPlaying = useMemo(
-    () =>
-      getProgresses(selectedUser)
-        .filter(
-          (progress) =>
-            progress.state === "PLAYING" || progress.state === "INFINITE",
-        )
-        .sort(
-          (left, right) =>
-            toTimestamp(right.last_played_at) - toTimestamp(left.last_played_at),
-        ),
-    [selectedUser],
-  );
-  const selectedAllProgresses = useMemo(() => {
-    const query = progressSearch.trim().toLowerCase();
-
-    return getProgresses(selectedUser)
-      .filter((progress) => {
-        const title =
-          progress.game?.metadata?.title || progress.game?.title || "Unknown Game";
-        const matchesQuery = !query || title.toLowerCase().includes(query);
-        const matchesState =
-          progressFilter === "all" || progress.state === progressFilter;
-        return matchesQuery && matchesState;
-      })
-      .sort((left, right) => {
-        if (progressSort === "time") {
-          return Number(right.minutes_played ?? 0) - Number(left.minutes_played ?? 0);
-        }
-        if (progressSort === "title") {
-          const leftTitle =
-            left.game?.metadata?.title || left.game?.title || "Unknown Game";
-          const rightTitle =
-            right.game?.metadata?.title || right.game?.title || "Unknown Game";
-          return leftTitle.localeCompare(rightTitle);
-        }
-        if (progressSort === "state") {
-          return getProgressMeta(left.state).label.localeCompare(
-            getProgressMeta(right.state).label,
-          );
-        }
-        return toTimestamp(right.last_played_at) - toTimestamp(left.last_played_at);
-      });
-  }, [selectedUser, progressSearch, progressFilter, progressSort]);
-
-  const backdropUrl = useAuthMediaUrl(getPrimaryBackdropMediaId(selectedUser));
+  const filteredMembers = useMemo(() => {
+    if (!userSearch.trim()) return members;
+    const q = userSearch.toLowerCase();
+    return members.filter((m) => {
+      const name = getDisplayName(m).toLowerCase();
+      const handle = getUserHandle(m).toLowerCase();
+      return name.includes(q) || handle.includes(q);
+    });
+  }, [members, userSearch]);
 
   const networkStats = useMemo(() => {
     const totalMinutes = members.reduce(
@@ -649,12 +587,6 @@ export default function Community() {
     };
   }, [members, recentCutoff]);
 
-  useEffect(() => {
-    setProgressSearch("");
-    setProgressFilter("all");
-    setProgressSort("last");
-  }, [selectedUser?.id]);
-
   if (!serverUrl) {
     return (
       <div className="flex min-h-full flex-col gap-4">
@@ -667,327 +599,7 @@ export default function Community() {
     );
   }
 
-  if (showProfile && !loading && !selectedUser) {
-    return (
-      <div className="flex min-h-full flex-col gap-6">
-        <div className="flex items-center justify-between gap-4">
-          <Heading>Community</Heading>
-          <Button href="/community" outline>
-            <ArrowLeftIcon className="size-4" />
-            Back to network
-          </Button>
-        </div>
-        <Divider className="border-gv-line/80" />
-        <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
-          User not found in this network.
-        </div>
-      </div>
-    );
-  }
-
-  return showProfile ? (
-    <div className="flex min-h-full flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <Heading>Community</Heading>
-          <Text>Browse player profiles, stats, and shared library history.</Text>
-        </div>
-        <Button href="/community" outline>
-          <ArrowLeftIcon className="size-4" />
-          Back to network
-        </Button>
-      </div>
-      <Divider className="border-gv-line/80" />
-
-      {selectedUser && (
-        <>
-          <section className="surface-panel relative min-h-80 overflow-hidden rounded-4xl">
-            <div className="absolute inset-0">
-              {backdropUrl ? (
-                <>
-                  <img
-                    src={backdropUrl}
-                    alt=""
-                    className="h-full w-full scale-105 object-cover opacity-42"
-                  />
-                  <img
-                    src={backdropUrl}
-                    alt=""
-                    className="absolute inset-[-8%] h-[116%] w-[116%] object-cover opacity-34 blur-3xl"
-                  />
-                </>
-              ) : (
-                <div className="h-full w-full bg-[radial-gradient(circle_at_top_left,rgba(132,123,237,0.3),transparent_40%),radial-gradient(circle_at_bottom_right,rgba(244,63,94,0.18),transparent_45%),linear-gradient(135deg,rgba(84,73,198,0.18),transparent_60%)]" />
-              )}
-              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,10,20,0.08),rgba(10,10,20,0.78))]" />
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(132,123,237,0.18),transparent_42%)]" />
-            </div>
-
-            <div className="relative flex min-h-80 flex-col justify-end gap-6 p-6 sm:p-7 lg:p-8">
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-                <div className="flex min-w-0 items-end gap-4">
-                  <div className="overflow-hidden rounded-3xl border-4 border-white/20 bg-gv-panel-soft/50 shadow-lg backdrop-blur-xl">
-                    <Media
-                      media={selectedUser.avatar}
-                      size={110}
-                      square
-                      fit="cover"
-                      className="h-27.5 w-27.5"
-                      alt={getDisplayName(selectedUser)}
-                      fallback={getAvatarFallback(selectedUser)}
-                    />
-                  </div>
-                  <div className="min-w-0 space-y-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge color={getRoleBadgeColor(selectedUser.role)}>
-                        {getRoleLabel(Number(selectedUser.role))}
-                      </Badge>
-                      {selectedUser.id === currentUserId && (
-                        <Badge color="indigo">Your profile</Badge>
-                      )}
-                      {!selectedUser.activated && <Badge color="rose">Inactive</Badge>}
-                    </div>
-                    <div>
-                      <h2 className="truncate text-3xl font-bold tracking-[-0.04em] text-white">
-                        {getDisplayName(selectedUser)}
-                      </h2>
-                      <p className="mt-1 text-base text-white/80">
-                        @{getUserHandle(selectedUser)}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-3 text-sm text-white/80">
-                      <span>Joined {formatDate(selectedUser.created_at, "Unknown")}</span>
-                      <span>Last seen {formatDate(selectedStats.lastPlayed, "Never")}</span>
-                      <span>{formatPlaytime(selectedStats.totalMinutes)} logged</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  {[
-                    {
-                      icon: UserGroupIcon,
-                      label: "Tracked",
-                      value: selectedStats.tracked,
-                    },
-                    {
-                      icon: PlayCircleIcon,
-                      label: "In progress",
-                      value: selectedStats.playing,
-                    },
-                    {
-                      icon: CheckCircleIcon,
-                      label: "Finished",
-                      value: selectedStats.completed,
-                    },
-                    {
-                      icon: BookmarkIcon,
-                      label: "Bookmarks",
-                      value: selectedStats.bookmarks,
-                    },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      className="rounded-[1.25rem] border border-white/12 bg-white/10 px-4 py-3 text-white backdrop-blur-xl"
-                    >
-                      <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-white/70">
-                        <item.icon className="size-4" />
-                        {item.label}
-                      </div>
-                      <div className="mt-3 text-2xl font-semibold" data-numeric>
-                        {item.value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-            <div className="space-y-6">
-              <section className="surface-panel rounded-[1.75rem] p-5 sm:p-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <Subheading>Recent activity</Subheading>
-                    <Text>Games touched in the last 2 weeks.</Text>
-                  </div>
-                  <Badge color="zinc">{selectedRecent.length} in 2 weeks</Badge>
-                </div>
-
-                <div className="mt-5 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-                  {selectedRecent.length > 0 ? (
-                    selectedRecent.map((progress) => (
-                      <ProfileProgressCard key={progress.id} progress={progress} />
-                    ))
-                  ) : (
-                    <div className="surface-panel-soft rounded-3xl p-6 text-sm text-gv-muted">
-                      No recent activity in the last 2 weeks.
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section className="surface-panel rounded-[1.75rem] p-5 sm:p-6">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <Subheading>All game progress</Subheading>
-                    <Text>Filter the full history to inspect paused, dropped, finished, or untouched games.</Text>
-                  </div>
-                  <Badge color="zinc">{selectedAllProgresses.length} matches</Badge>
-                </div>
-
-                <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px] lg:items-end">
-                  <div className="w-full">
-                    <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
-                      Search games
-                    </label>
-                    <Input
-                      name="progressSearch"
-                      value={progressSearch}
-                      onChange={(event: any) => setProgressSearch(event.target.value)}
-                      placeholder="Find a game in this profile..."
-                      clearable
-                      onClear={() => setProgressSearch("")}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
-                      Filter by state
-                    </label>
-                    <Listbox
-                      name="progressFilter"
-                      value={progressFilter}
-                      onChange={(value: any) => setProgressFilter(String(value))}
-                    >
-                      {PROFILE_FILTER_OPTIONS.map((option) => (
-                        <ListboxOption key={option.value} value={option.value}>
-                          <ListboxLabel>{option.label}</ListboxLabel>
-                        </ListboxOption>
-                      ))}
-                    </Listbox>
-                  </div>
-
-                  <div>
-                    <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
-                      Sort by
-                    </label>
-                    <Listbox
-                      name="progressSort"
-                      value={progressSort}
-                      onChange={(value: any) =>
-                        setProgressSort(value as ProfileProgressSort)
-                      }
-                    >
-                      {PROFILE_SORT_OPTIONS.map((option) => (
-                        <ListboxOption key={option.value} value={option.value}>
-                          <ListboxLabel>{option.label}</ListboxLabel>
-                        </ListboxOption>
-                      ))}
-                    </Listbox>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid gap-4 md:grid-cols-2">
-                  {selectedAllProgresses.length > 0 ? (
-                    selectedAllProgresses.map((progress) => (
-                      <ProfileProgressCard key={`all-${progress.id}`} progress={progress} />
-                    ))
-                  ) : (
-                    <div className="surface-panel-soft rounded-3xl p-6 text-sm text-gv-muted">
-                      No games match this filter combination.
-                    </div>
-                  )}
-                </div>
-              </section>
-            </div>
-
-            <aside className="space-y-6">
-              <section className="surface-panel rounded-[1.75rem] p-5 sm:p-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <Subheading>Bookmarked shelf</Subheading>
-                    <Text>Games this player pinned for later.</Text>
-                  </div>
-                  <Badge color="zinc">{selectedBookmarks.length} saved</Badge>
-                </div>
-
-                <div className="mt-5 flex gap-4 overflow-x-auto pb-2">
-                  {selectedBookmarks.length > 0 ? (
-                    selectedBookmarks.map((game) => {
-                      const title = game.metadata?.title || game.title || "Game";
-                      return (
-                        <Link
-                          key={game.id}
-                          to={`/library/${game.id}`}
-                          className="group block w-37.5 shrink-0 rounded-3xl focus:outline-none focus:ring-2 focus:ring-gv-accent-cool"
-                        >
-                          <div className="surface-panel rounded-3xl p-3 transition-[transform,box-shadow,border-color] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)">
-                            <GamePoster
-                              game={game}
-                              title={title}
-                              width={126}
-                              height={170}
-                            />
-                            <div className="mt-3 line-clamp-2 text-sm font-medium text-gv-text">
-                              {title}
-                            </div>
-                          </div>
-                        </Link>
-                      );
-                    })
-                  ) : (
-                    <div className="surface-panel-soft rounded-3xl p-6 text-sm text-gv-muted">
-                      No bookmarks shared yet.
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section className="surface-panel rounded-[1.75rem] p-5">
-                <Subheading>In progress</Subheading>
-                <div className="mt-4 space-y-3">
-                  {selectedPlaying.length > 0 ? (
-                    selectedPlaying.slice(0, 4).map((progress) => {
-                      const game = progress.game;
-                      const title = game?.metadata?.title || game?.title || "Game";
-                      return (
-                        <Link
-                          key={progress.id}
-                          to={game?.id ? `/library/${game.id}` : "/library"}
-                          className="flex items-center gap-3 rounded-2xl border border-gv-line/70 bg-gv-panel-soft px-3 py-3 transition-colors hover:border-gv-line-strong hover:bg-gv-panel"
-                        >
-                          <GamePoster
-                            game={game || undefined}
-                            title={title}
-                            width={52}
-                            height={68}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium text-gv-text">
-                              {title}
-                            </div>
-                            <div className="mt-1 text-xs text-gv-muted">
-                              {formatPlaytime(Number(progress.minutes_played ?? 0) || 0)}
-                            </div>
-                          </div>
-                        </Link>
-                      );
-                    })
-                  ) : (
-                    <div className="text-sm text-gv-muted">
-                      Nothing active right now.
-                    </div>
-                  )}
-                </div>
-              </section>
-            </aside>
-          </div>
-        </>
-      )}
-    </div>
-  ) : (
+  return (
     <div className="flex min-h-full flex-col gap-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-2">
@@ -1013,6 +625,20 @@ export default function Community() {
       </div>
       <Divider className="border-gv-line/80" />
 
+      <div className="w-full max-w-sm">
+        <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
+          Search members
+        </label>
+        <Input
+          name="userSearch"
+          value={userSearch}
+          onChange={(e: any) => setUserSearch(e.target.value)}
+          placeholder="Filter by name or handle..."
+          clearable
+          onClear={() => setUserSearch("")}
+        />
+      </div>
+
       {error && (
         <div className="rounded-2xl bg-rose-500/10 px-4 py-3 text-sm text-rose-500">
           {error}
@@ -1028,9 +654,9 @@ export default function Community() {
             />
           ))}
         </div>
-      ) : members.length > 0 ? (
+      ) : filteredMembers.length > 0 ? (
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {members.map((member) => (
+          {filteredMembers.map((member) => (
             <NetworkUserCard
               key={member.id}
               user={member}
@@ -1040,11 +666,11 @@ export default function Community() {
         </div>
       ) : (
         <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
-          No community members found yet.
+          {userSearch.trim() ? "No members match your search." : "No community members found yet."}
         </div>
       )}
 
-      {loadingDetails && members.length > 0 && (
+      {loadingDetails && filteredMembers.length > 0 && (
         <div className="flex items-center gap-2 text-sm text-gv-muted">
           <svg className="h-4 w-4 motion-safe:animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

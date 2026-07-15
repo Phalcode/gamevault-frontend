@@ -1,6 +1,7 @@
 import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { Progress, ProgressStateEnum } from "@/api/models/Progress";
 import CoverPlaceholder from "@/components/CoverPlaceholder";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Media } from "@/components/Media";
 import MediaSlider from "@/components/MediaSlider";
 import MarkdownContent from "@/components/MarkdownContent";
@@ -523,7 +524,7 @@ export default function GameView() {
   return (
     <div className="relative isolate flex min-h-full flex-col overflow-hidden px-4 pb-4 sm:px-6 lg:px-8">
       <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 w-screen -translate-x-1/2">
-        <div className="absolute inset-0 bg-zinc-100 dark:bg-zinc-950" />
+        <div className="absolute inset-0 bg-gv-bg" />
 
         {backgroundUrl ? (
           <>
@@ -575,7 +576,7 @@ export default function GameView() {
           <div className="mx-auto grid w-full max-w-350 gap-10 px-2 pt-4 xl:grid-cols-[1fr_20rem]">
           {/* Row 1: Cover/Title/Actions spans both columns on mobile but only left column on xl */}
           <div className="flex flex-row gap-4 items-start xl:col-span-1 xl:row-span-1 min-w-0">
-            <div className="w-32 aspect-3/4 rounded-lg overflow-hidden bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[10px] text-zinc-500">
+            <div className="w-32 aspect-3/4 rounded-2xl overflow-hidden bg-gv-panel-strong flex items-center justify-center text-[10px] text-gv-muted">
               {coverId ? (
                 <Media
                   media={game.metadata?.cover}
@@ -699,7 +700,7 @@ export default function GameView() {
                   {genres.map((g: string) => (
                     <span
                       key={g}
-                      className="px-2 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-700 text-[10px] font-medium text-zinc-700 dark:text-zinc-200"
+                      className="px-2 py-0.5 rounded-full bg-gv-panel-strong text-[10px] font-medium text-gv-muted"
                     >
                       {g}
                     </span>
@@ -712,47 +713,32 @@ export default function GameView() {
           {/* Right Column Row 1: Stats + Progress State */}
           <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-1 min-w-0">
             <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div
-                className={clsx(
-                  "rounded-lg bg-zinc-100 p-3",
-                  darkGlassInsetClassName,
-                )}
-              >
-                <div className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              <div className="surface-panel rounded-2xl p-3">
+                <div className="text-[10px] uppercase tracking-wide text-gv-muted">
                   Playtime
                 </div>
-                <div className="font-semibold text-sm mt-1">
+                <div className="font-semibold text-sm mt-1 text-gv-text">
                   {playtimeHours >= 1
                     ? `${playtimeHours.toFixed(playtimeHours < 10 ? 1 : 0)} h`
                     : `${playtimeMinutes} m`}
                 </div>
               </div>
-              <div
-                className={clsx(
-                  "rounded-lg bg-zinc-100 p-3",
-                  darkGlassInsetClassName,
-                )}
-              >
-                <div className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              <div className="surface-panel rounded-2xl p-3">
+                <div className="text-[10px] uppercase tracking-wide text-gv-muted">
                   Last Played
                 </div>
                 <div
-                  className="font-semibold text-sm mt-1 truncate"
+                  className="font-semibold text-sm mt-1 text-gv-text truncate"
                   title={lastPlayed}
                 >
                   {lastPlayed}
                 </div>
               </div>
-              <div
-                className={clsx(
-                  "rounded-lg bg-zinc-100 p-3",
-                  darkGlassInsetClassName,
-                )}
-              >
-                <div className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              <div className="surface-panel rounded-2xl p-3">
+                <div className="text-[10px] uppercase tracking-wide text-gv-muted">
                   Avg Playtime
                 </div>
-                <div className="font-semibold text-sm mt-1">
+                <div className="font-semibold text-sm mt-1 text-gv-text">
                   {avgPlaytime
                     ? `${(avgPlaytime / 60).toFixed(avgPlaytime / 60 < 10 ? 1 : 0)} h`
                     : "—"}
@@ -760,7 +746,7 @@ export default function GameView() {
               </div>
             </div>
             <div>
-              <div className="text-xs font-medium text-zinc-600 dark:text-zinc-300 mb-1">
+              <div className="text-xs font-medium text-gv-muted mb-1">
                 Progress State
               </div>
               <Listbox
@@ -798,16 +784,16 @@ export default function GameView() {
               <Card
                 title="Details"
                 className="mb-0!"
-                surfaceClassName={glassPanelClassName}
+                surfaceClassName="surface-panel"
               >
-                <div className="flex border-b border-zinc-300/40 dark:border-zinc-700/50 mb-4 gap-6 text-sm">
+                <div className="flex border-b border-gv-line mb-4 gap-6 text-sm">
                   <button
                     onClick={() => setDetailsTab("description")}
                     className={clsx(
                       "pb-2 -mb-px border-b-2 font-medium",
                       detailsTab === "description"
-                        ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
-                        : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
+                        ? "border-gv-accent text-gv-accent-strong"
+                        : "border-transparent text-gv-muted hover:text-gv-text",
                     )}
                   >
                     Description
@@ -817,8 +803,8 @@ export default function GameView() {
                     className={clsx(
                       "pb-2 -mb-px border-b-2 font-medium",
                       detailsTab === "notes"
-                        ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
-                        : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
+                        ? "border-gv-accent text-gv-accent-strong"
+                        : "border-transparent text-gv-muted hover:text-gv-text",
                     )}
                   >
                     Notes
@@ -828,19 +814,19 @@ export default function GameView() {
                     className={clsx(
                       "pb-2 -mb-px border-b-2 font-medium",
                       detailsTab === "tags"
-                        ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
-                        : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
+                        ? "border-gv-accent text-gv-accent-strong"
+                        : "border-transparent text-gv-muted hover:text-gv-text",
                     )}
                   >
                     Tags
                   </button>
                 </div>
-                <div className="text-sm leading-relaxed space-y-4 min-h-45">
+                <div className="text-sm leading-relaxed space-y-4 min-h-45 text-gv-text">
                   {detailsTab === "description" &&
                     (description ? (
                       <MarkdownContent content={description} />
                     ) : (
-                      <p className="italic text-zinc-500">
+                      <p className="italic text-gv-muted">
                         No description available.
                       </p>
                     ))}
@@ -848,7 +834,7 @@ export default function GameView() {
                     (notes ? (
                       <MarkdownContent content={notes} />
                     ) : (
-                      <p className="italic text-zinc-500">No notes.</p>
+                      <p className="italic text-gv-muted">No notes.</p>
                     ))}
                   {detailsTab === "tags" &&
                     (tags && tags.length ? (
@@ -856,7 +842,7 @@ export default function GameView() {
                         {tags.map((t) => (
                           <span
                             key={t}
-                            className="px-2 py-1 rounded-md bg-zinc-200 dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200"
+                            className="px-2 py-1 rounded-md bg-gv-panel-strong text-xs font-medium text-gv-muted"
                           >
                             {t}
                           </span>
@@ -870,26 +856,22 @@ export default function GameView() {
             </div>
           </div>
 
-          {/* Row 2 Right: Additional Metadata Card aligned with Media Slider top */}
+          {/* Row 2 Right: Additional Metadata + Activity */}
           <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-2 min-w-0">
-            <div
-              className="w-full"
-              style={isXL && mediaHeight ? { height: mediaHeight } : undefined}
+            <Card
+              title="Additional Metadata"
+              className="min-h-40"
+              surfaceClassName="surface-panel"
             >
-              <Card
-                title="Additional Metadata"
-                className="min-h-40 h-full"
-                surfaceClassName={glassPanelClassName}
-              >
-                <ul className="space-y-4 text-sm">
+                <ul className="space-y-4 text-sm text-gv-text">
                   <li className="flex items-start gap-3">
-                    <CalendarDaysIcon className="w-5 h-5 mt-0.5 text-zinc-500 dark:text-zinc-400" />
+                    <CalendarDaysIcon className="w-5 h-5 mt-0.5 text-gv-muted" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                      <div className="text-[11px] uppercase tracking-wide text-gv-muted whitespace-nowrap">
                         Release Year
                       </div>
                       <div
-                        className="font-medium text-zinc-800 dark:text-zinc-100 whitespace-nowrap truncate"
+                        className="font-medium whitespace-nowrap truncate"
                         title={(releaseYear || "—") + ""}
                       >
                         {releaseYear || "—"}
@@ -897,13 +879,13 @@ export default function GameView() {
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
-                    <StarOutline className="w-5 h-5 mt-0.5 text-zinc-500 dark:text-zinc-400" />
+                    <StarOutline className="w-5 h-5 mt-0.5 text-gv-muted" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                      <div className="text-[11px] uppercase tracking-wide text-gv-muted whitespace-nowrap">
                         Rating
                       </div>
                       <div
-                        className="font-medium text-zinc-800 dark:text-zinc-100 whitespace-nowrap"
+                        className="font-medium whitespace-nowrap"
                         title={formattedRating || "—"}
                       >
                         {formattedRating ?? "—"}
@@ -911,13 +893,13 @@ export default function GameView() {
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
-                    <HashtagIcon className="w-5 h-5 mt-0.5 text-zinc-500 dark:text-zinc-400" />
+                    <HashtagIcon className="w-5 h-5 mt-0.5 text-gv-muted" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                      <div className="text-[11px] uppercase tracking-wide text-gv-muted whitespace-nowrap">
                         Version
                       </div>
                       <div
-                        className="font-medium text-zinc-800 dark:text-zinc-100 whitespace-nowrap truncate"
+                        className="font-medium whitespace-nowrap truncate"
                         title={versionTag || "—"}
                       >
                         {versionTag || "—"}
@@ -925,13 +907,13 @@ export default function GameView() {
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
-                    <GlobeAltIcon className="w-5 h-5 mt-0.5 text-zinc-500 dark:text-zinc-400" />
+                    <GlobeAltIcon className="w-5 h-5 mt-0.5 text-gv-muted" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                      <div className="text-[11px] uppercase tracking-wide text-gv-muted whitespace-nowrap">
                         Website
                       </div>
                       <div
-                        className="font-medium text-zinc-800 dark:text-zinc-100 whitespace-nowrap truncate"
+                        className="font-medium whitespace-nowrap truncate"
                         title={primaryWebsite || "—"}
                       >
                         {primaryWebsite ? (
@@ -939,7 +921,7 @@ export default function GameView() {
                             href={primaryWebsite}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="underline hover:text-indigo-600 dark:hover:text-indigo-400"
+                            className="underline hover:text-gv-accent-cool"
                           >
                             {primaryWebsite.replace(/^https?:\/\//, "")}
                           </a>
@@ -950,13 +932,13 @@ export default function GameView() {
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
-                    <WrenchScrewdriverIcon className="w-5 h-5 mt-0.5 text-zinc-500 dark:text-zinc-400" />
+                    <WrenchScrewdriverIcon className="w-5 h-5 mt-0.5 text-gv-muted" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                      <div className="text-[11px] uppercase tracking-wide text-gv-muted whitespace-nowrap">
                         Developer{devNames.length > 1 ? "s" : ""}
                       </div>
                       <div
-                        className="font-medium text-zinc-800 dark:text-zinc-100 whitespace-nowrap truncate"
+                        className="font-medium whitespace-nowrap truncate"
                         title={devNames.length ? devNames.join(", ") : "—"}
                       >
                         {devNames.length ? devNames.join(", ") : "—"}
@@ -964,13 +946,13 @@ export default function GameView() {
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
-                    <BuildingOffice2Icon className="w-5 h-5 mt-0.5 text-zinc-500 dark:text-zinc-400" />
+                    <BuildingOffice2Icon className="w-5 h-5 mt-0.5 text-gv-muted" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                      <div className="text-[11px] uppercase tracking-wide text-gv-muted whitespace-nowrap">
                         Publisher{publisherNames.length > 1 ? "s" : ""}
                       </div>
                       <div
-                        className="font-medium text-zinc-800 dark:text-zinc-100 whitespace-nowrap truncate"
+                        className="font-medium whitespace-nowrap truncate"
                         title={
                           publisherNames.length
                             ? publisherNames.join(", ")
@@ -984,13 +966,13 @@ export default function GameView() {
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
-                    <ShieldCheckIcon className="w-5 h-5 mt-0.5 text-zinc-500 dark:text-zinc-400" />
+                    <ShieldCheckIcon className="w-5 h-5 mt-0.5 text-gv-muted" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                      <div className="text-[11px] uppercase tracking-wide text-gv-muted whitespace-nowrap">
                         Age Rating
                       </div>
                       <div
-                        className="font-medium text-zinc-800 dark:text-zinc-100 whitespace-nowrap"
+                        className="font-medium whitespace-nowrap"
                         title={ageRating ?? "—"}
                       >
                         {ageRating ?? "—"}
@@ -999,18 +981,11 @@ export default function GameView() {
                   </li>
                 </ul>
               </Card>
-            </div>
-            <div
-              className="w-full"
-              style={
-                isXL && detailsHeight ? { height: detailsHeight } : undefined
-              }
+            <Card
+              title="Activity"
+              className="min-h-40"
+              surfaceClassName="surface-panel"
             >
-              <Card
-                title="Activity"
-                className="mb-0! h-full"
-                surfaceClassName={glassPanelClassName}
-              >
                 {(() => {
                   const progresses: Progress[] =
                     (game as any)?.progresses || [];
@@ -1046,20 +1021,16 @@ export default function GameView() {
                         const hours = minutes / 60;
                         return (
                           <li key={p.id} className="flex items-center gap-3">
-                            <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl bg-zinc-300 text-[10px] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-                              {avatarMedia ? (
-                                <Media
-                                  media={avatarMedia}
-                                  size={64}           className="h-full w-full"
-                       
-                                  square
-                                  fit="cover"
-                                  alt={uname}
-                                />
-                              ) : (
-                                uname.slice(0, 2).toUpperCase()
-                              )}
-                            </div>
+                            <UserAvatar
+                              media={avatarMedia}
+                              size={32}
+                              alt={uname}
+                              fallback={
+                                <div className="flex h-full w-full items-center justify-center rounded-[20%] bg-zinc-300 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                                  {uname.slice(0, 2).toUpperCase()}
+                                </div>
+                              }
+                            />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-2">
                                 <span className="font-medium truncate text-zinc-800 dark:text-zinc-100">
@@ -1088,7 +1059,6 @@ export default function GameView() {
                   );
                 })()}
               </Card>
-            </div>
           </div>
           </div>
         )}

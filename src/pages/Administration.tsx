@@ -1,4 +1,4 @@
-import { Media } from "@/components/Media";
+import { UserAvatar } from "@/components/UserAvatar";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useAuth } from "@/context/AuthContext";
 import { useAdminUsers } from "@/hooks/useAdminUsers";
@@ -92,6 +92,7 @@ export default function Administration() {
           Manage users, monitor server health, and configure system settings.
         </Text>
         <Divider />
+        <div className="flex flex-col gap-6">
         <Card title="Server Information">
           <DescriptionList>
             <DescriptionTerm>Address</DescriptionTerm>
@@ -277,12 +278,9 @@ export default function Administration() {
                   <TableRow key={id} className={deleted ? "opacity-60" : ""}>
                     <TableCell>
                       <div className="flex items-center gap-4">
-                        <Media
+                        <UserAvatar
                           media={u.avatar}
                           size={48}
-                          className="size-12"
-                          square
-                          fit="cover"
                           alt={name}
                         />
                         <div>
@@ -438,6 +436,7 @@ export default function Administration() {
             onClose={() => setShowBackupRestoreDialog(false)}
           />
         )}
+        </div>
       </div>
     );
   } catch (e: any) {

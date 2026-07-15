@@ -19,7 +19,7 @@ export default function DashboardLayout({
   const isCommunityProfileRoute = Boolean(
     matchPath({ path: "/community/:id" }, location.pathname),
   );
-  const isFullBleed = isGameViewRoute || isCommunityProfileRoute;
+  const isFullBleed = isGameViewRoute;
 
   useGameTimeTracker();
 

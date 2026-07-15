@@ -127,7 +127,7 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
   if (!list.length) {
     return (
       <div
-        className={`relative w-full ${aspect} bg-black/40 rounded-lg flex items-center justify-center text-xs text-zinc-400 ${className}`}
+        className={`relative w-full ${aspect} bg-gv-panel rounded-3xl flex items-center justify-center text-xs text-gv-muted ${className}`}
       >
         No media
       </div>
@@ -188,7 +188,7 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`relative w-full ${aspect} bg-black rounded-lg overflow-hidden ${className}`}
+      className={`relative w-full ${aspect} bg-black rounded-3xl overflow-hidden ${className}`}
     >
       {isImageOnly ? (
         <img
