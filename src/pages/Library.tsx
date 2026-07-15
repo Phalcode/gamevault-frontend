@@ -1,6 +1,7 @@
 import GameCard from "@/components/GameCard";
 import { useAuth } from "@/context/AuthContext";
 import { BookmarkFilter, EarlyAccessFilter, useGames } from "@/hooks/useGames";
+import { useScrollRestoration } from "@/hooks/useScrollRestoration";
 import { Divider } from "@tw/divider";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
@@ -461,31 +462,9 @@ export default function Library() {
     return () => io.disconnect();
   }, [hasMore, loadMore, games.length]);
 
-  // Restore scroll position when returning to the library (e.g. from game
-  // detail page via back navigation). The scroll container lives in
-  // SidebarLayout and is tagged with data-scroll-container.
-  useEffect(() => {
-    const scrollContainer = document.querySelector(
-      "[data-scroll-container]",
-    ) as HTMLElement | null;
-    if (!scrollContainer) return;
-
-    const SCROLL_KEY = "library_scroll_position";
-
-    // Restore scroll position after the DOM settles with cached game data.
-    const raf = requestAnimationFrame(() => {
-      const saved = sessionStorage.getItem(SCROLL_KEY);
-      if (saved) {
-        scrollContainer.scrollTop = Number(saved);
-      }
-    });
-
-    // Save scroll position before unmounting (navigating away).
-    return () => {
-      cancelAnimationFrame(raf);
-      sessionStorage.setItem(SCROLL_KEY, String(scrollContainer.scrollTop));
-    };
-  }, []);
+  // Persist and restore scroll position across navigation.
+  // Saves on scroll events; restores once games are in the DOM.
+  useScrollRestoration("library_scroll_position", games.length > 0);
 
   // --- Installed games (Tauri only) ---
   const isTauri = isTauriApp();

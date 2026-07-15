@@ -25,6 +25,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
+import { useScrollRestoration } from "@/hooks/useScrollRestoration";
 import type { GamevaultGame, GamevaultUser, Progress } from "../api";
 
 type UserDetailsMap = Record<number, GamevaultUser>;
@@ -452,6 +453,9 @@ export default function Community() {
 
   const currentUserId = (loggedIn as any)?.id ?? (loggedIn as any)?.ID ?? null;
   const recentCutoff = useMemo(() => Date.now() - TWO_WEEKS_MS, []);
+
+  // Restore scroll position when returning from a user profile.
+  useScrollRestoration("community_scroll_position", users.length > 0);
 
   const fetchUserDetail = useCallback(
     async (userId: number) => {
