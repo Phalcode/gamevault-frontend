@@ -16,7 +16,7 @@ import { getRoleLabel } from "@/utils/roles";
 import { GamevaultUserRoleEnum } from "@/api";
 import clsx from "clsx";
 import {
-  ArrowLeftIcon,
+  ChevronLeftIcon,
   BookmarkIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -26,7 +26,7 @@ import {
   UserGroupIcon,
 } from "@heroicons/react/24/outline";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import type { GamevaultGame, GamevaultUser, Progress } from "../api";
 
 type ProfileProgressSort = "last" | "time" | "title" | "state";
@@ -264,6 +264,19 @@ function GamePoster({
   );
 }
 
+function BackButton({ navigate }: { navigate: (delta: number) => void }) {
+  return (
+    <button
+      onClick={() => navigate(-1)}
+      aria-label="Go back"
+      className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm/5 text-gv-muted transition-colors hover:text-gv-text"
+    >
+      <ChevronLeftIcon className="size-4 shrink-0 transition-transform group-hover:-translate-x-0.5" />
+      Back
+    </button>
+  );
+}
+
 function ProfileProgressCard({ progress }: { progress: Progress }) {
   const game = progress.game;
   const title = game?.metadata?.title || game?.title || "Unknown Game";
@@ -291,18 +304,15 @@ function ProfileProgressCard({ progress }: { progress: Progress }) {
                 {meta.label}
               </Badge>
             </div>
-            <div className="mt-3 space-y-2 text-sm text-gv-muted">
-              <div className="flex items-center gap-2">
-                <ClockIcon className="size-4 text-gv-accent-cool" />
-                <span>{formatPlaytime(Number(progress.minutes_played ?? 0) || 0)}</span>
+            <div className="mt-3 min-w-0 space-y-2 text-sm text-gv-muted">
+              <div className="flex min-w-0 items-center gap-2">
+                <ClockIcon className="size-4 shrink-0 text-gv-accent-cool" />
+                <span className="truncate">{formatPlaytime(Number(progress.minutes_played ?? 0) || 0)}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <SparklesIcon className="size-4 text-gv-accent-cool" />
-                <span>Last played {formatDate(progress.last_played_at)}</span>
+              <div className="flex min-w-0 items-center gap-2">
+                <SparklesIcon className="size-4 shrink-0 text-gv-accent-cool" />
+                <span className="truncate">Last played {formatDate(progress.last_played_at)}</span>
               </div>
-            </div>
-            <div className="mt-4 text-xs uppercase tracking-[0.16em] text-gv-muted/80">
-              Open game page
             </div>
           </div>
         </div>
@@ -323,6 +333,7 @@ export default function UserProfile() {
   const [progressFilter, setProgressFilter] = useState<string>("all");
   const [progressSort, setProgressSort] = useState<ProfileProgressSort>("last");
 
+  const navigate = useNavigate();
   const userId = id ? Number(id) : null;
   const currentUserId = (loggedIn as any)?.id ?? (loggedIn as any)?.ID ?? null;
   const currentUserRole = Number((loggedIn as any)?.role ?? 0);
@@ -420,10 +431,7 @@ export default function UserProfile() {
       <div className="flex min-h-full flex-col gap-6">
         <div className="flex items-center justify-between gap-4">
           <Heading>Community</Heading>
-          <Button href="/community" outline>
-            <ArrowLeftIcon className="size-4" />
-            Community
-          </Button>
+          <BackButton navigate={navigate} />
         </div>
         <Divider className="border-gv-line/80" />
         <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
@@ -438,10 +446,7 @@ export default function UserProfile() {
       <div className="flex min-h-full flex-col gap-6">
         <div className="flex items-center justify-between gap-4">
           <Heading>Community</Heading>
-          <Button href="/community" outline>
-            <ArrowLeftIcon className="size-4" />
-            Community
-          </Button>
+          <BackButton navigate={navigate} />
         </div>
         <Divider className="border-gv-line/80" />
         <div className="surface-panel h-96 animate-pulse rounded-[1.75rem]" />
@@ -454,10 +459,7 @@ export default function UserProfile() {
       <div className="flex min-h-full flex-col gap-6">
         <div className="flex items-center justify-between gap-4">
           <Heading>Community</Heading>
-          <Button href="/community" outline>
-            <ArrowLeftIcon className="size-4" />
-            Community
-          </Button>
+          <BackButton navigate={navigate} />
         </div>
         <Divider className="border-gv-line/80" />
         <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
@@ -468,9 +470,9 @@ export default function UserProfile() {
   }
 
   return (
-    <div className="flex min-h-full flex-col gap-6">
+    <div className="flex min-h-full flex-col gap-6 overflow-x-hidden">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <Heading>Community</Heading>
           <Text>Browse player profiles, stats, and shared library history.</Text>
         </div>
@@ -481,10 +483,7 @@ export default function UserProfile() {
               Edit profile
             </Button>
           )}
-          <Button href="/community" outline>
-            <ArrowLeftIcon className="size-4" />
-            Community
-          </Button>
+          <BackButton navigate={navigate} />
         </div>
       </div>
       <Divider className="border-gv-line/80" />
@@ -575,11 +574,11 @@ export default function UserProfile() {
       <div className="space-y-6">
         <section className="surface-panel rounded-[1.75rem] p-5 sm:p-6">
           <div className="flex items-center justify-between gap-3">
-            <div>
+            <div className="min-w-0 flex-1">
               <Subheading>Recent activity</Subheading>
               <Text>Games touched in the last 2 weeks.</Text>
             </div>
-            <Badge color="zinc">{recent.length} in 2 weeks</Badge>
+            <Badge color="zinc" className="shrink-0 whitespace-nowrap">{recent.length} in 2 weeks</Badge>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {recent.length > 0 ? (
@@ -600,7 +599,7 @@ export default function UserProfile() {
               <Subheading>All game progress</Subheading>
               <Text>Filter the full history to inspect paused, dropped, finished, or untouched games.</Text>
             </div>
-            <Badge color="zinc">{allProgresses.length} matches</Badge>
+            <Badge color="zinc" className="shrink-0 whitespace-nowrap">{allProgresses.length} matches</Badge>
           </div>
           <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px] lg:items-end">
             <div className="w-full">
@@ -651,7 +650,7 @@ export default function UserProfile() {
               </Listbox>
             </div>
           </div>
-          <div className="mt-5 max-h-[42rem] overflow-y-auto grid gap-4 md:grid-cols-2">
+          <div className="mt-5 overflow-x-hidden md:max-h-168 md:overflow-y-auto grid gap-4 md:grid-cols-2">
             {allProgresses.length > 0 ? (
               allProgresses.map((progress) => (
                 <ProfileProgressCard key={`all-${progress.id}`} progress={progress} />
@@ -666,11 +665,11 @@ export default function UserProfile() {
 
         <section className="surface-panel rounded-[1.75rem] p-5 sm:p-6">
           <div className="flex items-center justify-between gap-3">
-            <div>
+            <div className="min-w-0 flex-1">
               <Subheading>Bookmarked shelf</Subheading>
               <Text>Games this player pinned for later.</Text>
             </div>
-            <Badge color="zinc">{bookmarks.length} saved</Badge>
+            <Badge color="zinc" className="shrink-0 whitespace-nowrap">{bookmarks.length} saved</Badge>
           </div>
           <div className="mt-5 flex gap-4 overflow-x-auto pb-2">
             {bookmarks.length > 0 ? (

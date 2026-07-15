@@ -22,7 +22,7 @@ import {
   useRef,
   useLayoutEffect,
 } from "react";
-import { useParams } from "react-router";
+import { useParams, useNavigate } from "react-router";
 import {
   CloudArrowDownIcon,
   Cog8ToothIcon,
@@ -37,6 +37,7 @@ import {
   CalendarDaysIcon,
   GlobeAltIcon,
   HashtagIcon,
+  ChevronLeftIcon,
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
 import {
@@ -53,6 +54,7 @@ import { isTauriApp } from "@/utils/tauri";
 export default function GameView() {
   const { id } = useParams<{ id: string }>();
   const numericId = Number(id);
+  const navigate = useNavigate();
   const { serverUrl, authFetch, user } = useAuth();
   const [game, setGame] = useState<GamevaultGame | null>(null);
   const [loading, setLoading] = useState(false);
@@ -590,9 +592,22 @@ export default function GameView() {
         <div className="absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-white/10 to-transparent dark:from-zinc-950/10 dark:to-transparent sm:h-20 xl:h-24" />
       </div>
 
-      <div className="relative z-10 flex w-full flex-col">
+      <div className="relative z-10 flex w-full flex-1 flex-col">
+        {/* Back button — always visible so users can leave at any state */}
+        <div className="px-2 pt-4 pb-1">
+          <button
+            onClick={() => navigate(-1)}
+            aria-label="Go back"
+            className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm/5 text-gv-muted transition-colors hover:text-gv-text"
+          >
+            <ChevronLeftIcon className="size-4 shrink-0 transition-transform group-hover:-translate-x-0.5" />
+            Back
+          </button>
+        </div>
         {loading && (
-          <Spinner label="Loading game…" className="py-20" />
+          <div className="flex flex-1 items-center justify-center py-20">
+            <Spinner label="Loading game…" />
+          </div>
         )}
         {error && (
           <div className="p-6 text-sm text-red-500 bg-red-500/10 rounded-md max-w-xl">

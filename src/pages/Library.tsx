@@ -687,49 +687,55 @@ export default function Library() {
             />
           </div>
 
-          <div className="min-w-0 lg:col-span-1">
-            <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
-              Sort by
-            </label>
-            <Listbox
-              name="sortBy"
-              value={sortBy}
-              onChange={(v: any) => setSortBy(String(v))}
-            >
-              {SORT_BY.map((opt) => (
-                <ListboxOption key={opt.value} value={opt.value}>
-                  <ListboxLabel>{opt.label}</ListboxLabel>
-                </ListboxOption>
-              ))}
-            </Listbox>
-          </div>
+          {/* On mobile: [Sort By + Direction | Filters] in one flex row.
+              On lg+: lg:contents dissolves the wrapper so each child is a direct grid cell. */}
+          <div className="flex items-end gap-2 lg:contents">
+            <div className="flex min-w-0 flex-1 items-end gap-2 lg:contents">
+              <div className="min-w-0 flex-1">
+                <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
+                  Sort by
+                </label>
+                <Listbox
+                  name="sortBy"
+                  value={sortBy}
+                  onChange={(v: any) => setSortBy(String(v))}
+                >
+                  {SORT_BY.map((opt) => (
+                    <ListboxOption key={opt.value} value={opt.value}>
+                      <ListboxLabel>{opt.label}</ListboxLabel>
+                    </ListboxOption>
+                  ))}
+                </Listbox>
+              </div>
 
-          <div className="flex-none">
-            <Button
-              outline
-              className={`${CONTROL_HEIGHT_CLASS} px-4 gap-1.5`}
-              aria-label="Toggle sorting direction"
-              onClick={() => setOrder((o) => (o === "ASC" ? "DESC" : "ASC"))}
-            >
-              {order === "ASC" ? (
-                <ArrowUpIcon className="h-4 w-4" />
-              ) : (
-                <ArrowDownIcon className="h-4 w-4" />
-              )}
-              <span>{order === "ASC" ? "Ascending" : "Descending"}</span>
-            </Button>
-          </div>
+              <div className="shrink-0">
+                <Button
+                  outline
+                  className={`${CONTROL_HEIGHT_CLASS} px-3 gap-1.5`}
+                  aria-label="Toggle sorting direction"
+                  onClick={() => setOrder((o) => (o === "ASC" ? "DESC" : "ASC"))}
+                >
+                  {order === "ASC" ? (
+                    <ArrowUpIcon className="h-4 w-4" />
+                  ) : (
+                    <ArrowDownIcon className="h-4 w-4" />
+                  )}
+                  <span className="hidden sm:inline">{order === "ASC" ? "Ascending" : "Descending"}</span>
+                </Button>
+              </div>
+            </div>
 
-          <div className="flex-none">
-            <Button
-              outline
-              className={`${CONTROL_HEIGHT_CLASS} px-4`}
-              aria-label={showFilters ? "Hide filters" : "Show filters"}
-              onClick={() => setShowFilters((s) => !s)}
-            >
-              <FunnelIcon className="h-4 w-4 sm:mr-1" />
-              <span>{showFilters ? "Hide filters" : "Filters"}</span>
-            </Button>
+            <div className="shrink-0">
+              <Button
+                outline
+                className={`${CONTROL_HEIGHT_CLASS} px-3`}
+                aria-label={showFilters ? "Hide filters" : "Show filters"}
+                onClick={() => setShowFilters((s) => !s)}
+              >
+                <FunnelIcon className="h-4 w-4 sm:mr-1" />
+                <span>{showFilters ? "Hide filters" : "Filters"}</span>
+              </Button>
+            </div>
           </div>
         </div>
       </section>

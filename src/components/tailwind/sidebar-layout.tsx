@@ -63,9 +63,10 @@ export function SidebarLayout({
   let [showSidebar, setShowSidebar] = useState(false);
 
   const mainClassName =
-    "flex min-h-0 flex-1 flex-col pb-3 lg:min-w-0 lg:pb-4 lg:pl-72 lg:pr-4 lg:pt-4";
-  const contentClassName =
-    "surface-shell flex min-h-0 grow flex-col overflow-hidden rounded-[1.75rem] p-2 sm:p-3";
+    "flex min-h-0 flex-1 flex-col lg:min-w-0 lg:pb-4 lg:pl-72 lg:pr-4 lg:pt-4";
+  const contentClassName = fullBleed
+    ? "surface-shell flex min-h-0 grow flex-col overflow-hidden max-lg:overflow-visible max-lg:rounded-none max-lg:border-0 max-lg:shadow-none lg:rounded-[1.75rem]"
+    : "surface-shell flex min-h-0 grow flex-col overflow-hidden max-lg:overflow-visible max-lg:rounded-none max-lg:border-0 max-lg:shadow-none lg:rounded-[1.75rem] lg:p-3";
   const scrollAreaClassName = fullBleed
     ? "min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
     : "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-5 sm:py-6 lg:px-8 lg:py-8";
@@ -99,7 +100,7 @@ export function SidebarLayout({
             <div
               className={
                 fullWidth
-                  ? "min-h-full w-full"
+                  ? "h-full w-full"
                   : "mx-auto min-h-full max-w-7xl"
               }
             >

@@ -1531,17 +1531,11 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300/40 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700/60 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gv-line text-gv-muted hover:text-gv-text hover:bg-gv-panel-soft transition-colors"
           aria-label="Close"
           disabled={saving}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            fill="none"
-          >
+          <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
             <path strokeWidth="2" strokeLinecap="round" d="M6 6 18 18" />
             <path strokeWidth="2" strokeLinecap="round" d="M18 6 6 18" />
           </svg>
@@ -1557,15 +1551,15 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
           {/* Vertical tab navigation layout */}
           <div className="flex flex-col sm:flex-row gap-0 flex-1 min-h-0">
             {/* Left sidebar - vertical tabs */}
-            <div className="w-full sm:w-52 border-b sm:border-b-0 sm:border-r border-zinc-200 dark:border-zinc-700 py-2 sm:py-4">
+            <div className="w-full sm:w-52 border-b sm:border-b-0 sm:border-r border-gv-line py-2 sm:py-4">
               <nav className="flex flex-row sm:flex-col gap-1 px-2 sm:px-3 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 <button
                   onClick={() => setActiveTab("images")}
                   className={
-                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
                     (activeTab === "images"
-                      ? "bg-indigo-500 text-white"
-                      : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800")
+                      ? "bg-gv-accent text-white"
+                      : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
                   }
                 >
                   <PhotoIcon className="w-5 h-5 flex-shrink-0" />
@@ -1574,10 +1568,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                 <button
                   onClick={() => setActiveTab("metadata")}
                   className={
-                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
                     (activeTab === "metadata"
-                      ? "bg-indigo-500 text-white"
-                      : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800")
+                      ? "bg-gv-accent text-white"
+                      : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
                   }
                 >
                   <CircleStackIcon className="w-5 h-5 flex-shrink-0" />
@@ -1586,10 +1580,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                 <button
                   onClick={() => setActiveTab("custom-metadata")}
                   className={
-                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
                     (activeTab === "custom-metadata"
-                      ? "bg-indigo-500 text-white"
-                      : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800")
+                      ? "bg-gv-accent text-white"
+                      : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
                   }
                 >
                   <PencilIcon className="w-5 h-5 flex-shrink-0" />
@@ -1600,10 +1594,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                     <button
                       onClick={() => setActiveTab("installation")}
                       className={
-                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
                         (activeTab === "installation"
-                          ? "bg-indigo-500 text-white"
-                          : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800")
+                          ? "bg-gv-accent text-white"
+                          : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
                       }
                     >
                       <FolderOpenIcon className="w-5 h-5 flex-shrink-0" />
@@ -1612,10 +1606,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                     <button
                       onClick={() => setActiveTab("launch-options")}
                       className={
-                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-lg text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
                         (activeTab === "launch-options"
-                          ? "bg-indigo-500 text-white"
-                          : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800")
+                          ? "bg-gv-accent text-white"
+                          : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
                       }
                     >
                       <SparklesIcon className="w-5 h-5 flex-shrink-0" />
@@ -1628,15 +1622,15 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
             {/* Right content area */}
             <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-              <DialogBody className="flex-1 px-6 py-4 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-zinc-600">
+              <DialogBody className="flex-1 px-6 py-4 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gv-panel-strong [&::-webkit-scrollbar-thumb]:rounded-full">
                 {activeTab === "images" && (
                   <div className="grid gap-8 md:grid-cols-2">
                     {/* Cover zone */}
                     <div className="flex flex-col gap-4">
-                      <div className="flex items-center justify-between text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-gv-muted">
                         <span>Cover</span>
                         {coverImg.via !== "none" && (
-                          <span className="rounded-full bg-zinc-200/60 dark:bg-zinc-700/60 px-2 py-0.5 text-[10px] font-semibold">
+                          <span className="rounded-full bg-gv-panel px-2 py-0.5 text-[10px] font-semibold text-gv-muted">
                             {coverImg.via}
                           </span>
                         )}
@@ -1646,7 +1640,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                         onPaste={(e) => handlePaste(e, "cover")}
                         onDrop={(e) => handleDrop(e, "cover")}
                         onDragOver={handleDragOver}
-                        className="relative rounded-xl border border-dashed border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800/50 h-56 flex items-center justify-center cursor-pointer overflow-hidden"
+                        className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                         onClick={() => coverFileInputRef.current?.click()}
                       >
                         {coverImg.preview ? (
@@ -1657,7 +1651,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                             draggable={false}
                           />
                         ) : (
-                          <div className="text-[11px] text-zinc-500 text-center px-4">
+                          <div className="text-xs text-gv-muted text-center px-4">
                             {coverMediaId
                               ? "Loading…"
                               : "Drag & Drop / Click / Paste"}
@@ -1739,10 +1733,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                     </div>
                     {/* Background zone */}
                     <div className="flex flex-col gap-4">
-                      <div className="flex items-center justify-between text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-gv-muted">
                         <span>Background</span>
                         {bgImg.via !== "none" && (
-                          <span className="rounded-full bg-zinc-200/60 dark:bg-zinc-700/60 px-2 py-0.5 text-[10px] font-semibold">
+                          <span className="rounded-full bg-gv-panel px-2 py-0.5 text-[10px] font-semibold text-gv-muted">
                             {bgImg.via}
                           </span>
                         )}
@@ -1752,7 +1746,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                         onPaste={(e) => handlePaste(e, "bg")}
                         onDrop={(e) => handleDrop(e, "bg")}
                         onDragOver={handleDragOver}
-                        className="relative rounded-xl border border-dashed border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800/50 h-56 flex items-center justify-center cursor-pointer overflow-hidden"
+                        className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                         onClick={() => bgFileInputRef.current?.click()}
                       >
                         {bgImg.preview ? (
@@ -1763,7 +1757,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                             draggable={false}
                           />
                         ) : (
-                          <div className="text-[11px] text-zinc-500 text-center px-4">
+                          <div className="text-xs text-gv-muted text-center px-4">
                             {backgroundMediaId
                               ? "Loading…"
                               : "Drag & Drop / Click / Paste"}
@@ -1902,10 +1896,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 className={
                                   "px-3 py-1.5 rounded-lg text-sm font-medium transition-all " +
                                   (selectedMetadataProviderIndex === index
-                                    ? "bg-indigo-500 text-white shadow-sm"
+                                    ? "bg-gv-accent text-white shadow-sm"
                                     : isMapped
-                                      ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                                      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 opacity-60 hover:opacity-100")
+                                      ? "bg-gv-panel-soft text-gv-text hover:bg-gv-panel"
+                                      : "bg-gv-panel-soft text-gv-muted opacity-60 hover:opacity-100")
                                 }
                               >
                                 {provider.name} ({provider.priority})
@@ -1915,16 +1909,16 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                         </div>
 
                         {/* Content Area with fixed sections */}
-                        <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto overflow-x-hidden pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-zinc-600 max-w-full">
+                        <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto overflow-x-hidden pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gv-panel-strong [&::-webkit-scrollbar-thumb]:rounded-full max-w-full">
                           {/* Comparison cards with separate action panel */}
                           <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_220px] shrink-0 w-full max-w-full">
                             <div className="space-y-4 min-w-0">
-                              <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 dark:border-zinc-700 dark:bg-zinc-900/40">
+                              <div className="surface-panel-soft rounded-2xl p-4">
                                 <div className="mb-4">
-                                  <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
+                                  <h4 className="text-base font-semibold text-gv-text">
                                     GameVault
                                   </h4>
-                                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                  <div className="text-xs text-gv-muted">
                                     Source file and imported game data
                                   </div>
                                 </div>
@@ -1984,12 +1978,12 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 </div>
                               </div>
 
-                              <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 dark:border-zinc-700 dark:bg-zinc-900/40">
+                              <div className="surface-panel-soft rounded-2xl p-4">
                                 <div className="mb-4">
-                                  <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
+                                  <h4 className="text-base font-semibold text-gv-text">
                                     Mapped Game
                                   </h4>
-                                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                  <div className="text-xs text-gv-muted">
                                     Current provider match and cached metadata
                                   </div>
                                 </div>
@@ -2075,7 +2069,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               </div>
                             </div>
 
-                            <div className="flex flex-col space-y-4 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 w-full max-w-full dark:border-zinc-700 dark:bg-zinc-900/40 2xl:max-w-none">
+                            <div className="flex flex-col gap-4 surface-panel-soft rounded-2xl p-4 w-full max-w-full 2xl:max-w-none">
                               <div>
                                 <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
                                   Actions
@@ -2196,7 +2190,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         </div>
                                       )}
                                       {result.description && (
-                                        <div className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 line-clamp-2">
+                                        <div className="text-xs text-gv-muted mt-1 line-clamp-2">
                                           {result.description}
                                         </div>
                                       )}
@@ -2235,7 +2229,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                         <h3 className="text-lg font-semibold mb-4 text-zinc-800 dark:text-zinc-100">
                           Custom Metadata
                         </h3>
-                        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                        <p className="text-sm text-gv-muted">
                           Add custom fields and override metadata for this
                           workingGame.
                         </p>

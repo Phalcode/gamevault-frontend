@@ -402,35 +402,15 @@ export function UserEditorModal({
 
   return (
     <Dialog open onClose={onClose} size="3xl" className="">
-      <DialogTitle className="flex items-center justify-between gap-4 pb-1">
-        <span>User Settings</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300/40 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700/60 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800"
-          aria-label="Close"
-          disabled={saving || savingImages}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            fill="none"
-          >
-            <path strokeWidth="2" strokeLinecap="round" d="M6 6 18 18" />
-            <path strokeWidth="2" strokeLinecap="round" d="M18 6 6 18" />
-          </svg>
-        </button>
-      </DialogTitle>
-      <div className="px-6 mt-1 flex gap-2 border-b border-zinc-200 dark:border-zinc-700 text-sm">
+      <DialogTitle>User Settings</DialogTitle>
+      <div className="px-6 mt-1 flex gap-2 border-b border-gv-line text-sm">
         <button
           onClick={() => setActiveTab("images")}
           className={
             "px-3 py-2 border-b-2 transition-colors " +
             (activeTab === "images"
-              ? "border-indigo-500 text-indigo-500"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200")
+              ? "border-gv-accent text-gv-accent"
+              : "border-transparent text-gv-muted hover:text-gv-text")
           }
         >
           Images
@@ -440,8 +420,8 @@ export function UserEditorModal({
           className={
             "px-3 py-2 border-b-2 transition-colors " +
             (activeTab === "details"
-              ? "border-indigo-500 text-indigo-500"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200")
+              ? "border-gv-accent text-gv-accent"
+              : "border-transparent text-gv-muted hover:text-gv-text")
           }
         >
           Details
@@ -453,10 +433,10 @@ export function UserEditorModal({
           <div className="grid gap-8 md:grid-cols-2">
             {/* Avatar zone */}
             <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-gv-muted">
                 <span>Avatar</span>
                 {avatarImg.via !== "none" && (
-                  <span className="rounded-full bg-zinc-200/60 dark:bg-zinc-700/60 px-2 py-0.5 text-[10px] font-semibold">
+                  <span className="rounded-full bg-gv-panel px-2 py-0.5 text-[10px] font-semibold text-gv-muted">
                     {avatarImg.via}
                   </span>
                 )}
@@ -465,7 +445,7 @@ export function UserEditorModal({
                 onPaste={(e) => handlePaste(e, "avatar")}
                 onDrop={(e) => handleDrop(e, "avatar")}
                 onDragOver={handleDragOver}
-                className="relative rounded-xl border border-dashed border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800/50 h-56 flex items-center justify-center cursor-pointer overflow-hidden"
+                className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                 onClick={() => avatarFileInputRef.current?.click()}
               >
                 {avatarImg.preview ? (
@@ -476,7 +456,7 @@ export function UserEditorModal({
                     draggable={false}
                   />
                 ) : (
-                  <div className="text-[11px] text-zinc-500 text-center px-4">
+                  <div className="text-xs text-gv-muted text-center px-4">
                     {avatarMediaId ? "Loading…" : "Drag & Drop / Click / Paste"}
                   </div>
                 )}
@@ -523,10 +503,10 @@ export function UserEditorModal({
             </div>
             {/* Background zone */}
             <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-gv-muted">
                 <span>Background</span>
                 {bgImg.via !== "none" && (
-                  <span className="rounded-full bg-zinc-200/60 dark:bg-zinc-700/60 px-2 py-0.5 text-[10px] font-semibold">
+                  <span className="rounded-full bg-gv-panel px-2 py-0.5 text-[10px] font-semibold text-gv-muted">
                     {bgImg.via}
                   </span>
                 )}
@@ -535,7 +515,7 @@ export function UserEditorModal({
                 onPaste={(e) => handlePaste(e, "bg")}
                 onDrop={(e) => handleDrop(e, "bg")}
                 onDragOver={handleDragOver}
-                className="relative rounded-xl border border-dashed border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800/50 h-56 flex items-center justify-center cursor-pointer overflow-hidden"
+                className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                 onClick={() => bgFileInputRef.current?.click()}
               >
                 {bgImg.preview ? (
@@ -546,7 +526,7 @@ export function UserEditorModal({
                     draggable={false}
                   />
                 ) : (
-                  <div className="text-[11px] text-zinc-500 text-center px-4">
+                  <div className="text-xs text-gv-muted text-center px-4">
                     {backgroundMediaId
                       ? "Loading…"
                       : "Drag & Drop / Click / Paste"}
