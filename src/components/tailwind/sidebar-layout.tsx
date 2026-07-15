@@ -35,12 +35,12 @@ function MobileSidebar({
         transition
         className="fixed inset-y-0 w-full max-w-88 p-3 transition duration-300 ease-out data-closed:-translate-x-full"
       >
-        <div className="surface-shell flex h-full flex-col overflow-hidden rounded-[1.75rem]">
-          <div className="-mb-3 px-4 pt-3">
+        <div className="relative h-full">
+          <span className="absolute top-5 right-2 z-10">
             <Headless.CloseButton as={NavbarItem} aria-label="Close navigation">
               <CloseMenuIcon />
             </Headless.CloseButton>
-          </div>
+          </span>
           {children}
         </div>
       </Headless.DialogPanel>
