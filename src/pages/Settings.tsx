@@ -235,8 +235,24 @@ export default function Settings() {
               <ThemeSelect className="max-w-56" />
             </Field>
 
-            {import.meta.env.DEV && (
-              <Field className="mt-8">
+          </Fieldset>
+        </section>
+
+        {/* Dev Tools — only visible in development builds */}
+        {import.meta.env.DEV && (
+          <section className="rounded-2xl border border-gv-warning/30 bg-gv-warning/5 p-6">
+            <Fieldset>
+              <Legend className="flex items-center gap-2 text-gv-warning">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="size-4 shrink-0">
+                  <path fillRule="evenodd" d="M6.701 2.25c.577-1 2.02-1 2.598 0l5.196 9a1.5 1.5 0 0 1-1.299 2.25H2.804a1.5 1.5 0 0 1-1.3-2.25l5.197-9ZM8 4a.75.75 0 0 1 .75.75v3a.75.75 0 1 1-1.5 0v-3A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+                </svg>
+                Developer Tools
+              </Legend>
+              <Text className="mt-1">
+                These options are only visible in development builds and will not appear in production.
+              </Text>
+
+              <Field className="mt-6">
                 <SwitchField>
                   <Switch
                     name="simulateDesktop"
@@ -255,14 +271,13 @@ export default function Settings() {
                     </span>
                   </Label>
                 </SwitchField>
-                <Text className="mt-1 ml-0">
-                  Preview how GameVault looks and behaves as a native desktop
-                  application.
+                <Text className="mt-1">
+                  Preview how GameVault looks and behaves as a native desktop application.
                 </Text>
               </Field>
-            )}
-          </Fieldset>
-        </section>
+            </Fieldset>
+          </section>
+        )}
       </div>
     </div>
   );
