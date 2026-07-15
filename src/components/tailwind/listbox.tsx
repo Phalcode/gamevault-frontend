@@ -94,7 +94,7 @@ export function Listbox<T>({
           // Anchor positioning
           "[--anchor-offset:-1.625rem] [--anchor-padding:--spacing(4)] sm:[--anchor-offset:-1.375rem]",
           // Base styles
-          "isolate w-max min-w-[calc(var(--button-width)+1.75rem)] scroll-py-1 rounded-[1.25rem] p-1.5 select-none",
+          "isolate w-max min-w-[calc(var(--button-width)+1.75rem)] max-w-[calc(100vw-2rem)] scroll-py-1 rounded-[1.25rem] p-1.5 select-none",
           // Invisible border that is only visible in `forced-colors` mode for accessibility purposes
           "outline outline-transparent focus:outline-hidden",
           // Handle scrolling when menu won't fit in viewport

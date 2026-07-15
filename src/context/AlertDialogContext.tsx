@@ -121,7 +121,7 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
       {variant === "toast" ? (
         // Toast notifications - render without Dialog to avoid blocking interactions
         active && (
-          <div className="fixed top-4 right-4 z-50 w-[220px] sm:w-auto rounded-md bg-white px-4 py-2 shadow-lg ring-1 ring-zinc-950/10 text-sm flex items-center gap-2 dark:bg-zinc-900 dark:ring-white/10 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="fixed top-4 right-4 z-50 max-w-[90vw] sm:w-auto rounded-md bg-white px-4 py-2 shadow-lg ring-1 ring-zinc-950/10 text-sm flex items-center gap-2 dark:bg-zinc-900 dark:ring-white/10 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-150">
             <div className="font-semibold text-zinc-950 dark:text-white">
               {active.title}
             </div>

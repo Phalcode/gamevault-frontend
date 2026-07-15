@@ -36,7 +36,7 @@ export default function NotFound() {
             : "opacity-0"
         }`}
       />
-      <div className="relative z-10 flex flex-col items-center text-center">
+      <div className="relative z-10 flex flex-col items-center text-center px-4">
         <img
           src="/crackpipe.png"
           alt="Dead End Roadsign"
@@ -49,7 +49,7 @@ export default function NotFound() {
         />
         <audio ref={audioRef} src="/wellerman.m4a" preload="none" />
         <h1 className="text-xl">404 - Page Not Found</h1>
-        <h2 className="text-4xl mb-4 font-bold">
+        <h2 className="text-2xl sm:text-4xl mb-4 font-bold text-balance">
           „Arr... ye've taken a wrong turn at the seven seas!“
         </h2>
         <Button href="/">Sail Back Home</Button>

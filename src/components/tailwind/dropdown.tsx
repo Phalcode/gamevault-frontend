@@ -39,7 +39,7 @@ export function DropdownMenu({
         // Invisible border that is only visible in `forced-colors` mode for accessibility purposes
         "outline outline-transparent focus:outline-hidden",
         // Handle scrolling when menu won't fit in viewport
-        "overflow-y-auto",
+        "overflow-y-auto max-h-[min(24rem,70vh)]",
         // Popover background
         "surface-panel",
         // Shadows

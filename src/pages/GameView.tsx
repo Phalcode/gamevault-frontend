@@ -1075,7 +1075,7 @@ export default function GameView() {
                                   {formatState(p.state)}
                                 </span>
                               </div>
-                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 flex items-center justify-between gap-4 whitespace-nowrap">
+                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 flex items-center justify-between gap-4">
                                 <span className="truncate">
                                   Played:{" "}
                                   {hours >= 1

@@ -49,7 +49,7 @@ function MobileSidebar({
 }
 
 export function SidebarLayout({
-  navbar,
+  navbar: _navbar,
   sidebar,
   fullWidth = false,
   fullBleed = false,
@@ -80,8 +80,8 @@ export function SidebarLayout({
         {sidebar}
       </MobileSidebar>
 
-      {/* Navbar on mobile */}
-      <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-gv-line bg-gv-shell/90 px-3 backdrop-blur-xl lg:hidden">
+      {/* Navbar on mobile — hamburger only; full nav (incl. logo) is in the slide-out sidebar */}
+      <header className="sticky top-0 z-30 flex items-center gap-3 bg-gv-shell/90 px-3 backdrop-blur-xl lg:hidden">
         <div className="py-3">
           <NavbarItem
             onClick={() => setShowSidebar(true)}
@@ -90,13 +90,12 @@ export function SidebarLayout({
             <OpenMenuIcon />
           </NavbarItem>
         </div>
-        <div className="min-w-0 flex-1 py-3">{navbar}</div>
       </header>
 
       {/* Content */}
       <main className={mainClassName}>
         <div className={contentClassName}>
-          <div className={scrollAreaClassName}>
+          <div className={scrollAreaClassName} data-scroll-container=""> 
             <div
               className={
                 fullWidth

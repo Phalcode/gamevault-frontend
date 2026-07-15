@@ -461,6 +461,32 @@ export default function Library() {
     return () => io.disconnect();
   }, [hasMore, loadMore, games.length]);
 
+  // Restore scroll position when returning to the library (e.g. from game
+  // detail page via back navigation). The scroll container lives in
+  // SidebarLayout and is tagged with data-scroll-container.
+  useEffect(() => {
+    const scrollContainer = document.querySelector(
+      "[data-scroll-container]",
+    ) as HTMLElement | null;
+    if (!scrollContainer) return;
+
+    const SCROLL_KEY = "library_scroll_position";
+
+    // Restore scroll position after the DOM settles with cached game data.
+    const raf = requestAnimationFrame(() => {
+      const saved = sessionStorage.getItem(SCROLL_KEY);
+      if (saved) {
+        scrollContainer.scrollTop = Number(saved);
+      }
+    });
+
+    // Save scroll position before unmounting (navigating away).
+    return () => {
+      cancelAnimationFrame(raf);
+      sessionStorage.setItem(SCROLL_KEY, String(scrollContainer.scrollTop));
+    };
+  }, []);
+
   // --- Installed games (Tauri only) ---
   const isTauri = isTauriApp();
   const { installedGames, refetch: refetchInstalledGames } = useInstalledGames();
@@ -1139,7 +1165,7 @@ export default function Library() {
                 )}
               </div>
             )}
-            <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(152px,1fr))] py-2 pb-8">
+            <div className="min-w-0 grid gap-5 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] py-2 pb-8">
               {games.map((g) => (
                 <GameCard key={g.id} game={g} sortBy={sortBy} />
               ))}
@@ -1183,7 +1209,7 @@ export default function Library() {
                 )}
               </div>
             )}
-            <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(152px,1fr))] py-2 pb-8">
+            <div className="min-w-0 grid gap-5 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] py-2 pb-8">
               {games.map((g) => (
                 <GameCard key={g.id} game={g} sortBy={sortBy} />
               ))}
