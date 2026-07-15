@@ -145,7 +145,7 @@ export function GameCard({
           : null;
       case "metadata.average_playtime":
         return (localGame as any).metadata?.average_playtime != null
-          ? `${Math.round((localGame as any).metadata.average_playtime / 3600)}h`
+          ? `${Math.round((localGame as any).metadata.average_playtime / 60)}h`
           : null;
       default:
         return formattedSize;
@@ -474,36 +474,37 @@ export function GameCard({
               )}
             >
               {isTauri ? (
-                <button
-                  type="button"
-                  aria-label={`Download ${localGame.title}`}
+                <Button
+                  color="indigo"
+                  aria-label={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
+                  className="h-9 px-3 gap-2 flex items-center justify-center"
+                  title={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
                   onClick={handleTauriDownload}
-                  className="group/btn flex flex-col items-center gap-1.5 rounded-2xl border border-white/15 bg-gv-accent/85 px-5 py-3.5 text-white shadow-[0_0_20px_rgba(109,124,255,0.25),0_4px_16px_rgba(0,0,0,0.3)] backdrop-blur-xl transition-all duration-300 hover:bg-gv-accent hover:shadow-[0_0_28px_rgba(109,124,255,0.4),0_6px_20px_rgba(0,0,0,0.4)] hover:-translate-y-0.5 active:scale-[0.96] active:translate-y-0"
                 >
-                  <CloudArrowDownIcon className="h-5 w-5 fill-white drop-shadow-sm transition-transform duration-300 group-hover/btn:scale-110" />
+                  <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
                   {formattedSize ? (
-                    <span className="text-[11px] font-semibold leading-none tracking-wide opacity-90">{formattedSize}</span>
+                    <span className="text-xs font-medium whitespace-nowrap">{formattedSize}</span>
                   ) : (
-                    <span className="text-[11px] font-semibold leading-none tracking-wide opacity-90">Download</span>
+                    <span className="text-xs font-medium whitespace-nowrap">Download</span>
                   )}
-                </button>
+                </Button>
               ) : (
                 <Dropdown>
                   <DropdownButton
                     as={Button}
-                    color="dark/zinc"
-                    aria-label={`Download ${localGame.title}`}
-                    className="group/btn flex flex-col! items-center gap-1.5 px-5 py-3.5 text-sm font-semibold transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.96]"
+                    color="indigo"
+                    aria-label={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
+                    className="h-9 px-3 gap-2 flex items-center justify-center"
                     onClick={(e: React.MouseEvent) => {
                       e.preventDefault();
                       e.stopPropagation();
                     }}
                   >
-                    <CloudArrowDownIcon className="h-5 w-5 transition-transform duration-300 group-hover/btn:scale-110" />
+                    <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
                     {formattedSize ? (
-                      <span className="text-[11px] font-semibold leading-none tracking-wide opacity-60">{formattedSize}</span>
+                      <span className="text-xs font-medium whitespace-nowrap">{formattedSize}</span>
                     ) : (
-                      <span className="text-[11px] font-medium leading-none opacity-60">Download</span>
+                      <span className="text-xs font-medium whitespace-nowrap">Download</span>
                     )}
                   </DropdownButton>
                   <DropdownMenu className="min-w-48" anchor="top end">

@@ -6,8 +6,8 @@ import { Field, Label } from "@tw/fieldset";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
-import { useCallback, useState } from "react";
-import ThemeSwitch from "./ThemeSwitch";
+import { useCallback, useEffect, useState } from "react";
+import { applyTheme, getStoredTheme } from "@/utils/theme";
 
 interface FormState {
   username?: string;
@@ -39,6 +39,13 @@ export function Register() {
 
   const basicAuthAvailable = availableAuthenticationMethods.includes("basic");
   const ssoAvailable = availableAuthenticationMethods.includes("sso");
+
+  // Force device theme on register page; restore stored preference on leave
+  useEffect(() => {
+    const stored = getStoredTheme();
+    applyTheme("system");
+    return () => applyTheme(stored);
+  }, []);
 
   const onInput: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     const { name, value } = e.target;
@@ -439,9 +446,6 @@ export function Register() {
           <Strong>Sign in</Strong>
         </TextLink>
       </Text>
-      <div className="surface-panel-soft rounded-[1.25rem] px-4 py-3">
-        <ThemeSwitch />
-      </div>
     </form>
   );
 }

@@ -422,7 +422,7 @@ export default function UserProfile() {
           <Heading>Community</Heading>
           <Button href="/community" outline>
             <ArrowLeftIcon className="size-4" />
-            Back to network
+            Community
           </Button>
         </div>
         <Divider className="border-gv-line/80" />
@@ -440,7 +440,7 @@ export default function UserProfile() {
           <Heading>Community</Heading>
           <Button href="/community" outline>
             <ArrowLeftIcon className="size-4" />
-            Back to network
+            Community
           </Button>
         </div>
         <Divider className="border-gv-line/80" />
@@ -456,7 +456,7 @@ export default function UserProfile() {
           <Heading>Community</Heading>
           <Button href="/community" outline>
             <ArrowLeftIcon className="size-4" />
-            Back to network
+            Community
           </Button>
         </div>
         <Divider className="border-gv-line/80" />
@@ -483,7 +483,7 @@ export default function UserProfile() {
           )}
           <Button href="/community" outline>
             <ArrowLeftIcon className="size-4" />
-            Back to network
+            Community
           </Button>
         </div>
       </div>

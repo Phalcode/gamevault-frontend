@@ -39,7 +39,6 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { GamevaultUserRoleEnum } from "../api";
 import { useNews } from "../hooks/useNews";
-import ThemeSwitch from "./ThemeSwitch";
 import { UserEditorModal } from "./admin/UserEditorModal";
 import { NewsDialog } from "./news/NewsDialog";
 
@@ -174,9 +173,6 @@ export function Sidebar() {
               <RocketLaunchIcon />
               <SidebarLabel>GameVault+</SidebarLabel>
             </SidebarItem>
-            <div className="rounded-2xl border border-gv-line/70 bg-white/25 px-3 py-2.5 dark:bg-white/3">
-              <ThemeSwitch />
-            </div>
           </SidebarSection>
         </SidebarBody>
         <SidebarFooter>

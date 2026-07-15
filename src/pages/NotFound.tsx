@@ -1,15 +1,6 @@
 import { Button } from "@tw/button";
 import { useEffect, useRef, useState } from "react";
-import useDarkMode from "use-dark-mode";
-import ThemeSwitch from "../components/ThemeSwitch";
 export default function NotFound() {
-  const darkMode = useDarkMode(false, {
-    classNameDark: "dark",
-    classNameLight: "light",
-    element:
-      typeof document !== "undefined" ? document.documentElement : undefined,
-  });
-
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const togglePlayPause = async () => {
@@ -62,7 +53,6 @@ export default function NotFound() {
           „Arr... ye've taken a wrong turn at the seven seas!“
         </h2>
         <Button href="/">Sail Back Home</Button>
-        <ThemeSwitch className="mt-4" />
       </div>
     </div>
   );

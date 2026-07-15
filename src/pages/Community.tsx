@@ -340,7 +340,7 @@ function NetworkUserCard({
           <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
               { label: "Tracked", value: stats.tracked },
-              { label: "In progress", value: stats.playing },
+              { label: "Current", value: stats.playing },
               { label: "Finished", value: stats.completed },
               { label: "Saved", value: stats.bookmarks },
             ].map((item) => (

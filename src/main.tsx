@@ -22,6 +22,10 @@ import NotFound from "./pages/NotFound";
 import Settings from "./pages/Settings";
 import Downloads from "./pages/Downloads";
 import { GamevaultUserRoleEnum } from "./api";
+import { applyTheme, getStoredTheme } from "./utils/theme";
+
+// Apply stored theme immediately to prevent flash of wrong theme
+applyTheme(getStoredTheme());
 
 (window as any).global = window;
 

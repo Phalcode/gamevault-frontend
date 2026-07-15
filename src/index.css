@@ -206,12 +206,6 @@
     color: var(--color-gv-text);
   }
 
-  img:not(.gv-logo-image),
-  video {
-    outline: 1px solid var(--color-gv-line);
-    outline-offset: -1px;
-  }
-
   ::-webkit-scrollbar {
     width: 11px;
     height: 11px;

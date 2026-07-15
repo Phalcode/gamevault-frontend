@@ -484,6 +484,33 @@ export default function GameView() {
     null;
   const floatingIconButtonClassName =
     "size-11 p-0 flex items-center justify-center border-white/35 bg-white/60 shadow-sm backdrop-blur-md hover:bg-white/78 dark:border-white/20 dark:bg-zinc-950/58 dark:hover:bg-zinc-900/72";
+
+  const gameSizeBytes = useMemo(() => {
+    const sizeStr =
+      (game as any)?.size ??
+      (Array.isArray(game?.versions) ? game.versions[0]?.size : undefined);
+    if (sizeStr === undefined || sizeStr === null) return null;
+    const n = Number(sizeStr);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [game]);
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ["KB", "MB", "GB", "TB", "PB"];
+    let value = bytes / 1024;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex++;
+    }
+    return `${value.toFixed(value < 10 ? 2 : value < 100 ? 1 : 0)} ${units[unitIndex]}`;
+  };
+
+  const formattedSize = useMemo(
+    () => (gameSizeBytes !== null ? formatBytes(gameSizeBytes) : null),
+    [gameSizeBytes],
+  );
+
   const glassPanelClassName =
     "border border-white/35 bg-white/[0.42] backdrop-blur-md dark:border-white/10 dark:bg-zinc-950/72 dark:backdrop-blur-md";
   const darkGlassInsetClassName =
@@ -609,27 +636,37 @@ export default function GameView() {
                 {isTauri ? (
                   <Button
                     color="indigo"
-                    aria-label="Download"
-                    className="h-9 w-9 p-0 flex items-center justify-center"
-                    title="Download"
+                    aria-label={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
+                    className="h-9 px-3 gap-2 flex items-center justify-center"
+                    title={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
                     onClick={handleTauriDownload}
                   >
-                    <CloudArrowDownIcon className="w-5 h-5" />
+                    <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
+                    {formattedSize && (
+                      <span className="text-xs font-medium whitespace-nowrap">
+                        {formattedSize}
+                      </span>
+                    )}
                   </Button>
                 ) : (
                   <Dropdown>
                     <DropdownButton
                       as={Button}
                       color="indigo"
-                      aria-label="Download"
-                      className="h-9 w-9 p-0 flex items-center justify-center"
-                      title="Download"
+                      aria-label={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
+                      className="h-9 px-3 gap-2 flex items-center justify-center"
+                      title={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
                       onClick={(e: React.MouseEvent) => {
                         e.preventDefault();
                         e.stopPropagation();
                       }}
                     >
-                      <CloudArrowDownIcon className="w-5 h-5" />
+                      <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
+                      {formattedSize && (
+                        <span className="text-xs font-medium whitespace-nowrap">
+                          {formattedSize}
+                        </span>
+                      )}
                     </DropdownButton>
                     <DropdownMenu className="min-w-48" anchor="bottom start">
                       <DropdownItem onClick={handleDirectDownload}>
@@ -649,16 +686,14 @@ export default function GameView() {
                 >
                   <Cog8ToothIcon className="w-5 h-5" />
                 </Button>
-                <button
-                  type="button"
+                <Button
+                  outline
                   onClick={toggleBookmark}
                   disabled={!user || bookmarkBusy}
                   className={clsx(
-                    "h-9 w-9 flex items-center justify-center rounded-md border transition-colors backdrop-blur-sm",
-                    "disabled:opacity-50 disabled:cursor-not-allowed shadow-sm",
                     bookmarked
-                      ? "bg-yellow-400/20 border-yellow-400 text-yellow-400"
-                      : "border-white/35 bg-white/60 text-zinc-700 hover:bg-white/78 dark:border-white/20 dark:bg-zinc-950/58 dark:text-zinc-100 dark:hover:bg-zinc-900/72",
+                      ? "size-11 p-0 flex items-center justify-center bg-yellow-400/20! border-yellow-400! text-yellow-400! backdrop-blur-md shadow-sm dark:bg-yellow-400/20! dark:border-yellow-400! dark:text-yellow-400!"
+                      : floatingIconButtonClassName,
                   )}
                   title={bookmarked ? "Remove bookmark" : "Add bookmark"}
                   aria-pressed={bookmarked}
@@ -668,7 +703,7 @@ export default function GameView() {
                   ) : (
                     <StarOutline className="w-5 h-5" />
                   )}
-                </button>
+                </Button>
                 <Button
                   outline
                   onClick={handleShare}

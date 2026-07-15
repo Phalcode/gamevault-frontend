@@ -7,11 +7,14 @@ import { Field, Fieldset, Label, Legend } from "@/components/tailwind/fieldset";
 import { Text } from "@/components/tailwind/text";
 import { useEffect, useState } from "react";
 import { isTauriApp } from "@/utils/tauri";
+import { isDebugTauriOverride, setDebugTauriOverride } from "@/utils/tauri";
 import { Button } from "@/components/tailwind/button";
+import ThemeSelect from "@/components/ThemeSelect";
 import {
   FolderArrowDownIcon,
   ClipboardDocumentIcon,
   CheckIcon,
+  ComputerDesktopIcon,
 } from "@heroicons/react/24/outline";
 
 const RETAIN_KEY = "app_retain_library_prefs";
@@ -213,6 +216,51 @@ export default function Settings() {
                 <Label>Retain sorting and filter preferences</Label>
               </SwitchField>
             </Field>
+          </Fieldset>
+        </section>
+
+        {/* Appearance Section */}
+        <section className="rounded-2xl border border-gv-line bg-gv-panel p-6">
+          <Fieldset>
+            <Legend>Appearance</Legend>
+            <Text className="mt-1">
+              Customize how GameVault looks on your device.
+            </Text>
+
+            <Field className="mt-6">
+              <Label>Theme</Label>
+              <Text className="mb-2">
+                Choose between light, dark, or follow your device settings.
+              </Text>
+              <ThemeSelect className="max-w-56" />
+            </Field>
+
+            {import.meta.env.DEV && (
+              <Field className="mt-8">
+                <SwitchField>
+                  <Switch
+                    name="simulateDesktop"
+                    color="indigo"
+                    aria-label="Simulate Tauri desktop app mode"
+                    checked={isDebugTauriOverride()}
+                    onChange={(v: boolean) => {
+                      setDebugTauriOverride(v);
+                      window.location.reload();
+                    }}
+                  />
+                  <Label>
+                    <span className="inline-flex items-center gap-1.5">
+                      <ComputerDesktopIcon className="size-4" />
+                      Simulate Desktop App
+                    </span>
+                  </Label>
+                </SwitchField>
+                <Text className="mt-1 ml-0">
+                  Preview how GameVault looks and behaves as a native desktop
+                  application.
+                </Text>
+              </Field>
+            )}
           </Fieldset>
         </section>
       </div>

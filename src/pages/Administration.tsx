@@ -278,11 +278,16 @@ export default function Administration() {
                   <TableRow key={id} className={deleted ? "opacity-60" : ""}>
                     <TableCell>
                       <div className="flex items-center gap-4">
-                        <UserAvatar
-                          media={u.avatar}
-                          size={48}
-                          alt={name}
-                        />
+                        <Link
+                          href={`/community/${id}`}
+                          className="shrink-0 rounded-full outline-hidden focus:outline-2 focus:outline-offset-2 focus:outline-gv-accent-cool"
+                        >
+                          <UserAvatar
+                            media={u.avatar}
+                            size={48}
+                            alt={name}
+                          />
+                        </Link>
                         <div>
                           <div className="font-medium flex items-center gap-2">
                             <span>

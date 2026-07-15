@@ -13,8 +13,8 @@ import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { useNavigate } from "react-router";
-import ThemeSwitch from "./ThemeSwitch";
 import { Status } from "../api";
+import { applyTheme, getStoredTheme } from "@/utils/theme";
 
 export function Login() {
   const { loginBasic, loginWithTokens, loading, error } = useAuth();
@@ -38,6 +38,13 @@ export function Login() {
   const [serverStatus, setServerStatus] = useState<Status | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusError, setStatusError] = useState(false);
+
+  // Force device theme on login page; restore stored preference on leave
+  useEffect(() => {
+    const stored = getStoredTheme();
+    applyTheme("system");
+    return () => applyTheme(stored);
+  }, []);
 
   const basicAuthAvailable =
     serverStatus?.available_authentication_methods?.includes("basic") ?? true;
@@ -375,13 +382,6 @@ export function Login() {
           <Strong>Sign up</Strong>
         </TextLink>
       </Text>
-      <div
-        tabIndex={-1}
-        aria-hidden="true"
-        className="surface-panel-soft rounded-[1.25rem] px-4 py-3"
-      >
-        <ThemeSwitch />
-      </div>
     </form>
   );
 }
