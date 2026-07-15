@@ -278,6 +278,19 @@ export default function Settings() {
             </Fieldset>
           </section>
         )}
+
+        {/* Version */}
+        <p className="px-1 text-xs text-gv-muted">
+          GameVault Web UI&nbsp;&nbsp;
+          <a
+            href={`https://github.com/Phalcode/gamevault-frontend/releases/tag/${__APP_VERSION__}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-gv-text underline underline-offset-2 transition-colors"
+          >
+            v{__APP_VERSION__}
+          </a>
+        </p>
       </div>
     </div>
   );
