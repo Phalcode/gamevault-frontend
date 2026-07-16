@@ -1867,20 +1867,20 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                   <div className="h-full flex flex-col overflow-hidden">
                     {loadingProviders ? (
                       <div className="flex items-center justify-center py-12">
-                        <div className="text-sm text-zinc-500 dark:text-zinc-400">
+                        <div className="text-sm text-gv-muted">
                           Loading providers...
                         </div>
                       </div>
                     ) : metadataProviders.length === 0 ? (
                       <div className="flex items-center justify-center py-12">
-                        <div className="text-sm text-zinc-500 dark:text-zinc-400">
+                        <div className="text-sm text-gv-muted">
                           No metadata providers available
                         </div>
                       </div>
                     ) : (
                       <div className="flex flex-col h-full overflow-hidden">
                         {/* Provider Selector */}
-                        <div className="flex-shrink-0 flex gap-2 flex-wrap mb-4 pb-4 border-b border-zinc-200 dark:border-zinc-700">
+                        <div className="flex-shrink-0 flex gap-2 flex-wrap mb-4 pb-4 border-b border-gv-line">
                           {metadataProviders.map((provider, index) => {
                             const isMapped =
                               workingGame.provider_metadata?.some(
@@ -1925,7 +1925,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                                 <div className="flex flex-col gap-4 lg:flex-row">
                                   {gameCoverUrl && (
-                                    <div className="shrink-0 self-start rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                                    <div className="shrink-0 self-start rounded-lg overflow-hidden border border-gv-line">
                                       <img
                                         src={gameCoverUrl}
                                         alt="Cover"
@@ -1942,21 +1942,21 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                                   <div className="grid flex-1 gap-3 text-sm min-w-0 sm:grid-cols-2">
                                     <div className="sm:col-span-2">
-                                      <div className="mb-1 text-zinc-500 dark:text-zinc-400">
+                                      <div className="mb-1 text-gv-muted">
                                         File Path:
                                       </div>
                                       <div
-                                        className="font-mono text-xs leading-relaxed text-zinc-900 break-all dark:text-zinc-100"
+                                        className="font-mono text-xs leading-relaxed text-gv-text break-all"
                                         title={workingGame.file_path || "N/A"}
                                       >
                                         {workingGame.file_path || "N/A"}
                                       </div>
                                     </div>
                                     <div>
-                                      <div className="mb-1 text-zinc-500 dark:text-zinc-400">
+                                      <div className="mb-1 text-gv-muted">
                                         Release Date:
                                       </div>
-                                      <div className="text-zinc-900 dark:text-zinc-100">
+                                      <div className="text-gv-text">
                                         {workingGame.release_date
                                           ? new Date(
                                               workingGame.release_date,
@@ -1965,10 +1965,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                       </div>
                                     </div>
                                     <div>
-                                      <div className="mb-1 text-zinc-500 dark:text-zinc-400">
+                                      <div className="mb-1 text-gv-muted">
                                         Added:
                                       </div>
-                                      <div className="text-zinc-900 dark:text-zinc-100">
+                                      <div className="text-gv-text">
                                         {new Date(
                                           workingGame.created_at,
                                         ).toLocaleDateString()}
@@ -1991,7 +1991,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 {currentShownMappedGame ? (
                                   <div className="flex flex-col gap-4 lg:flex-row">
                                     {mappedGameCoverUrl && (
-                                      <div className="shrink-0 self-start rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                                      <div className="shrink-0 self-start rounded-lg overflow-hidden border border-gv-line">
                                         <img
                                           src={mappedGameCoverUrl}
                                           alt="Provider Cover"
@@ -2008,19 +2008,19 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                                     <div className="grid flex-1 gap-3 text-sm min-w-0 sm:grid-cols-2">
                                       <div className="sm:col-span-2">
-                                        <div className="mb-1 text-zinc-500 dark:text-zinc-400">
+                                        <div className="mb-1 text-gv-muted">
                                           Title:
                                         </div>
-                                        <div className="leading-relaxed text-zinc-900 wrap-break-word dark:text-zinc-100">
+                                        <div className="leading-relaxed text-gv-text">
                                           {currentShownMappedGame.title ||
                                             "N/A"}
                                         </div>
                                       </div>
                                       <div>
-                                        <div className="mb-1 text-zinc-500 dark:text-zinc-400">
+                                        <div className="mb-1 text-gv-muted">
                                           Release Date:
                                         </div>
-                                        <div className="text-zinc-900 dark:text-zinc-100">
+                                        <div className="text-gv-text">
                                           {currentShownMappedGame.release_date
                                             ? new Date(
                                               currentShownMappedGame.release_date,
@@ -2029,10 +2029,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         </div>
                                       </div>
                                       <div>
-                                        <div className="mb-1 text-zinc-500 dark:text-zinc-400">
+                                        <div className="mb-1 text-gv-muted">
                                           Last Cached:
                                         </div>
-                                        <div className="text-zinc-900 dark:text-zinc-100">
+                                        <div className="text-gv-text">
                                           {currentShownMappedGame.updated_at
                                             ? new Date(
                                               currentShownMappedGame.updated_at,
@@ -2048,7 +2048,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                             }
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+                                            className="text-xs text-gv-accent hover:underline"
                                           >
                                             View on{" "}
                                             {
@@ -2062,7 +2062,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                     </div>
                                   </div>
                                 ) : (
-                                  <div className="flex min-h-24 items-center justify-center text-sm text-zinc-500 dark:text-zinc-400">
+                                  <div className="flex min-h-24 items-center justify-center text-sm text-gv-muted">
                                     Not mapped to this provider
                                   </div>
                                 )}
@@ -2071,10 +2071,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                             <div className="flex flex-col gap-4 surface-panel-soft rounded-2xl p-4 w-full max-w-full 2xl:max-w-none">
                               <div>
-                                <h4 className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
+                                <h4 className="text-base font-semibold text-gv-text">
                                   Actions
                                 </h4>
-                                <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                <div className="text-xs text-gv-muted">
                                   Adjust match priority or refresh mapping
                                 </div>
                               </div>
@@ -2082,7 +2082,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               {currentShownMappedGame ? (
                                 <div className="space-y-3 w-full max-w-full">
                                   <div className="w-full max-w-full">
-                                    <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">
+                                    <label className="block text-xs font-medium text-gv-muted mb-2">
                                       Priority
                                     </label>
                                     <div className="flex gap-2 w-full max-w-full">
@@ -2126,7 +2126,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                   </Button>
                                 </div>
                               ) : (
-                                <div className="flex items-center justify-center flex-1 text-sm text-zinc-500 dark:text-zinc-400 text-center">
+                                <div className="flex items-center justify-center flex-1 text-sm text-gv-muted text-center">
                                   No actions available
                                 </div>
                               )}
@@ -2134,9 +2134,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                           </div>
 
                           {/* Search & Remap Section - Full Width with own scrollbar */}
-                          <div className="flex-1 min-h-[300px] flex flex-col space-y-4 pt-4 border-t border-zinc-200 dark:border-zinc-700 min-w-0 max-w-full">
+                          <div className="flex-1 min-h-[300px] flex flex-col space-y-4 pt-4 border-t border-gv-line min-w-0 max-w-full">
                             <div className="flex-shrink-0">
-                              <h4 className="text-base font-semibold mb-3 text-zinc-800 dark:text-zinc-100">
+                              <h4 className="text-base font-semibold mb-3 text-gv-text">
                                 Search & Remap
                               </h4>
                               <Input
@@ -2149,20 +2149,20 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                             </div>
 
                             {searching && (
-                              <div className="text-center py-4 text-sm text-zinc-500 dark:text-zinc-400">
+                              <div className="text-center py-4 text-sm text-gv-muted">
                                 Searching...
                               </div>
                             )}
 
                             {!searching && remapSearchResults.length > 0 && (
-                              <div className="flex-1 overflow-y-auto space-y-2 pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-zinc-600 min-w-0">
+                              <div className="flex-1 overflow-y-auto space-y-2 pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gv-line [&::-webkit-scrollbar-thumb]:rounded-full min-w-0">
                                 {remapSearchResults.map((result, idx) => (
                                   <div
                                     key={idx}
-                                    className="relative flex gap-3 p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 min-w-0 max-w-full overflow-hidden"
+                                    className="relative flex gap-3 p-3 rounded-lg border border-gv-line bg-gv-panel-soft min-w-0 max-w-full overflow-hidden"
                                   >
                                     {result.provider_data_id && (
-                                      <div className="absolute top-2 right-2 text-[10px] text-zinc-400 dark:text-zinc-500 font-mono bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 rounded z-10">
+                                      <div className="absolute top-2 right-2 text-[10px] text-gv-muted text-gv-muted font-mono bg-gv-panel-soft px-1.5 py-0.5 rounded z-10">
                                         ID: {result.provider_data_id}
                                       </div>
                                     )}
@@ -2179,11 +2179,11 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                       />
                                     )}
                                     <div className="flex-1 min-w-0 pr-20">
-                                      <div className="font-medium text-sm text-zinc-900 dark:text-zinc-100 truncate">
+                                      <div className="font-medium text-sm text-gv-text truncate">
                                         {result.title || "Untitled"}
                                       </div>
                                       {result.release_date && (
-                                        <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                        <div className="text-xs text-gv-muted">
                                           {new Date(
                                             result.release_date,
                                           ).getFullYear()}
@@ -2226,7 +2226,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                     {/* Header - fixed */}
                     <div className="flex justify-between items-start mb-6">
                       <div>
-                        <h3 className="text-lg font-semibold mb-4 text-zinc-800 dark:text-zinc-100">
+                        <h3 className="text-lg font-semibold mb-4 text-gv-text">
                           Custom Metadata
                         </h3>
                         <p className="text-sm text-gv-muted">
@@ -2245,11 +2245,11 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                     </div>
 
                     {/* Scrollable content */}
-                    <div className="flex-1 overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-zinc-600">
+                    <div className="flex-1 overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gv-line [&::-webkit-scrollbar-thumb]:rounded-full">
                       <div className="space-y-4">
                         {/* Title */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Title
                           </label>
                           <div className="relative">
@@ -2269,7 +2269,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               <button
                                 type="button"
                                 onClick={() => applyWatermark("title")}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2280,7 +2280,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Sort Title */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Sort Title
                           </label>
                           <div className="relative">
@@ -2300,7 +2300,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               <button
                                 type="button"
                                 onClick={() => applyWatermark("sort_title")}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2311,7 +2311,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Description */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Description
                           </label>
                           <div className="relative">
@@ -2325,13 +2325,13 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               }
                               placeholder={getWatermark("description")}
                               rows={4}
-                              className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                              className="w-full rounded-md border border-gv-line-strong bg-gv-panel px-3 py-2 text-sm text-gv-text placeholder:text-gv-muted focus:outline-none focus:ring-2 focus:ring-gv-accent-cool pr-10 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                             />
                             {getWatermark("description") && (
                               <button
                                 type="button"
                                 onClick={() => applyWatermark("description")}
-                                className="absolute right-2 top-2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2342,7 +2342,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Notes */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Notes
                           </label>
                           <div className="relative">
@@ -2356,13 +2356,13 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               }
                               placeholder={getWatermark("notes")}
                               rows={3}
-                              className="w-full rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                              className="w-full rounded-md border border-gv-line-strong bg-gv-panel px-3 py-2 text-sm text-gv-text placeholder:text-gv-muted focus:outline-none focus:ring-2 focus:ring-gv-accent-cool pr-10 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                             />
                             {getWatermark("notes") && (
                               <button
                                 type="button"
                                 onClick={() => applyWatermark("notes")}
-                                className="absolute right-2 top-2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2374,7 +2374,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                         <div className="grid grid-cols-2 gap-4">
                           {/* Average Playtime */}
                           <div>
-                            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                            <label className="block text-sm font-medium text-gv-muted mb-1">
                               Avg Playtime (minutes)
                             </label>
                             <div className="relative">
@@ -2396,7 +2396,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                   onClick={() =>
                                     applyWatermark("average_playtime")
                                   }
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                   title="Apply current value"
                                 >
                                   <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2407,7 +2407,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                           {/* Age Rating */}
                           <div>
-                            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                            <label className="block text-sm font-medium text-gv-muted mb-1">
                               Age Rating
                             </label>
                             <div className="relative">
@@ -2427,7 +2427,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 <button
                                   type="button"
                                   onClick={() => applyWatermark("age_rating")}
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                   title="Apply current value"
                                 >
                                   <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2438,7 +2438,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                           {/* Release Date */}
                           <div>
-                            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                            <label className="block text-sm font-medium text-gv-muted mb-1">
                               Release Date
                             </label>
                             <div className="relative">
@@ -2458,7 +2458,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 <button
                                   type="button"
                                   onClick={() => applyWatermark("release_date")}
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                   title="Apply current value"
                                 >
                                   <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2467,7 +2467,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                             </div>
                             {getWatermark("release_date") &&
                               !customMetadata.release_date && (
-                                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                <p className="mt-1 text-xs text-gv-muted">
                                   Current:{" "}
                                   {new Date(
                                     getWatermark("release_date"),
@@ -2478,7 +2478,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                           {/* Rating */}
                           <div>
-                            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                            <label className="block text-sm font-medium text-gv-muted mb-1">
                               Rating
                             </label>
                             <div className="relative">
@@ -2499,7 +2499,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 <button
                                   type="button"
                                   onClick={() => applyWatermark("rating")}
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                   title="Apply current value"
                                 >
                                   <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2511,7 +2511,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Early Access */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Early Access
                           </label>
                           <Listbox
@@ -2539,7 +2539,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Launch Executable */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Default Launch Executable
                           </label>
                           <div className="relative">
@@ -2561,7 +2561,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 onClick={() =>
                                   applyWatermark("launch_executable")
                                 }
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2572,7 +2572,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Launch Parameters */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Default Launch Parameters
                           </label>
                           <div className="relative">
@@ -2594,7 +2594,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 onClick={() =>
                                   applyWatermark("launch_parameters")
                                 }
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2605,7 +2605,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Installer Executable */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Default Installer Executable
                           </label>
                           <div className="relative">
@@ -2627,7 +2627,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 onClick={() =>
                                   applyWatermark("installer_executable")
                                 }
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2638,7 +2638,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Installer Parameters */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Default Installer Parameters
                           </label>
                           <div className="relative">
@@ -2660,7 +2660,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 onClick={() =>
                                   applyWatermark("installer_parameters")
                                 }
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2671,7 +2671,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Uninstaller Executable */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Default Uninstaller Executable
                           </label>
                           <div className="relative">
@@ -2695,7 +2695,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 onClick={() =>
                                   applyWatermark("uninstaller_executable")
                                 }
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2706,7 +2706,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Uninstaller Parameters */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Default Uninstaller Parameters
                           </label>
                           <div className="relative">
@@ -2730,7 +2730,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 onClick={() =>
                                   applyWatermark("uninstaller_parameters")
                                 }
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2741,9 +2741,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Website URLs */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Website URLs{" "}
-                            <span className="text-xs text-zinc-400">
+                            <span className="text-xs text-gv-muted">
                               (comma-separated)
                             </span>
                           </label>
@@ -2764,7 +2764,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               <button
                                 type="button"
                                 onClick={() => applyWatermark("url_websites")}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2775,9 +2775,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Genres */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Genres{" "}
-                            <span className="text-xs text-zinc-400">
+                            <span className="text-xs text-gv-muted">
                               (comma-separated)
                             </span>
                           </label>
@@ -2798,7 +2798,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               <button
                                 type="button"
                                 onClick={() => applyWatermark("genres")}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2809,9 +2809,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Tags */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Tags{" "}
-                            <span className="text-xs text-zinc-400">
+                            <span className="text-xs text-gv-muted">
                               (comma-separated)
                             </span>
                           </label>
@@ -2832,7 +2832,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               <button
                                 type="button"
                                 onClick={() => applyWatermark("tags")}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2843,9 +2843,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Publishers */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Publishers{" "}
-                            <span className="text-xs text-zinc-400">
+                            <span className="text-xs text-gv-muted">
                               (comma-separated)
                             </span>
                           </label>
@@ -2866,7 +2866,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               <button
                                 type="button"
                                 onClick={() => applyWatermark("publishers")}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2877,9 +2877,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Developers */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Developers{" "}
-                            <span className="text-xs text-zinc-400">
+                            <span className="text-xs text-gv-muted">
                               (comma-separated)
                             </span>
                           </label>
@@ -2900,7 +2900,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               <button
                                 type="button"
                                 onClick={() => applyWatermark("developers")}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2911,9 +2911,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Trailer URLs */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Trailer URLs{" "}
-                            <span className="text-xs text-zinc-400">
+                            <span className="text-xs text-gv-muted">
                               (comma-separated)
                             </span>
                           </label>
@@ -2934,7 +2934,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               <button
                                 type="button"
                                 onClick={() => applyWatermark("url_trailers")}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2945,9 +2945,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Gameplay URLs */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Gameplay URLs{" "}
-                            <span className="text-xs text-zinc-400">
+                            <span className="text-xs text-gv-muted">
                               (comma-separated)
                             </span>
                           </label>
@@ -2968,7 +2968,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               <button
                                 type="button"
                                 onClick={() => applyWatermark("url_gameplays")}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -2979,9 +2979,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Screenshot URLs */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Screenshot URLs{" "}
-                            <span className="text-xs text-zinc-400">
+                            <span className="text-xs text-gv-muted">
                               (comma-separated)
                             </span>
                           </label>
@@ -3004,7 +3004,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 onClick={() =>
                                   applyWatermark("url_screenshots")
                                 }
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
                               >
                                 <ArrowUturnLeftIcon className="w-4 h-4" />
@@ -3033,23 +3033,23 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                 {activeTab === "installation" && installedGame && (
                   <div className="max-w-3xl space-y-6">
                     <div>
-                      <h3 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">
+                      <h3 className="text-lg font-semibold text-gv-text">
                         Installation
                       </h3>
-                      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                      <p className="mt-2 text-sm text-gv-muted">
                         here you can manage your Game Installation
                       </p>
                     </div>
 
-                    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
-                      <div className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                    <div className="rounded-xl border border-gv-line bg-gv-panel-soft p-4">
+                      <div className="text-sm font-medium text-gv-text">
                         This Game was installed to
                       </div>
-                      <div className="mt-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                      <div className="mt-3 rounded-lg border border-gv-line bg-gv-panel px-3 py-2 font-mono text-xs text-gv-text">
                         {installedGame.installationDirectory}
                       </div>
                       {installedGame.versionName && (
-                        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                        <p className="mt-3 text-xs text-gv-muted">
                           Installed version: {installedGame.versionName}
                         </p>
                       )}
@@ -3079,28 +3079,28 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                 {activeTab === "launch-options" && installedGame && (
                   <div className="max-w-3xl space-y-6">
                     <div>
-                      <h3 className="text-lg font-semibold text-zinc-800 dark:text-zinc-100">
+                      <h3 className="text-lg font-semibold text-gv-text">
                         Launch Options
                       </h3>
-                      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                      <p className="mt-1 text-sm text-gv-muted">
                         Configure how this game is launched when you click the
                         play button.
                       </p>
                     </div>
 
                     {loadingLaunchOptions ? (
-                      <div className="text-sm text-zinc-500">
+                      <div className="text-sm text-gv-muted">
                         Loading executables…
                       </div>
                     ) : (
                       <>
                         {/* Launch Executable Picker */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Launch Executable
                           </label>
                           {launchExecutables.length === 0 ? (
-                            <p className="text-sm text-zinc-500">
+                            <p className="text-sm text-gv-muted">
                               No executables found in the installation folder.
                             </p>
                           ) : (
@@ -3125,7 +3125,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
                         {/* Launch Parameters */}
                         <div>
-                          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
                             Launch Parameters
                           </label>
                           <Input
@@ -3136,7 +3136,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                             }
                             placeholder="e.g. -fullscreen -width 1920"
                           />
-                          <p className="mt-1 text-xs text-zinc-500">
+                          <p className="mt-1 text-xs text-gv-muted">
                             Optional command-line arguments passed to the
                             executable.
                           </p>
@@ -3154,7 +3154,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                             />
                             <Label>Run as Administrator</Label>
                           </SwitchField>
-                          <p className="mt-1 ml-0 text-xs text-zinc-500">
+                          <p className="mt-1 ml-0 text-xs text-gv-muted">
                             Launch the game with elevated privileges (UAC prompt).
                           </p>
                         </div>
@@ -3167,7 +3167,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
           </div>
 
           {/* Bottom left info */}
-          <div className="absolute bottom-4 left-4 text-xs text-zinc-500 dark:text-zinc-400 flex flex-row gap-4 lg:flex-col lg:gap-0 lg:space-y-0.5">
+          <div className="absolute bottom-4 left-4 text-xs text-gv-muted flex flex-row gap-4 lg:flex-col lg:gap-0 lg:space-y-0.5">
             <div className="truncate max-w-[200px] lg:max-w-none">
               {workingGame.metadata?.title || workingGame.title || "Unknown"}
             </div>

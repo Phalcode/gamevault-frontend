@@ -485,7 +485,7 @@ export default function GameView() {
     (game as any)?.metadata?.average_playtime ||
     null;
   const floatingIconButtonClassName =
-    "size-11 p-0 flex items-center justify-center border-white/35 bg-white/60 shadow-sm backdrop-blur-md hover:bg-white/78 dark:border-white/20 dark:bg-zinc-950/58 dark:hover:bg-zinc-900/72";
+    "size-11 p-0 flex items-center justify-center border-white/35 bg-white/60 shadow-sm backdrop-blur-md hover:bg-white/78 dark:border-white/20 dark:bg-gv-panel/80 dark:hover:bg-gv-panel-strong";
 
   const gameSizeBytes = useMemo(() => {
     const sizeStr =
@@ -514,9 +514,9 @@ export default function GameView() {
   );
 
   const glassPanelClassName =
-    "border border-white/35 bg-white/[0.42] backdrop-blur-md dark:border-white/10 dark:bg-zinc-950/72 dark:backdrop-blur-md";
+    "border border-white/35 bg-white/[0.42] backdrop-blur-md dark:border-white/10 dark:bg-gv-panel/80 dark:backdrop-blur-md";
   const darkGlassInsetClassName =
-    "dark:border dark:border-white/10 dark:bg-zinc-950/68 dark:backdrop-blur-md";
+    "dark:border dark:border-white/10 dark:bg-gv-panel/80 dark:backdrop-blur-md";
   const progressSelectClassName = clsx(
     "rounded-lg before:bg-white/60 before:backdrop-blur-md before:shadow-sm",
     "dark:before:hidden",
@@ -589,7 +589,7 @@ export default function GameView() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.09),transparent_40%)] dark:bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.04),transparent_40%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.06)_18%,rgba(255,255,255,0)_42%,rgba(255,255,255,0)_100%)] dark:bg-[linear-gradient(180deg,rgba(9,9,11,0.16)_0%,rgba(9,9,11,0.08)_18%,rgba(9,9,11,0)_42%,rgba(9,9,11,0)_100%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(244,244,245,0.12)_0%,rgba(244,244,245,0.04)_24%,rgba(244,244,245,0)_45%,rgba(99,102,241,0.03)_100%)] dark:bg-[linear-gradient(135deg,rgba(24,24,27,0.12)_0%,rgba(24,24,27,0.05)_24%,rgba(24,24,27,0)_45%,rgba(99,102,241,0.05)_100%)]" />
-        <div className="absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-white/10 to-transparent dark:from-zinc-950/10 dark:to-transparent sm:h-20 xl:h-24" />
+        <div className="absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-white/10 to-transparent dark:from-gv-panel/10 dark:to-transparent sm:h-20 xl:h-24" />
       </div>
 
       <div className="relative z-10 flex w-full flex-1 flex-col">
@@ -734,7 +734,7 @@ export default function GameView() {
               (game as any)?.metadata?.early_access ? (
                 <div className="flex flex-wrap gap-1 pt-1 items-center">
                   {game?.type && game.type !== "UNDETECTABLE" && (
-                    <span className="px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 text-[10px] font-medium">
+                    <span className="px-2 py-0.5 rounded-full bg-gv-accent/15 text-gv-accent-strong text-[10px] font-medium">
                       {game.type
                         .replace(/_/g, " ")
                         .toLowerCase()
@@ -899,7 +899,7 @@ export default function GameView() {
                         ))}
                       </div>
                     ) : (
-                      <p className="italic text-zinc-500">No tags.</p>
+                      <p className="italic text-gv-muted">No tags.</p>
                     ))}
                 </div>
               </Card>
@@ -1047,7 +1047,7 @@ export default function GameView() {
                   );
                   if (!others.length) {
                     return (
-                      <div className="text-xs text-zinc-500 dark:text-zinc-400 italic">
+                      <div className="text-xs text-gv-muted italic">
                         No activity from other users.
                       </div>
                     );
@@ -1076,21 +1076,21 @@ export default function GameView() {
                               size={32}
                               alt={uname}
                               fallback={
-                                <div className="flex h-full w-full items-center justify-center rounded-[20%] bg-zinc-300 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                                <div className="flex h-full w-full items-center justify-center rounded-[20%] bg-gv-panel-soft text-[10px] font-semibold text-gv-text">
                                   {uname.slice(0, 2).toUpperCase()}
                                 </div>
                               }
                             />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="font-medium truncate text-zinc-800 dark:text-zinc-100">
+                                <span className="font-medium truncate text-gv-text">
                                   {uname}
                                 </span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 font-medium">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gv-panel-soft text-gv-muted font-medium">
                                   {formatState(p.state)}
                                 </span>
                               </div>
-                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 flex items-center justify-between gap-4">
+                              <div className="text-[11px] text-gv-muted mt-0.5 flex items-center justify-between gap-4">
                                 <span className="truncate">
                                   Played:{" "}
                                   {hours >= 1

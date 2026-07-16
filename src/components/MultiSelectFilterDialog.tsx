@@ -113,9 +113,9 @@ const colorClasses: Record<
     check: "text-blue-500",
   },
   indigo: {
-    bg: "bg-indigo-50 dark:bg-indigo-900/20",
-    text: "text-indigo-700 dark:text-indigo-300",
-    check: "text-indigo-500",
+    bg: "bg-gv-accent/10",
+    text: "text-gv-accent-strong",
+    check: "text-gv-accent",
   },
   violet: {
     bg: "bg-violet-50 dark:bg-violet-900/20",
@@ -143,9 +143,9 @@ const colorClasses: Record<
     check: "text-rose-500",
   },
   zinc: {
-    bg: "bg-zinc-50 dark:bg-zinc-800/50",
-    text: "text-zinc-700 dark:text-zinc-300",
-    check: "text-zinc-500",
+    bg: "bg-gv-panel-soft",
+    text: "text-gv-text",
+    check: "text-gv-muted",
   },
 };
 
@@ -280,22 +280,22 @@ export default function MultiSelectFilterDialog({
         {loading && <div className="text-sm text-fg-muted">Loading...</div>}
         {error && <div className="text-sm text-red-500">{error}</div>}
         {!loading && !error && (
-          <div className="max-h-64 overflow-y-auto border border-zinc-200 dark:border-zinc-700 rounded-lg">
+          <div className="max-h-64 overflow-y-auto border border-gv-line rounded-lg">
             {filteredItems.length === 0 ? (
-              <div className="p-4 text-sm text-fg-muted text-center">
+              <div className="p-4 text-sm text-gv-muted text-center">
                 No {title.toLowerCase()} found
               </div>
             ) : (
-              <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
+              <div className="divide-y divide-gv-line">
                 {filteredItems.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => toggleItem(item)}
-                    className={`w-full text-left px-4 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors ${
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-gv-panel-soft transition-colors ${
                       isSelected(item)
                         ? `${colors.bg} ${colors.text}`
-                        : "text-zinc-900 dark:text-zinc-100"
+                        : "text-gv-text"
                     }`}
                   >
                     <span className="flex items-center justify-between">

@@ -102,7 +102,7 @@ export default function Administration() {
                   {serverUrl}
                 </Link>
               ) : (
-                <span className="text-zinc-500">Not connected</span>
+                <span className="text-gv-muted">Not connected</span>
               )}
             </DescriptionDetails>
             <DescriptionTerm>Version</DescriptionTerm>
@@ -115,14 +115,14 @@ export default function Administration() {
                   {version}
                 </Link>
               ) : (
-                <span className="text-zinc-500">—</span>
+                <span className="text-gv-muted">—</span>
               )}
             </DescriptionDetails>
             <DescriptionTerm>Users</DescriptionTerm>
             <DescriptionDetails>
               {users.length}{" "}
               {users.length > 0 && filteredUsers.length !== users.length && (
-                <span className="text-zinc-400">
+                <span className="text-gv-muted">
                   ({filteredUsers.length} shown)
                 </span>
               )}
@@ -246,7 +246,7 @@ export default function Administration() {
               {loading && (
                 <TableRow>
                   <TableCell colSpan={4}>
-                    <div className="flex items-center justify-center gap-2 py-6 text-sm text-zinc-500">
+                    <div className="flex items-center justify-center gap-2 py-6 text-sm text-gv-muted">
                       <svg className="h-4 w-4 motion-safe:animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
@@ -259,7 +259,7 @@ export default function Administration() {
               {!loading && filteredUsers.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={4}>
-                    <div className="py-6 text-center text-sm text-zinc-500">
+                    <div className="py-6 text-center text-sm text-gv-muted">
                       No users found.
                     </div>
                   </TableCell>
@@ -307,10 +307,10 @@ export default function Administration() {
                             )}
                           </div>
                           {email && (
-                            <div className="text-zinc-500">
+                            <div className="text-gv-muted">
                               <a
                                 href={`mailto:${email}`}
-                                className="hover:text-zinc-700 dark:hover:text-zinc-300"
+                                className="hover:text-gv-text"
                               >
                                 {email}
                               </a>
@@ -328,7 +328,7 @@ export default function Administration() {
                         onChange={() => toggleActivated(u)}
                       />
                     </TableCell>
-                    <TableCell className="text-zinc-500">
+                    <TableCell className="text-gv-muted">
                       <Listbox
                         name="role"
                         value={roleNumeric}
@@ -389,7 +389,7 @@ export default function Administration() {
                           color="indigo"
                           onClick={() => setEditingUserId(Number(id))}
                           title="Edit User"
-                          className="!bg-[--color-indigo-500]"
+                          className="bg-gv-accent!"
                           disabled={busy}
                         >
                           <PencilSquareIcon />{" "}

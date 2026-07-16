@@ -4,6 +4,7 @@ import { Button } from "@/components/tailwind/button";
 import { Media } from "@/components/Media";
 import CoverPlaceholder from "@/components/CoverPlaceholder";
 import { Heading } from "@tw/heading";
+import { Text } from "@tw/text";
 import { Divider } from "@tw/divider";
 import { Badge } from "@/components/tailwind/badge";
 import { Input } from "@tw/input";
@@ -53,15 +54,15 @@ const FORCE_INSTALL_TYPES: { label: string; value: GameType }[] = [
 
 function StepDot({ state }: { state: StepState }) {
   if (state === "done") {
-    return <CheckCircleIcon className="h-5 w-5 text-green-600" />;
+    return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
   }
   if (state === "error") {
-    return <ExclamationTriangleIcon className="h-5 w-5 text-red-600" />;
+    return <ExclamationTriangleIcon className="h-5 w-5 text-red-500" />;
   }
   if (state === "active") {
-    return <ClockIcon className="h-5 w-5 text-indigo-600" />;
+    return <ClockIcon className="h-5 w-5 text-gv-accent" />;
   }
-  return <div className="h-3 w-3 rounded-full bg-zinc-300 dark:bg-zinc-700" />;
+  return <div className="h-3 w-3 rounded-full bg-gv-line" />;
 }
 
 function formatGameTypeLabel(gameType?: string) {
@@ -347,12 +348,12 @@ export default function Downloads() {
       download.installationStatus === "running";
 
     return (
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40 p-4 space-y-4">
+      <div className="surface-panel-soft rounded-xl p-4 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <ComputerDesktopIcon className="h-5 w-5 text-indigo-600" />
-              <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              <ComputerDesktopIcon className="h-5 w-5 text-gv-accent" />
+              <span className="text-sm font-semibold text-gv-text">
                 Installation
               </span>
             </div>
@@ -374,13 +375,13 @@ export default function Downloads() {
 
         {installState.mode === "portable" && (
           <div className="space-y-4">
-            <p className="text-sm text-zinc-700 dark:text-zinc-300">
+            <p className="text-sm text-gv-muted">
               Portable game needs just to be copied.
             </p>
 
             {download.installationStatus === "copying" && (
               <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
+                <div className="flex items-center justify-between text-xs text-gv-muted">
                   <span>Copy Progress</span>
                   <span>
                     {download.installationProgress !== null &&
@@ -389,15 +390,15 @@ export default function Downloads() {
                       : "In progress"}
                   </span>
                 </div>
-                <div className="relative w-full h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                <div className="relative w-full h-2 bg-gv-line rounded-full overflow-hidden">
                   <div
-                    className="absolute left-0 top-0 h-full bg-indigo-500 transition-all duration-300"
+                    className="absolute left-0 top-0 h-full bg-gv-accent transition-all duration-300"
                     style={{ width: `${download.installationProgress ?? 0}%` }}
                   />
                 </div>
                 {download.installationCurrentFile && (
                   <p
-                    className="text-xs text-zinc-500 dark:text-zinc-400 truncate"
+                    className="text-xs text-gv-muted truncate"
                     title={download.installationCurrentFile}
                   >
                     {download.installationCurrentFile}
@@ -410,7 +411,7 @@ export default function Downloads() {
 
         {installState.mode === "setup" && (
           <div className="space-y-4">
-            <div className="space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <div className="space-y-2 text-sm text-gv-muted">
               <p>To install this game, please follow the steps below:</p>
               <p>1. Pick the correct installer from the dropdown menu below.</p>
             </div>
@@ -437,16 +438,16 @@ export default function Downloads() {
               ))}
             </Listbox>
 
-            <div className="space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <div className="space-y-2 text-sm text-gv-muted">
               <p>2. Hit the 'Install' button to launch the games installer.</p>
               <p>3. Go through the game's setup process.</p>
               <p>Make sure to select this folder as the installers destination:</p>
             </div>
 
-            <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3">
+            <div className="surface-panel-soft rounded-xl p-3">
               <div className="flex items-center justify-between gap-3">
                 <p
-                  className="min-w-0 flex-1 truncate text-sm text-zinc-700 dark:text-zinc-300"
+                  className="min-w-0 flex-1 truncate text-sm text-gv-muted"
                   title={download.installationDirectory}
                 >
                   {download.installationDirectory || "No installation path available"}
@@ -472,7 +473,7 @@ export default function Downloads() {
 
         {installState.mode === "undetected" && (
           <div className="space-y-4">
-            <p className="text-sm text-zinc-700 dark:text-zinc-300">
+            <p className="text-sm text-gv-muted">
               Unable to detect game type. You can try forcing an installation
               procedure by selecting it from the options below.
             </p>
@@ -508,7 +509,7 @@ export default function Downloads() {
 
           <div className="flex items-center gap-2">
             {download.installationStatus === "running" && (
-              <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+              <span className="text-xs font-medium text-gv-accent">
                 Running
               </span>
             )}
@@ -563,18 +564,17 @@ export default function Downloads() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
+    <div className="flex min-h-full flex-col gap-6">
+      <div className="space-y-2">
         <Heading>Downloads</Heading>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+        <Text className="max-w-2xl">
           Track active, queued, and completed game downloads.
-        </p>
+        </Text>
       </div>
-
-      <Divider className="my-6" />
+      <Divider className="border-gv-line/80" />
 
       {downloadArray.length > 0 && (
-        <div className="space-y-4 mb-8">
+        <div className="space-y-4">
           {downloadArray.map((download) => {
             const installView = installStateByGame[download.gameId];
             const installViewOpen = Boolean(installView);
@@ -595,17 +595,17 @@ export default function Downloads() {
             return (
               <div
                 key={download.gameId}
-                className="relative rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4"
+                className="surface-panel relative rounded-2xl p-4 sm:p-5"
               >
-                <button
-                  type="button"
+                <Button
+                  plain
                   aria-label="Delete download card"
                   title="Delete download and extraction folders"
                   onClick={() => void handleDeleteCard(download.gameId)}
-                  className="absolute top-3 right-3 inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-100 hover:text-red-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+                  className="absolute top-3 right-3 p-1.5! text-gv-muted hover:text-red-400!"
                 >
                   <TrashIcon className="h-4 w-4" />
-                </button>
+                </Button>
 
                 <div className="flex flex-col items-start gap-4 sm:flex-row">
                   <div className="shrink-0">
@@ -616,7 +616,7 @@ export default function Downloads() {
                         height={136}
                         square
                         alt={`${download.gameTitle} cover art`}
-                        className="overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
+                        className="overflow-hidden rounded-lg border border-gv-line bg-gv-panel-soft shadow-sm"
                         fallback={
                           <CoverPlaceholder
                             title={download.gameTitle || "Game"}
@@ -626,7 +626,7 @@ export default function Downloads() {
                         }
                       />
                     ) : (
-                      <div className="h-34 w-24 overflow-hidden rounded-lg border border-dashed border-zinc-300 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950/40">
+                      <div className="h-34 w-24 overflow-hidden rounded-lg border border-dashed border-gv-line bg-gv-panel-soft">
                         <CoverPlaceholder
                           title={download.gameTitle || "Game"}
                           size="normal"
@@ -641,17 +641,17 @@ export default function Downloads() {
                       <ol className="space-y-3">
                         <li className="flex items-center gap-2">
                           <StepDot state={downloadStep} />
-                          <span className="text-sm font-medium">Download</span>
+                          <span className="text-sm font-medium text-gv-text">Download</span>
                         </li>
-                        <li className="pl-2 ml-2.25 h-4 border-l border-zinc-300 dark:border-zinc-700" />
+                        <li className="pl-2 ml-2.25 h-4 border-l border-gv-line" />
                         <li className="flex items-center gap-2">
                           <StepDot state={extractionStep} />
-                          <span className="text-sm font-medium">Extraction</span>
+                          <span className="text-sm font-medium text-gv-text">Extraction</span>
                         </li>
-                        <li className="pl-2 ml-2.25 h-4 border-l border-zinc-300 dark:border-zinc-700" />
+                        <li className="pl-2 ml-2.25 h-4 border-l border-gv-line" />
                         <li className="flex items-center gap-2">
                           <StepDot state={installationStep} />
-                          <span className="text-sm font-medium">Installation</span>
+                          <span className="text-sm font-medium text-gv-text">Installation</span>
                         </li>
                       </ol>
                     </div>
@@ -661,12 +661,12 @@ export default function Downloads() {
                     <div className="flex items-start justify-between gap-3 pr-10">
                       <div className="min-w-0">
                         <h3
-                          className="font-medium text-sm text-zinc-900 dark:text-zinc-100 truncate"
+                          className="font-medium text-sm text-gv-text truncate"
                           title={download.filename}
                         >
                           {download.filename}
                         </h3>
-                        <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400 flex flex-wrap items-center gap-2">
+                        <div className="mt-1 text-xs text-gv-muted flex flex-wrap items-center gap-2">
                           <span>
                             {formatBytes(download.received)} /{" "}
                             {download.total ? formatBytes(download.total) : "Unknown"}
@@ -696,9 +696,9 @@ export default function Downloads() {
 
                     {(download.status === "downloading" ||
                       download.status === "paused") && (
-                      <div className="relative w-full h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                      <div className="relative w-full h-2 bg-gv-line rounded-full overflow-hidden">
                         <div
-                          className="absolute left-0 top-0 h-full bg-blue-500 transition-all duration-300"
+                          className="absolute left-0 top-0 h-full bg-gv-accent transition-all duration-300"
                           style={{ width: `${download.progress ?? 0}%` }}
                         />
                       </div>
@@ -764,10 +764,10 @@ export default function Downloads() {
 
                     {download.status === "completed" && !installViewOpen && (
                       <div className="space-y-3">
-                        <div className="mt-2 rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-950/30">
+                        <div className="surface-panel-soft rounded-xl p-3">
                           <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 text-sm font-medium">
-                              <ArchiveBoxIcon className="h-4 w-4" />
+                            <div className="flex items-center gap-2 text-sm font-medium text-gv-text">
+                              <ArchiveBoxIcon className="h-4 w-4 text-gv-accent" />
                               Extraction
                             </div>
                             {download.extractionStatus === "completed" && (
@@ -778,7 +778,7 @@ export default function Downloads() {
                           {(download.extractionStatus === "needs-password" ||
                             download.extractionPasswordRequired) && (
                             <div className="mt-3 space-y-2">
-                              <label className="text-xs text-zinc-600 dark:text-zinc-400 flex items-center gap-1">
+                              <label className="text-xs text-gv-muted flex items-center gap-1">
                                 <KeyIcon className="h-4 w-4" />
                                 Archive password
                               </label>
@@ -820,7 +820,7 @@ export default function Downloads() {
 
                           {download.extractionStatus === "extracting" && (
                             <div className="mt-3 space-y-2">
-                              <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
+                              <div className="flex items-center justify-between text-xs text-gv-muted">
                                 <span>Extraction Progress</span>
                                 <span>
                                   {download.extractionProgress !== null &&
@@ -829,9 +829,9 @@ export default function Downloads() {
                                     : "In progress"}
                                 </span>
                               </div>
-                              <div className="relative w-full h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                              <div className="relative w-full h-2 bg-gv-line rounded-full overflow-hidden">
                                 <div
-                                  className="absolute left-0 top-0 h-full bg-indigo-500 transition-all duration-300"
+                                  className="absolute left-0 top-0 h-full bg-gv-accent transition-all duration-300"
                                   style={{
                                     width: `${download.extractionProgress ?? 0}%`,
                                   }}
@@ -839,7 +839,7 @@ export default function Downloads() {
                               </div>
                               {download.extractionCurrentFile && (
                                 <p
-                                  className="text-xs text-zinc-500 dark:text-zinc-400 truncate"
+                                  className="text-xs text-gv-muted truncate"
                                   title={download.extractionCurrentFile}
                                 >
                                   {download.extractionCurrentFile}
@@ -856,10 +856,10 @@ export default function Downloads() {
                         </div>
 
                         {download.extractionStatus === "completed" && isTauri && (
-                          <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-950/30">
+                          <div className="surface-panel-soft rounded-xl p-3">
                             <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 text-sm font-medium">
-                                <ComputerDesktopIcon className="h-4 w-4" />
+                              <div className="flex items-center gap-2 text-sm font-medium text-gv-text">
+                                <ComputerDesktopIcon className="h-4 w-4 text-gv-accent" />
                                 Installation
                               </div>
                               {download.installationStatus === "completed" && (
@@ -870,14 +870,14 @@ export default function Downloads() {
                               )}
                             </div>
 
-                            <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+                            <p className="mt-2 text-xs text-gv-muted">
                               Start the installation process for this extracted game.
                             </p>
 
                             {(download.installationStatus === "copying" ||
                               download.installationStatus === "launching") && (
                               <div className="mt-3 space-y-2">
-                                <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
+                                <div className="flex items-center justify-between text-xs text-gv-muted">
                                   <span>
                                     {download.installationStatus === "copying"
                                       ? "Installation Copy"
@@ -894,9 +894,9 @@ export default function Downloads() {
                                   </span>
                                 </div>
                                 {download.installationStatus === "copying" && (
-                                  <div className="relative w-full h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                                  <div className="relative w-full h-2 bg-gv-line rounded-full overflow-hidden">
                                     <div
-                                      className="absolute left-0 top-0 h-full bg-indigo-500 transition-all duration-300"
+                                      className="absolute left-0 top-0 h-full bg-gv-accent transition-all duration-300"
                                       style={{
                                         width: `${download.installationProgress ?? 0}%`,
                                       }}
@@ -905,7 +905,7 @@ export default function Downloads() {
                                 )}
                                 {download.installationCurrentFile && (
                                   <p
-                                    className="text-xs text-zinc-500 dark:text-zinc-400 truncate"
+                                    className="text-xs text-gv-muted truncate"
                                     title={download.installationCurrentFile}
                                   >
                                     {download.installationCurrentFile}
@@ -951,12 +951,12 @@ export default function Downloads() {
       )}
 
       {downloadArray.length === 0 && (
-        <div className="text-center py-12">
-          <ArrowDownTrayIcon className="mx-auto h-12 w-12 text-zinc-400" />
-          <h3 className="mt-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+        <div className="surface-panel-soft rounded-3xl py-16 text-center">
+          <ArrowDownTrayIcon className="mx-auto h-12 w-12 text-gv-muted" />
+          <h3 className="mt-3 text-sm font-semibold text-gv-text">
             No downloads
           </h3>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="mt-1 text-sm text-gv-muted">
             Start downloading games from your library
           </p>
         </div>

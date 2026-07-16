@@ -86,7 +86,7 @@ export function NewsDialog({ onClose }: NewsDialogProps) {
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300/40 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700/60 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gv-line text-gv-muted hover:text-gv-text hover:bg-gv-panel-soft"
           aria-label="Close"
         >
           <svg
@@ -101,15 +101,15 @@ export function NewsDialog({ onClose }: NewsDialogProps) {
           </svg>
         </button>
       </DialogTitle>
-      <div className="px-6 mt-1 flex items-center gap-3 border-b border-zinc-200 dark:border-zinc-700 text-sm">
+      <div className="px-6 mt-1 flex items-center gap-3 border-b border-gv-line text-sm">
         <div className="flex gap-2">
           <button
             onClick={() => setTab("gv")}
             className={
               "px-3 py-2 border-b-2 transition-colors " +
               (tab === "gv"
-                ? "border-indigo-500 text-indigo-500"
-                : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200")
+                ? "border-gv-accent text-gv-accent"
+                : "border-transparent text-gv-muted hover:text-gv-text")
             }
           >
             GameVault News
@@ -119,22 +119,22 @@ export function NewsDialog({ onClose }: NewsDialogProps) {
             className={
               "px-3 py-2 border-b-2 transition-colors " +
               (tab === "server"
-                ? "border-indigo-500 text-indigo-500"
-                : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200")
+                ? "border-gv-accent text-gv-accent"
+                : "border-transparent text-gv-muted hover:text-gv-text")
             }
           >
             Server News
           </button>
         </div>
       </div>
-      <DialogBody className="pt-4 max-h-[70vh] overflow-y-auto min-h-[420px]">
+      <DialogBody className="pt-4 max-h-[70vh] overflow-y-auto min-h-105">
         {!showEditor && hasErr && (
           <div className="mb-4 text-sm text-rose-500">{hasErr}</div>
         )}
 
         {showEditor ? (
           <div className="space-y-4">
-            <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300">
+            <div className="rounded-xl border border-gv-line bg-gv-panel-soft px-4 py-3 text-xs text-gv-muted">
               Markdown supported. Changes save to server `news.md` file.
             </div>
 

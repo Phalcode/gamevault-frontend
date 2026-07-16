@@ -248,7 +248,7 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
           <button
             type="button"
             onClick={prev}
-            className="absolute top-1/2 left-2 -translate-y-1/2 p-2.5 rounded-full bg-black/50 text-white hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            className="absolute top-1/2 left-2 -translate-y-1/2 p-2.5 rounded-full bg-black/50 text-white hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-gv-accent-cool cursor-pointer"
             aria-label="Previous media"
           >
             <ChevronLeftIcon className="w-5 h-5" />
@@ -256,7 +256,7 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
           <button
             type="button"
             onClick={next}
-            className="absolute top-1/2 right-2 -translate-y-1/2 p-2.5 rounded-full bg-black/50 text-white hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            className="absolute top-1/2 right-2 -translate-y-1/2 p-2.5 rounded-full bg-black/50 text-white hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-gv-accent-cool cursor-pointer"
             aria-label="Next media"
           >
             <ChevronRightIcon className="w-5 h-5" />
@@ -282,7 +282,7 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="p-1.5 rounded-md bg-white/10 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-indigo-500 pointer-events-auto"
+            className="p-1.5 rounded-md bg-white/10 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-gv-accent-cool pointer-events-auto"
             aria-label="Toggle fullscreen"
             title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
             aria-pressed={isFullscreen}

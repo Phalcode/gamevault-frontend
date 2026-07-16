@@ -19,7 +19,7 @@ export function RowCountControl({
       className="flex items-center gap-1.5"
       onClick={(e) => e.stopPropagation()}
     >
-      <span className="text-xs text-zinc-400 mr-1">Rows</span>
+      <span className="text-xs text-gv-muted mr-1">Rows</span>
       <Button
         plain
         className="!p-1 min-h-0"
@@ -29,7 +29,7 @@ export function RowCountControl({
       >
         <MinusIcon className="h-3.5 w-3.5" />
       </Button>
-      <span className="text-xs font-medium text-zinc-300 w-4 text-center tabular-nums">
+      <span className="text-xs font-medium text-gv-text w-4 text-center tabular-nums">
         {value}
       </span>
       <Button

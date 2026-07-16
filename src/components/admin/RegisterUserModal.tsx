@@ -132,7 +132,7 @@ export function RegisterUserModal({ onClose, onRegistered }: Props) {
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300/40 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700/60 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gv-line text-gv-muted hover:text-gv-text hover:bg-gv-panel-soft"
           disabled={submitting}
           aria-label="Close"
         >
@@ -327,7 +327,7 @@ export function RegisterUserModal({ onClose, onRegistered }: Props) {
               type="button"
               onClick={onClose}
               disabled={submitting}
-              className="bg-transparent border border-zinc-300/50 dark:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200"
+              className="bg-transparent border border-gv-line hover:bg-gv-panel-soft text-gv-text"
             >
               Cancel
             </Button>
