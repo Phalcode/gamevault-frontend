@@ -1023,6 +1023,179 @@ fn extract_7z_archive(
   Ok(())
 }
 
+// ── ISO 9660 extraction support ──────────────────────────────────────────────
+
+struct IsoFileDevice {
+  file: std::fs::File,
+}
+
+impl iso9660_simple::Read for IsoFileDevice {
+  fn read(&mut self, position: usize, buffer: &mut [u8]) -> Option<()> {
+    use std::io::Seek;
+    if self
+      .file
+      .seek(std::io::SeekFrom::Start(position as u64))
+      .is_err()
+    {
+      return None;
+    }
+    self.file.read_exact(buffer).ok()
+  }
+}
+
+fn is_iso_archive(path: &PathBuf) -> bool {
+  use std::io::{Read, Seek};
+  let mut file = match std::fs::File::open(path) {
+    Ok(f) => f,
+    Err(_) => return false,
+  };
+  // ISO 9660 Primary Volume Descriptor starts at sector 16 (offset 0x8000).
+  // The standard identifier "CD001" sits at bytes 1–5 of the descriptor.
+  if file.seek(std::io::SeekFrom::Start(0x8001)).is_err() {
+    return false;
+  }
+  let mut sig = [0u8; 5];
+  if file.read_exact(&mut sig).is_err() {
+    return false;
+  }
+  &sig == b"CD001"
+}
+
+fn count_iso_entries(iso: &mut iso9660_simple::ISO9660, lba: usize) -> u64 {
+  let mut count = 0u64;
+  let entries: Vec<_> = iso.read_directory(lba).collect();
+  for entry in &entries {
+    if entry.name == "." || entry.name == ".." {
+      continue;
+    }
+    count += 1;
+    if entry.is_folder() {
+      count += count_iso_entries(iso, entry.record.lba.get() as usize);
+    }
+  }
+  count
+}
+
+fn extract_iso_directory(
+  iso: &mut iso9660_simple::ISO9660,
+  lba: usize,
+  dest: &Path,
+  processed: &mut u64,
+  total: u64,
+  app: &tauri::AppHandle,
+  game_id: i64,
+) -> Result<(), (bool, String)> {
+  let entries: Vec<_> = iso.read_directory(lba).collect();
+  for entry in &entries {
+    if entry.name == "." || entry.name == ".." {
+      continue;
+    }
+
+    let dest_path = dest.join(&entry.name);
+
+    if entry.is_folder() {
+      fs::create_dir_all(&dest_path)
+        .map_err(|e| (false, format!("Failed to create directory: {e}")))?;
+
+      *processed += 1;
+      emit_extract_progress(
+        app,
+        game_id,
+        "extracting",
+        *processed,
+        Some(total),
+        Some(entry.name.clone()),
+        None,
+      );
+
+      extract_iso_directory(
+        iso,
+        entry.record.lba.get() as usize,
+        &dest_path,
+        processed,
+        total,
+        app,
+        game_id,
+      )?;
+    } else {
+      if let Some(parent) = dest_path.parent() {
+        fs::create_dir_all(parent)
+          .map_err(|e| (false, format!("Failed to create parent directory: {e}")))?;
+      }
+
+      let file_size = entry.file_size() as usize;
+      let mut output = std::fs::File::create(&dest_path)
+        .map_err(|e| (false, format!("Failed to create output file: {e}")))?;
+
+      let mut offset = 0usize;
+      let mut buffer = vec![0u8; 8192];
+
+      while offset < file_size {
+        let remaining = file_size - offset;
+        let to_read = std::cmp::min(remaining, buffer.len());
+        let buf_slice = &mut buffer[..to_read];
+
+        if iso.read_file(entry, offset, buf_slice).is_none() {
+          return Err((
+            false,
+            format!("Failed to read ISO file data at offset {}", offset),
+          ));
+        }
+
+        output
+          .write_all(buf_slice)
+          .map_err(|e| (false, format!("Failed to write output file: {e}")))?;
+
+        offset += to_read;
+      }
+
+      *processed += 1;
+      emit_extract_progress(
+        app,
+        game_id,
+        "extracting",
+        *processed,
+        Some(total),
+        Some(entry.name.clone()),
+        None,
+      );
+    }
+  }
+  Ok(())
+}
+
+fn extract_iso_archive(
+  app: &tauri::AppHandle,
+  game_id: i64,
+  archive: &PathBuf,
+  destination: &PathBuf,
+) -> Result<(), (bool, String)> {
+  let file = std::fs::File::open(archive)
+    .map_err(|e| (false, format!("Failed to open ISO archive: {e}")))?;
+
+  let device = IsoFileDevice { file };
+  let mut iso = iso9660_simple::ISO9660::from_device(device)
+    .ok_or_else(|| (false, "Failed to parse ISO 9660 filesystem".to_string()))?;
+
+  let root_lba = iso.root().lba.get() as usize;
+  let total = count_iso_entries(&mut iso, root_lba);
+
+  emit_extract_progress(app, game_id, "extracting", 0, Some(total), None, None);
+
+  let mut processed = 0u64;
+  extract_iso_directory(
+    &mut iso,
+    root_lba,
+    destination,
+    &mut processed,
+    total,
+    app,
+    game_id,
+  )
+}
+
+// ── End ISO 9660 extraction support ──────────────────────────────────────────
+
 fn archive_file_name_lowercase(path: &Path) -> String {
   path
     .file_name()
@@ -2093,6 +2266,21 @@ fn extract_archive(
     };
   }
 
+  if is_iso_archive(&archive) {
+    return match extract_iso_archive(&app, game_id, &archive, &destination) {
+      Ok(_) => Ok(ExtractArchiveResponse {
+        success: true,
+        needs_password: false,
+        message: None,
+      }),
+      Err((needs_password, msg)) => Ok(ExtractArchiveResponse {
+        success: false,
+        needs_password,
+        message: Some(msg),
+      }),
+    };
+  }
+
   if let Some(result) = extract_other_supported_archive(&app, game_id, &archive, &destination) {
     return match result {
       Ok(_) => Ok(ExtractArchiveResponse {
@@ -2113,7 +2301,7 @@ fn extract_archive(
       success: false,
       needs_password: false,
       message: Some(
-        "Unsupported archive format for built-in extractor. Supported formats include ZIP, RAR, 7z, TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ2, TAR.XZ/TXZ, TAR.ZST/TZST, and single-file GZ/BZ2/XZ/ZST."
+        "Unsupported archive format for built-in extractor. Supported formats include ZIP, RAR, 7z, ISO, TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ2, TAR.XZ/TXZ, TAR.ZST/TZST, and single-file GZ/BZ2/XZ/ZST."
           .to_string(),
       ),
     });

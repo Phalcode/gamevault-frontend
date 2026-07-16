@@ -39,6 +39,7 @@ flate2 = "1.1.2"
 bzip2 = "0.5.2"
 xz2 = "0.1.7"
 zstd = "0.13.3"
+iso9660_simple = "0.2.7"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["shellapi", "winuser"] }
