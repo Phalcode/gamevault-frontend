@@ -221,8 +221,9 @@ export default function Downloads() {
       [download.gameId]: {
         mode: "undetected",
         forcedType:
-          FORCE_INSTALL_TYPES.find((option) => option.value === download.gameType)
-            ?.value || GamevaultGameTypeEnum.windows_setup,
+          FORCE_INSTALL_TYPES.find(
+            (option) => option.value === download.gameType,
+          )?.value || GamevaultGameTypeEnum.windows_setup,
         installerOptions: [],
         selectedInstaller: "",
         loadingInstallers: false,
@@ -257,7 +258,8 @@ export default function Downloads() {
         const installerOptions = await listInstallExecutables(download.gameId);
         const preferredInstaller = pickPreferredInstaller(
           installerOptions,
-          (download.gameMetadata as GameMetadata | undefined)?.installer_executable,
+          (download.gameMetadata as GameMetadata | undefined)
+            ?.installer_executable,
         );
         setInstallStateByGame((prev) => ({
           ...prev,
@@ -441,7 +443,9 @@ export default function Downloads() {
             <div className="space-y-2 text-sm text-gv-muted">
               <p>2. Hit the 'Install' button to launch the games installer.</p>
               <p>3. Go through the game's setup process.</p>
-              <p>Make sure to select this folder as the installers destination:</p>
+              <p>
+                Make sure to select this folder as the installers destination:
+              </p>
             </div>
 
             <div className="surface-panel-soft rounded-xl p-3">
@@ -450,11 +454,14 @@ export default function Downloads() {
                   className="min-w-0 flex-1 truncate text-sm text-gv-muted"
                   title={download.installationDirectory}
                 >
-                  {download.installationDirectory || "No installation path available"}
+                  {download.installationDirectory ||
+                    "No installation path available"}
                 </p>
                 <Button
                   color="zinc"
-                  onClick={() => handleCopyInstallPath(download.installationDirectory)}
+                  onClick={() =>
+                    handleCopyInstallPath(download.installationDirectory)
+                  }
                   disabled={!download.installationDirectory}
                 >
                   <ClipboardDocumentIcon className="h-4 w-4" />
@@ -503,7 +510,10 @@ export default function Downloads() {
         )}
 
         <div className="flex items-center justify-between gap-3">
-          <Button color="zinc" onClick={() => closeInstallView(download.gameId)}>
+          <Button
+            color="zinc"
+            onClick={() => closeInstallView(download.gameId)}
+          >
             Cancel
           </Button>
 
@@ -597,16 +607,6 @@ export default function Downloads() {
                 key={download.gameId}
                 className="surface-panel relative rounded-2xl p-4 sm:p-5"
               >
-                <Button
-                  plain
-                  aria-label="Delete download card"
-                  title="Delete download and extraction folders"
-                  onClick={() => void handleDeleteCard(download.gameId)}
-                  className="absolute top-3 right-3 p-1.5! text-gv-muted hover:text-red-400!"
-                >
-                  <TrashIcon className="h-4 w-4" />
-                </Button>
-
                 <div className="flex flex-col items-start gap-4 sm:flex-row">
                   <div className="shrink-0">
                     {download.gameMetadata?.cover ? (
@@ -641,24 +641,30 @@ export default function Downloads() {
                       <ol className="space-y-3">
                         <li className="flex items-center gap-2">
                           <StepDot state={downloadStep} />
-                          <span className="text-sm font-medium text-gv-text">Download</span>
+                          <span className="text-sm font-medium text-gv-text">
+                            Download
+                          </span>
                         </li>
                         <li className="pl-2 ml-2.25 h-4 border-l border-gv-line" />
                         <li className="flex items-center gap-2">
                           <StepDot state={extractionStep} />
-                          <span className="text-sm font-medium text-gv-text">Extraction</span>
+                          <span className="text-sm font-medium text-gv-text">
+                            Extraction
+                          </span>
                         </li>
                         <li className="pl-2 ml-2.25 h-4 border-l border-gv-line" />
                         <li className="flex items-center gap-2">
                           <StepDot state={installationStep} />
-                          <span className="text-sm font-medium text-gv-text">Installation</span>
+                          <span className="text-sm font-medium text-gv-text">
+                            Installation
+                          </span>
                         </li>
                       </ol>
                     </div>
                   )}
 
                   <div className="flex-1 min-w-0 space-y-3 self-stretch">
-                    <div className="flex items-start justify-between gap-3 pr-10">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <h3
                           className="font-medium text-sm text-gv-text truncate"
@@ -669,7 +675,9 @@ export default function Downloads() {
                         <div className="mt-1 text-xs text-gv-muted flex flex-wrap items-center gap-2">
                           <span>
                             {formatBytes(download.received)} /{" "}
-                            {download.total ? formatBytes(download.total) : "Unknown"}
+                            {download.total
+                              ? formatBytes(download.total)
+                              : "Unknown"}
                           </span>
                           {download.speedBps !== undefined &&
                             download.status === "downloading" && (
@@ -708,7 +716,9 @@ export default function Downloads() {
                       {isTauri && (
                         <Button
                           color="zinc"
-                          onClick={() => void openDownloadFolder(download.gameId)}
+                          onClick={() =>
+                            void openDownloadFolder(download.gameId)
+                          }
                           disabled={!download.downloadDirectory}
                         >
                           <FolderOpenIcon className="h-4 w-4" />
@@ -752,6 +762,14 @@ export default function Downloads() {
                           Try Again
                         </Button>
                       )}
+                      <Button
+                        outline
+                        color="red"
+                        onClick={() => void handleDeleteCard(download.gameId)}
+                      >
+                        <TrashIcon className="h-4 w-4" />
+                        Delete
+                      </Button>
                     </div>
 
                     {download.error &&
@@ -804,15 +822,20 @@ export default function Downloads() {
                                   ? "amber"
                                   : "indigo"
                               }
-                              onClick={() => void handleExtract(download.gameId)}
-                              disabled={download.extractionStatus === "extracting"}
+                              onClick={() =>
+                                void handleExtract(download.gameId)
+                              }
+                              disabled={
+                                download.extractionStatus === "extracting"
+                              }
                             >
                               {download.extractionStatus === "extracting"
                                 ? "Extracting..."
                                 : download.extractionStatus === "completed"
                                   ? "Extract Again"
                                   : download.extractionStatus === "error" ||
-                                      download.extractionStatus === "needs-password"
+                                      download.extractionStatus ===
+                                        "needs-password"
                                     ? "Try Extraction Again"
                                     : "Start Extraction"}
                             </Button>
@@ -855,87 +878,95 @@ export default function Downloads() {
                           )}
                         </div>
 
-                        {download.extractionStatus === "completed" && isTauri && (
-                          <div className="surface-panel-soft rounded-xl p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 text-sm font-medium text-gv-text">
-                                <ComputerDesktopIcon className="h-4 w-4 text-gv-accent" />
-                                Installation
-                              </div>
-                              {download.installationStatus === "completed" && (
-                                <Badge color="green">Installed</Badge>
-                              )}
-                              {download.installationStatus === "running" && (
-                                <Badge color="blue">Running</Badge>
-                              )}
-                            </div>
-
-                            <p className="mt-2 text-xs text-gv-muted">
-                              Start the installation process for this extracted game.
-                            </p>
-
-                            {(download.installationStatus === "copying" ||
-                              download.installationStatus === "launching") && (
-                              <div className="mt-3 space-y-2">
-                                <div className="flex items-center justify-between text-xs text-gv-muted">
-                                  <span>
-                                    {download.installationStatus === "copying"
-                                      ? "Installation Copy"
-                                      : "Installer Launch"}
-                                  </span>
-                                  <span>
-                                    {download.installationStatus === "copying" &&
-                                    download.installationProgress !== null &&
-                                    download.installationProgress !== undefined
-                                      ? `${download.installationProgress.toFixed(1)}%`
-                                      : download.installationStatus === "launching"
-                                        ? "Starting"
-                                        : "In progress"}
-                                  </span>
+                        {download.extractionStatus === "completed" &&
+                          isTauri && (
+                            <div className="surface-panel-soft rounded-xl p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 text-sm font-medium text-gv-text">
+                                  <ComputerDesktopIcon className="h-4 w-4 text-gv-accent" />
+                                  Installation
                                 </div>
-                                {download.installationStatus === "copying" && (
-                                  <div className="relative w-full h-2 bg-gv-line rounded-full overflow-hidden">
-                                    <div
-                                      className="absolute left-0 top-0 h-full bg-gv-accent transition-all duration-300"
-                                      style={{
-                                        width: `${download.installationProgress ?? 0}%`,
-                                      }}
-                                    />
+                                {download.installationStatus ===
+                                  "completed" && (
+                                  <Badge color="green">Installed</Badge>
+                                )}
+                                {download.installationStatus === "running" && (
+                                  <Badge color="blue">Running</Badge>
+                                )}
+                              </div>
+
+                              <p className="mt-2 text-xs text-gv-muted">
+                                Start the installation process for this
+                                extracted game.
+                              </p>
+
+                              {(download.installationStatus === "copying" ||
+                                download.installationStatus ===
+                                  "launching") && (
+                                <div className="mt-3 space-y-2">
+                                  <div className="flex items-center justify-between text-xs text-gv-muted">
+                                    <span>
+                                      {download.installationStatus === "copying"
+                                        ? "Installation Copy"
+                                        : "Installer Launch"}
+                                    </span>
+                                    <span>
+                                      {download.installationStatus ===
+                                        "copying" &&
+                                      download.installationProgress !== null &&
+                                      download.installationProgress !==
+                                        undefined
+                                        ? `${download.installationProgress.toFixed(1)}%`
+                                        : download.installationStatus ===
+                                            "launching"
+                                          ? "Starting"
+                                          : "In progress"}
+                                    </span>
                                   </div>
-                                )}
-                                {download.installationCurrentFile && (
-                                  <p
-                                    className="text-xs text-gv-muted truncate"
-                                    title={download.installationCurrentFile}
-                                  >
-                                    {download.installationCurrentFile}
-                                  </p>
-                                )}
-                              </div>
-                            )}
+                                  {download.installationStatus ===
+                                    "copying" && (
+                                    <div className="relative w-full h-2 bg-gv-line rounded-full overflow-hidden">
+                                      <div
+                                        className="absolute left-0 top-0 h-full bg-gv-accent transition-all duration-300"
+                                        style={{
+                                          width: `${download.installationProgress ?? 0}%`,
+                                        }}
+                                      />
+                                    </div>
+                                  )}
+                                  {download.installationCurrentFile && (
+                                    <p
+                                      className="text-xs text-gv-muted truncate"
+                                      title={download.installationCurrentFile}
+                                    >
+                                      {download.installationCurrentFile}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
 
-                            {download.installationError && (
-                              <div className="mt-2 text-xs text-red-600 dark:text-red-400">
-                                {download.installationError}
-                              </div>
-                            )}
+                              {download.installationError && (
+                                <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+                                  {download.installationError}
+                                </div>
+                              )}
 
-                            <div className="mt-3 flex justify-end">
-                              <Button
-                                color="indigo"
-                                onClick={() => void openInstallFlow(download)}
-                                disabled={
-                                  download.installationStatus === "copying" ||
-                                  download.installationStatus === "launching"
-                                }
-                              >
-                                {download.installationStatus === "completed"
-                                  ? "Install Again"
-                                  : "Install"}
-                              </Button>
+                              <div className="mt-3 flex justify-end">
+                                <Button
+                                  color="indigo"
+                                  onClick={() => void openInstallFlow(download)}
+                                  disabled={
+                                    download.installationStatus === "copying" ||
+                                    download.installationStatus === "launching"
+                                  }
+                                >
+                                  {download.installationStatus === "completed"
+                                    ? "Install Again"
+                                    : "Install"}
+                                </Button>
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          )}
                       </div>
                     )}
 
