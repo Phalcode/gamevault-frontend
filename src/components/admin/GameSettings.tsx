@@ -3172,7 +3172,15 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
               {workingGame.metadata?.title || workingGame.title || "Unknown"}
             </div>
             <div>ID: {workingGame.id}</div>
-            <div>Version: {workingGame.version || "N/A"}</div>
+            <div>
+              Latest version:{" "}
+              {workingGame.versions?.[0]?.version ||
+                workingGame.version ||
+                "N/A"}
+            </div>
+            {installedGame?.versionName && (
+              <div>Installed version: {installedGame.versionName}</div>
+            )}
           </div>
         </>
       )}
