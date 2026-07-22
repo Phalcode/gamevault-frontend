@@ -10,11 +10,13 @@ import { isTauriApp } from "@/utils/tauri";
 import { isDebugTauriOverride, setDebugTauriOverride } from "@/utils/tauri";
 import { Button } from "@/components/tailwind/button";
 import ThemeSelect from "@/components/ThemeSelect";
+import { isAnalyticsEnabled, setAnalyticsEnabled } from "@/utils/analytics";
 import {
   FolderArrowDownIcon,
   ClipboardDocumentIcon,
   CheckIcon,
   ComputerDesktopIcon,
+  ChartBarIcon,
 } from "@heroicons/react/24/outline";
 
 const RETAIN_KEY = "app_retain_library_prefs";
@@ -30,6 +32,9 @@ export default function Settings() {
     } catch {
       return false;
     }
+  });
+  const [analyticsConsent, setAnalyticsConsent] = useState<boolean>(() => {
+    return isAnalyticsEnabled();
   });
   const [downloadPath, setDownloadPath] = useState<string>(() => {
     try {
@@ -110,7 +115,7 @@ export default function Settings() {
       </Text>
       <Divider />
 
-      <div className="max-w-2xl space-y-6">
+      <div className="max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Downloads Section */}
         <section className="rounded-2xl border border-gv-line bg-gv-panel p-6">
           <Fieldset>
@@ -141,7 +146,9 @@ export default function Settings() {
                         type="button"
                         onClick={handleCopyPath}
                         className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl p-2 text-gv-muted transition-colors hover:bg-gv-panel-soft hover:text-gv-text cursor-pointer"
-                        aria-label={pathCopied ? "Path copied" : "Copy path to clipboard"}
+                        aria-label={
+                          pathCopied ? "Path copied" : "Copy path to clipboard"
+                        }
                       >
                         {pathCopied ? (
                           <CheckIcon className="h-4 w-4 text-green-400" />
@@ -161,9 +168,7 @@ export default function Settings() {
                   </Button>
                 </div>
                 {downloadPath && (
-                  <Text className="mt-1 text-xs">
-                    {displayPath}
-                  </Text>
+                  <Text className="mt-1 text-xs">{displayPath}</Text>
                 )}
               </Field>
             )}
@@ -219,6 +224,42 @@ export default function Settings() {
           </Fieldset>
         </section>
 
+        {/* Privacy & Analytics Section */}
+        <section className="rounded-2xl border border-gv-line bg-gv-panel p-6">
+          <Fieldset>
+            <Legend className="flex items-center gap-2">
+              <ChartBarIcon className="size-5" />
+              Privacy &amp; Analytics
+            </Legend>
+            <Text className="mt-1">
+              Control how data is shared to help improve GameVault.
+            </Text>
+
+            <Field className="mt-6">
+              <SwitchField>
+                <Switch
+                  name="analyticsConsent"
+                  color="indigo"
+                  aria-label="Enable anonymous usage analytics"
+                  checked={analyticsConsent}
+                  onChange={(v: boolean) => {
+                    setAnalyticsEnabled(v);
+                    setAnalyticsConsent(v);
+                  }}
+                />
+                <Label>Send anonymous usage analytics</Label>
+                <Text className="mt-1">
+                  We collect anonymous data about how you use GameVault, like
+                  which features you use and whether errors occur. This helps us
+                  understand what to improve. No personal information is ever
+                  collected. Changes take effect after{" "}
+                  {isTauri ? "restarting the app" : "reloading"}.
+                </Text>
+              </SwitchField>
+            </Field>
+          </Fieldset>
+        </section>
+
         {/* Appearance Section */}
         <section className="rounded-2xl border border-gv-line bg-gv-panel p-6">
           <Fieldset>
@@ -234,22 +275,31 @@ export default function Settings() {
               </Text>
               <ThemeSelect className="max-w-56" />
             </Field>
-
           </Fieldset>
         </section>
 
         {/* Dev Tools — only visible in development builds */}
         {import.meta.env.DEV && (
-          <section className="rounded-2xl border border-gv-warning/30 bg-gv-warning/5 p-6">
+          <section className="rounded-2xl border border-gv-warning/30 bg-gv-warning/5 p-6 lg:col-span-2">
             <Fieldset>
               <Legend className="flex items-center gap-2 text-gv-warning">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="size-4 shrink-0">
-                  <path fillRule="evenodd" d="M6.701 2.25c.577-1 2.02-1 2.598 0l5.196 9a1.5 1.5 0 0 1-1.299 2.25H2.804a1.5 1.5 0 0 1-1.3-2.25l5.197-9ZM8 4a.75.75 0 0 1 .75.75v3a.75.75 0 1 1-1.5 0v-3A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  className="size-4 shrink-0"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M6.701 2.25c.577-1 2.02-1 2.598 0l5.196 9a1.5 1.5 0 0 1-1.299 2.25H2.804a1.5 1.5 0 0 1-1.3-2.25l5.197-9ZM8 4a.75.75 0 0 1 .75.75v3a.75.75 0 1 1-1.5 0v-3A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+                    clipRule="evenodd"
+                  />
                 </svg>
                 Developer Tools
               </Legend>
               <Text className="mt-1">
-                These options are only visible in development builds and will not appear in production.
+                These options are only visible in development builds and will
+                not appear in production.
               </Text>
 
               <Field className="mt-6">
@@ -272,7 +322,8 @@ export default function Settings() {
                   </Label>
                 </SwitchField>
                 <Text className="mt-1">
-                  Preview how GameVault looks and behaves as a native desktop application.
+                  Preview how GameVault looks and behaves as a native desktop
+                  application.
                 </Text>
               </Field>
             </Fieldset>
@@ -280,7 +331,7 @@ export default function Settings() {
         )}
 
         {/* Version */}
-        <p className="px-1 text-xs text-gv-muted">
+        <p className="px-1 text-xs text-gv-muted lg:col-span-2">
           GameVault Web UI&nbsp;&nbsp;
           <a
             href={`https://github.com/Phalcode/gamevault-frontend/releases/tag/${__APP_VERSION__}`}

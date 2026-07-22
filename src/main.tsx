@@ -23,11 +23,19 @@ import Settings from "./pages/Settings";
 import Downloads from "./pages/Downloads";
 import { GamevaultUserRoleEnum } from "./api";
 import { applyTheme, getStoredTheme } from "./utils/theme";
+import { isAnalyticsEnabled } from "./utils/analytics";
+import * as Swetrix from "swetrix";
 
 // Apply stored theme immediately to prevent flash of wrong theme
 applyTheme(getStoredTheme());
 
 (window as any).global = window;
+
+if (isAnalyticsEnabled()) {
+  Swetrix.init("dBl2xaaJ9x3M", {preloadSessionReplay: true});
+  Swetrix.trackViews();
+  Swetrix.trackErrors();
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
