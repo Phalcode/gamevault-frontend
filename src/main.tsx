@@ -9,6 +9,7 @@ import {
 } from "./context/AlertDialogContext";
 import { AuthProvider } from "./context/AuthContext";
 import { DownloadProvider } from "./context/DownloadContext";
+import { OfflineProvider } from "./context/OfflineContext";
 import "./index.css";
 import DashboardLayout from "./layouts/DashboardLayout";
 import FullscreenLayout from "./layouts/FullscreenLayout";
@@ -32,8 +33,9 @@ applyTheme(getStoredTheme());
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <AuthProvider>
-      <DownloadProvider>
-        <AlertDialogProvider>
+      <OfflineProvider>
+        <DownloadProvider>
+          <AlertDialogProvider>
           <GlobalAlertDialogBridge />
           <BrowserRouter>
             <Routes>
@@ -66,7 +68,8 @@ createRoot(document.getElementById("root")!).render(
             </Routes>
           </BrowserRouter>
         </AlertDialogProvider>
-      </DownloadProvider>
+        </DownloadProvider>
+      </OfflineProvider>
     </AuthProvider>
   </StrictMode>,
 );

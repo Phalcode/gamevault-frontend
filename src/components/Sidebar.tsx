@@ -1,5 +1,6 @@
 import { UserAvatar } from "@/components/UserAvatar";
 import { useAuth } from "@/context/AuthContext";
+import { useOnlineStatus } from "@/context/OfflineContext";
 import { Logo } from "@components/Logo";
 import {
   ArrowRightStartOnRectangleIcon,
@@ -72,6 +73,7 @@ export function Sidebar() {
   const roleVal = user?.role;
   const isAdmin = Number(roleVal) >= Number(GamevaultUserRoleEnum._3);
   const isTauri = isTauriApp();
+  const { isOnline } = useOnlineStatus();
   const isCurrentPath = (path: string) => {
     if (path === "/library") {
       return (
@@ -111,7 +113,16 @@ export function Sidebar() {
                 </SidebarLabel>
               </SidebarItem>
             )}
-            <SidebarItem href="/community" current={isCurrentPath("/community")}>
+            <SidebarItem
+              href={isTauri && !isOnline ? undefined : "/community"}
+              current={isCurrentPath("/community")}
+              onClick={
+                isTauri && !isOnline
+                  ? (e: React.MouseEvent) => e.preventDefault()
+                  : undefined
+              }
+              className={isTauri && !isOnline ? "opacity-40 cursor-not-allowed" : ""}
+            >
               <UserGroupIcon />
               <SidebarLabel className="flex justify-between w-full">
                 Community
@@ -124,7 +135,16 @@ export function Sidebar() {
               </SidebarLabel>
             </SidebarItem>
             {isAdmin ? (
-              <SidebarItem href="/admin" current={isCurrentPath("/admin")}>
+              <SidebarItem
+                href={isTauri && !isOnline ? undefined : "/admin"}
+                current={isCurrentPath("/admin")}
+                onClick={
+                  isTauri && !isOnline
+                    ? (e: React.MouseEvent) => e.preventDefault()
+                    : undefined
+                }
+                className={isTauri && !isOnline ? "opacity-40 cursor-not-allowed" : ""}
+              >
                 <ShieldExclamationIcon />
                 <SidebarLabel>Administration</SidebarLabel>
               </SidebarItem>

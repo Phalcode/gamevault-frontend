@@ -1,10 +1,14 @@
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { useOnlineStatus } from "@/context/OfflineContext";
 import { isTauriApp } from "@/utils/tauri";
 
 export function useGameTimeTracker() {
   const { serverUrl, user, auth } = useAuth();
+  const { onReconnect } = useOnlineStatus();
   const startedRef = useRef(false);
+  const syncInFlightRef = useRef(false);
+  const initialSyncDoneRef = useRef(false);
 
   // Start / restart tracker when credentials become available
   useEffect(() => {
@@ -55,4 +59,100 @@ export function useGameTimeTracker() {
       invoke("update_tracker_auth", { accessToken }).catch(() => {});
     });
   }, [auth?.access_token]);
+
+  // Sync any lingering offline time on startup (handles case where user
+  // went offline, closed the app, then restarted while online)
+  useEffect(() => {
+    if (!isTauriApp()) return;
+    if (!serverUrl || !auth?.access_token) return;
+    if (initialSyncDoneRef.current) return;
+    initialSyncDoneRef.current = true;
+
+    (async () => {
+      try {
+        const selectedRoot = localStorage.getItem("tauri_download_path");
+        if (!selectedRoot) return;
+
+        const { invoke } = await import("@tauri-apps/api/core");
+        const files = await invoke<any[]>("get_offline_time_files", {
+          selectedRoot,
+        });
+
+        for (const file of files) {
+          if (!file.accumulatedMinutes || file.accumulatedMinutes <= 0) {
+            await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+            continue;
+          }
+
+          try {
+            const success = await invoke<boolean>("sync_offline_time", {
+              serverUrl,
+              accessToken: auth.access_token,
+              userId: file.userId,
+              gameId: file.gameId,
+              minutes: file.accumulatedMinutes,
+            });
+
+            if (success) {
+              await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+            }
+          } catch {
+            // Retry on next reconnect
+          }
+        }
+      } catch {
+        // Silently fail
+      }
+    })();
+  }, [serverUrl, auth?.access_token]);
+
+  // Sync offline time when coming back online
+  useEffect(() => {
+    if (!isTauriApp()) return;
+
+    const unregister = onReconnect(async () => {
+      if (syncInFlightRef.current) return;
+      syncInFlightRef.current = true;
+
+      try {
+        const selectedRoot = localStorage.getItem("tauri_download_path");
+        if (!selectedRoot) return;
+
+        const { invoke } = await import("@tauri-apps/api/core");
+        const files = await invoke<any[]>("get_offline_time_files", {
+          selectedRoot,
+        });
+
+        for (const file of files) {
+          if (!file.accumulatedMinutes || file.accumulatedMinutes <= 0) {
+            // Delete empty files
+            await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+            continue;
+          }
+
+          try {
+            const success = await invoke<boolean>("sync_offline_time", {
+              serverUrl,
+              accessToken: auth?.access_token || "",
+              userId: file.userId,
+              gameId: file.gameId,
+              minutes: file.accumulatedMinutes,
+            });
+
+            if (success) {
+              await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+            }
+          } catch {
+            // Retry on next reconnect
+          }
+        }
+      } catch {
+        // Silently fail — retry on next reconnect
+      } finally {
+        syncInFlightRef.current = false;
+      }
+    });
+
+    return unregister;
+  }, [onReconnect, serverUrl, auth?.access_token]);
 }

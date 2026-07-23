@@ -7,6 +7,7 @@ import MediaSlider from "@/components/MediaSlider";
 import MarkdownContent from "@/components/MarkdownContent";
 import { Spinner } from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
+import { useOnlineStatus } from "@/context/OfflineContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { Button } from "@tw/button";
 import { Listbox, ListboxOption, ListboxLabel } from "@tw/listbox";
@@ -75,6 +76,7 @@ export default function GameView() {
   >(null);
   const [selectableVersions, setSelectableVersions] = useState<GameVersion[]>([]);
   const isTauri = isTauriApp();
+  const { isOnline } = useOnlineStatus();
   const backgroundMediaId = game?.metadata?.background?.id;
   const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
   const backgroundRevokeRef = useRef<string | null>(null);
@@ -550,6 +552,32 @@ export default function GameView() {
     "linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)";
 
   // Removed h-full overflow-auto to prevent nested scroll area causing double vertical scrollbar; letting parent layout manage vertical scrolling.
+
+  // Offline mode: game details unavailable
+  if (isTauri && !isOnline) {
+    return (
+      <div className="flex min-h-full flex-col items-center justify-center gap-4 p-8 text-center">
+        <div className="rounded-full bg-amber-500/15 p-4">
+          <svg className="h-8 w-8 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+          </svg>
+        </div>
+        <h2 className="text-lg font-semibold text-gv-text">Game details unavailable</h2>
+        <p className="max-w-md text-sm text-gv-muted">
+          Game details are not available in offline mode. Installed games can
+          still be launched directly from the Library.
+        </p>
+        <Button
+          color="zinc"
+          onClick={() => navigate("/library")}
+        >
+          <ChevronLeftIcon className="w-4 h-4" />
+          Back to Library
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="relative isolate flex min-h-full flex-col overflow-hidden px-4 pb-4 sm:px-6 lg:px-8">
       <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 w-screen -translate-x-1/2">

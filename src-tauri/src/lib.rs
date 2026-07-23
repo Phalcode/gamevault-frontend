@@ -14,6 +14,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 use tauri::Emitter;
+use tauri::Manager;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use unrar::Archive;
@@ -425,6 +426,7 @@ struct InstalledGameInfo {
   game_id: i64,
   game_title: String,
   game_metadata: Option<serde_json::Value>,
+  cached_metadata: Option<serde_json::Value>,
   game_type: Option<String>,
   version_id: i64,
   version_name: String,
@@ -527,10 +529,22 @@ fn list_installed_games(selected_root: String) -> Result<Vec<InstalledGameInfo>,
 
       let installations_dir = resolve_version_subdir(&version_path, "Installation", "Installations");
 
+      // Try to read cached game data from .cache/games/{game_id}.json
+      let cache_dir = root.join(".cache").join("games");
+      let cache_file = cache_dir.join(format!("{}.json", resolved_game_id));
+      let cached_metadata: Option<serde_json::Value> = if cache_file.exists() {
+        fs::read_to_string(&cache_file)
+          .ok()
+          .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+      } else {
+        None
+      };
+
       results.push(InstalledGameInfo {
         game_id: resolved_game_id,
         game_title: resolved_game_title.clone(),
         game_metadata: game_metadata.clone(),
+        cached_metadata,
         game_type,
         version_id,
         version_name,
@@ -2661,21 +2675,61 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>) {
       continue;
     }
 
-    // Send increment requests
+    // Send increment requests — track failures for offline storage
     let client = reqwest::Client::new();
     for game_id in matched_game_ids {
       let url = format!(
         "{}/api/progresses/user/{}/game/{}/increment",
         config.server_url, config.user_id, game_id
       );
-      let _ = client
+      let result = client
         .put(&url)
         .header("Authorization", format!("Bearer {}", config.access_token))
         .header("Accept", "application/json")
         .send()
         .await;
+
+      // If network error (not HTTP error), save offline time
+      if result.is_err() {
+        save_offline_time(&config.download_path, config.user_id, game_id);
+      }
     }
   }
+}
+
+/// Save accumulated offline play time for a game.
+/// Reads existing .gamevault.offline_time.json in the version directory
+/// and increments accumulated_minutes by 1.
+fn save_offline_time(download_path: &str, user_id: i64, game_id: i64) {
+  // Find the installed game's version directory
+  let installed = match list_installed_games(download_path.to_string()) {
+    Ok(games) => games,
+    Err(_) => return,
+  };
+
+  let target = match installed.iter().find(|g| g.game_id == game_id) {
+    Some(g) => g,
+    None => return,
+  };
+
+  let offline_file = PathBuf::from(&target.version_directory).join(".gamevault.offline_time.json");
+
+  let mut current_minutes: i64 = 0;
+  if offline_file.exists() {
+    if let Ok(content) = fs::read_to_string(&offline_file) {
+      if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+        current_minutes = json.get("accumulated_minutes").and_then(|v| v.as_i64()).unwrap_or(0);
+      }
+    }
+  }
+
+  let data = serde_json::json!({
+    "user_id": user_id,
+    "game_id": game_id,
+    "accumulated_minutes": current_minutes + 1
+  });
+
+  let _ = fs::write(&offline_file, serde_json::to_string(&data).unwrap_or_default());
 }
 
 /// Compare two paths for equality.
@@ -2735,6 +2789,187 @@ fn fs_remove(path: String, recursive: bool) -> Result<(), String> {
 
 // ── End filesystem utility commands ──────────────────────────────────────────
 
+// ── Offline cache commands ────────────────────────────────────────────────────
+
+fn cache_root(app: &tauri::AppHandle) -> PathBuf {
+  app.path()
+    .app_data_dir()
+    .unwrap_or_else(|_| PathBuf::from("."))
+    .join("offline-cache")
+}
+
+#[tauri::command]
+fn cache_game_data(app: tauri::AppHandle, game_id: i64, json: String) -> Result<(), String> {
+  let dir = cache_root(&app).join("games");
+  fs::create_dir_all(&dir)
+    .map_err(|e| format!("Failed to create cache dir: {e}"))?;
+  let path = dir.join(format!("{game_id}.json"));
+  fs::write(&path, json.as_bytes())
+    .map_err(|e| format!("Failed to cache game data: {e}"))?;
+  Ok(())
+}
+
+#[tauri::command]
+fn cache_game_image(
+  app: tauri::AppHandle,
+  media_id: i64,
+  bytes: Vec<u8>,
+  content_type: String,
+) -> Result<(), String> {
+  let dir = cache_root(&app).join("images");
+  fs::create_dir_all(&dir)
+    .map_err(|e| format!("Failed to create images cache dir: {e}"))?;
+  let ext = content_type
+    .split('/')
+    .nth(1)
+    .unwrap_or("bin");
+  let path = dir.join(format!("{media_id}.{ext}"));
+  fs::write(&path, &bytes)
+    .map_err(|e| format!("Failed to cache image: {e}"))?;
+  Ok(())
+}
+
+#[tauri::command]
+fn load_cached_game(app: tauri::AppHandle, game_id: i64) -> Result<Option<String>, String> {
+  let path = cache_root(&app)
+    .join("games")
+    .join(format!("{game_id}.json"));
+  if !path.exists() {
+    return Ok(None);
+  }
+  fs::read_to_string(&path)
+    .map(Some)
+    .map_err(|e| format!("Failed to read cached game: {e}"))
+}
+
+#[tauri::command]
+fn load_cached_image(app: tauri::AppHandle, media_id: i64) -> Result<Option<Vec<u8>>, String> {
+  let images_dir = cache_root(&app).join("images");
+  if !images_dir.exists() {
+    return Ok(None);
+  }
+  // Search for any file starting with {media_id}.
+  let entries = fs::read_dir(&images_dir)
+    .map_err(|e| format!("Failed to read images dir: {e}"))?;
+  let prefix = format!("{media_id}.");
+  for entry in entries.flatten() {
+    let name = entry.file_name().to_string_lossy().to_string();
+    if name.starts_with(&prefix) {
+      return fs::read(entry.path())
+        .map(Some)
+        .map_err(|e| format!("Failed to read cached image: {e}"));
+    }
+  }
+  Ok(None)
+}
+
+#[tauri::command]
+fn list_cached_game_ids(app: tauri::AppHandle) -> Result<Vec<i64>, String> {
+  let dir = cache_root(&app).join("games");
+  if !dir.exists() {
+    return Ok(Vec::new());
+  }
+  let mut ids = Vec::new();
+  for entry in fs::read_dir(&dir).map_err(|e| format!("Failed to read cache dir: {e}"))?.flatten() {
+    let name = entry.file_name().to_string_lossy().to_string();
+    if let Some(stem) = name.strip_suffix(".json") {
+      if let Ok(id) = stem.parse::<i64>() {
+        ids.push(id);
+      }
+    }
+  }
+  Ok(ids)
+}
+
+// ── Offline time tracking commands ────────────────────────────────────────────
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct OfflineTimeFile {
+  path: String,
+  user_id: i64,
+  game_id: i64,
+  accumulated_minutes: i64,
+}
+
+#[tauri::command]
+fn get_offline_time_files(selected_root: String) -> Result<Vec<OfflineTimeFile>, String> {
+  let candidate = PathBuf::from(&selected_root).join("GameVault");
+  let base = if candidate.exists() { candidate } else { PathBuf::from(&selected_root) };
+
+  let mut results = Vec::new();
+  walk_offline_time_files(&base, &mut results)
+    .map_err(|e| format!("Failed to scan for offline time files: {e}"))?;
+  Ok(results)
+}
+
+fn walk_offline_time_files(dir: &Path, results: &mut Vec<OfflineTimeFile>) -> std::io::Result<()> {
+  if !dir.exists() || !dir.is_dir() {
+    return Ok(());
+  }
+  for entry in fs::read_dir(dir)? {
+    let entry = entry?;
+    let path = entry.path();
+    if path.is_dir() {
+      // Don't recurse into .cache or Download/Extraction folders
+      let name = entry.file_name().to_string_lossy().to_string();
+      if name == ".cache" || name == "Download" || name == "Extraction" {
+        continue;
+      }
+      walk_offline_time_files(&path, results)?;
+    } else if entry.file_name() == ".gamevault.offline_time.json" {
+      if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+          let user_id = json.get("user_id").and_then(|v| v.as_i64()).unwrap_or(0);
+          let game_id = json.get("game_id").and_then(|v| v.as_i64()).unwrap_or(0);
+          let accumulated_minutes = json.get("accumulated_minutes").and_then(|v| v.as_i64()).unwrap_or(0);
+          results.push(OfflineTimeFile {
+            path: path.to_string_lossy().to_string(),
+            user_id,
+            game_id,
+            accumulated_minutes,
+          });
+        }
+      }
+    }
+  }
+  Ok(())
+}
+
+#[tauri::command]
+fn delete_offline_time_file(path: String) -> Result<(), String> {
+  let p = Path::new(&path);
+  if p.exists() {
+    fs::remove_file(p).map_err(|e| format!("Failed to delete offline time file: {e}"))?;
+  }
+  Ok(())
+}
+
+#[tauri::command]
+async fn sync_offline_time(
+  server_url: String,
+  access_token: String,
+  user_id: i64,
+  game_id: i64,
+  minutes: i64,
+) -> Result<bool, String> {
+  let url = format!(
+    "{}/api/progresses/user/{}/game/{}/increment/{}",
+    server_url, user_id, game_id, minutes
+  );
+  let client = reqwest::Client::new();
+  let resp = client
+    .put(&url)
+    .header("Authorization", format!("Bearer {}", access_token))
+    .header("Accept", "application/json")
+    .send()
+    .await
+    .map_err(|e| format!("Sync request failed: {e}"))?;
+  Ok(resp.status().is_success())
+}
+
+// ── End offline cache & time tracking commands ────────────────────────────────
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -2772,7 +3007,15 @@ pub fn run() {
       fs_write_text_file,
       fs_create_dir_all,
       fs_path_exists,
-      fs_remove
+      fs_remove,
+      cache_game_data,
+      cache_game_image,
+      load_cached_game,
+      load_cached_image,
+      list_cached_game_ids,
+      get_offline_time_files,
+      delete_offline_time_file,
+      sync_offline_time
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

@@ -1,4 +1,6 @@
 import { useAuth } from "@/context/AuthContext";
+import { useOnlineStatus } from "@/context/OfflineContext";
+import { isTauriApp } from "@/utils/tauri";
 import React, { useEffect, useRef, useState } from "react";
 import { Media as MediaType } from "../api";
 
@@ -68,6 +70,24 @@ export function Media({
         revokeRef.current = url;
         setBlobUrl(url);
       } catch (e: any) {
+        // Offline fallback: try Tauri local cache
+        if (isTauriApp() && imageId) {
+          try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const cachedBytes = await invoke<number[] | null>("load_cached_image", {
+              mediaId: Number(imageId),
+            });
+            if (cachedBytes && cachedBytes.length > 0 && !cancelled) {
+              const blob = new Blob([new Uint8Array(cachedBytes)]);
+              window.clearTimeout(stallTimer);
+              setStalled(false);
+              const url = URL.createObjectURL(blob);
+              revokeRef.current = url;
+              setBlobUrl(url);
+              return;
+            }
+          } catch { /* cached image not available */ }
+        }
         if (!cancelled) {
           window.clearTimeout(stallTimer);
           setError(e?.message || "Failed to load image");

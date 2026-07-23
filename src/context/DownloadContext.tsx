@@ -230,6 +230,64 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const cacheInstalledGameData = useCallback(
+    async (gameId: number, selectedRoot: string) => {
+      if (!isTauriApp()) return;
+      try {
+        const base = serverUrl.replace(/\/+$/, "");
+        const { invoke } = await import("@tauri-apps/api/core");
+
+        // Fetch full game object
+        const gameRes = await authFetch(`${base}/api/games/${gameId}`);
+        if (!gameRes.ok) return;
+        const gameJson = await gameRes.json();
+
+        // Cache game data
+        await invoke("cache_game_data", {
+          gameId,
+          json: JSON.stringify(gameJson),
+        });
+
+        // Cache cover image
+        const coverId = gameJson?.metadata?.cover?.id;
+        if (coverId) {
+          try {
+            const imgRes = await authFetch(`${base}/api/media/${coverId}`);
+            if (imgRes.ok) {
+              const blob = await imgRes.blob();
+              const bytes = new Uint8Array(await blob.arrayBuffer());
+              await invoke("cache_game_image", {
+                mediaId: Number(coverId),
+                bytes: Array.from(bytes),
+                contentType: blob.type || "image/png",
+              });
+            }
+          } catch { /* ignore image cache failures */ }
+        }
+
+        // Cache background image
+        const bgId = gameJson?.metadata?.background?.id;
+        if (bgId) {
+          try {
+            const imgRes = await authFetch(`${base}/api/media/${bgId}`);
+            if (imgRes.ok) {
+              const blob = await imgRes.blob();
+              const bytes = new Uint8Array(await blob.arrayBuffer());
+              await invoke("cache_game_image", {
+                mediaId: Number(bgId),
+                bytes: Array.from(bytes),
+                contentType: blob.type || "image/png",
+              });
+            }
+          } catch { /* ignore image cache failures */ }
+        }
+      } catch {
+        // Silently fail — caching is best-effort, never block the user
+      }
+    },
+    [serverUrl, authFetch],
+  );
+
   const writeVersionConfig = useCallback(
     async (versionDirectory: string, patch: Partial<GameVaultConfig>) => {
       if (!isTauriApp() || !versionDirectory) return;
@@ -783,7 +841,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         .catch(() => {});
       return;
     }
-    d.abortController.abort();
+    d.abortController.abort();6
     updateDownload(gameId, {
       status: "paused",
       speedBps: undefined,
@@ -1137,6 +1195,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               installationCurrentFile: undefined,
               installationError: undefined,
             });
+            // Cache game data for offline use
+            const root = localStorage.getItem("tauri_download_path");
+            if (root) cacheInstalledGameData(gameId, root);
           } else if (payload.status === "error") {
             updateDownload(gameId, {
               installationStatus: "error",
@@ -1248,6 +1309,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               installationExitCode:
                 typeof payload.exitCode === "number" ? payload.exitCode : 0,
             });
+            // Cache game data for offline use
+            const root = localStorage.getItem("tauri_download_path");
+            if (root) cacheInstalledGameData(gameId, root);
           } else if (payload.status === "error") {
             updateDownload(gameId, {
               installationStatus: "error",

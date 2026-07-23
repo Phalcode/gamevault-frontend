@@ -4,6 +4,8 @@ import {
 } from "@/api/models/GamevaultGame";
 import { ProgressStateEnum } from "@/api/models/Progress";
 import { useAuth } from "@/context/AuthContext";
+import { useOnlineStatus } from "@/context/OfflineContext";
+import { isTauriApp } from "@/utils/tauri";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface PaginatedData<T> {
@@ -96,6 +98,7 @@ export function useGames({
   earlyAccess = "all",
 }: UseGamesOptions) {
   const { serverUrl, authFetch, user } = useAuth();
+  const { isOnline } = useOnlineStatus();
 
   // Build a cache key from all filter/sort/search params so we can restore
   // game data after component remount (e.g. navigating back from detail page).
@@ -166,6 +169,11 @@ export function useGames({
 
   const fetchGames = useCallback(async () => {
     if (!serverUrl) return;
+    // Skip fetch when offline in Tauri mode — installed games handle themselves
+    if (isTauriApp() && !isOnline) {
+      setLoading(false);
+      return;
+    }
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -283,6 +291,7 @@ export function useGames({
     releaseDateFrom,
     releaseDateTo,
     earlyAccess,
+    isOnline,
   ]);
 
   const loadMore = useCallback(async () => {

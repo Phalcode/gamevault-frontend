@@ -20,6 +20,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { isTauriApp } from "@/utils/tauri";
+import { useOnlineStatus } from "@/context/OfflineContext";
 import {
   PhotoIcon,
   CircleStackIcon,
@@ -127,6 +128,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   );
   const [uninstalling, setUninstalling] = useState(false);
   const isTauri = isTauriApp();
+  const { isOnline } = useOnlineStatus();
 
   // Image state & logic
   const [coverImg, setCoverImg] = useState<ImageState>({
@@ -311,6 +313,18 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       setActiveTab("images");
     }
   }, [activeTab, installationTabsVisible]);
+
+  // If offline, redirect away from server-dependent tabs
+  useEffect(() => {
+    const serverTabs: TabKey[] = ["images", "metadata", "custom-metadata"];
+    if (isTauri && !isOnline && serverTabs.includes(activeTab)) {
+      if (installationTabsVisible) {
+        setActiveTab("installation");
+      } else {
+        setActiveTab("launch-options");
+      }
+    }
+  }, [isTauri, isOnline, activeTab, installationTabsVisible]);
 
   // Load launch options when tab is opened
   useEffect(() => {
@@ -1553,6 +1567,8 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
             {/* Left sidebar - vertical tabs */}
             <div className="w-full sm:w-52 border-b sm:border-b-0 sm:border-r border-gv-line py-2 sm:py-4">
               <nav className="flex flex-row sm:flex-col gap-1 px-2 sm:px-3 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {(!isTauri || isOnline) && (
+                <>
                 <button
                   onClick={() => setActiveTab("images")}
                   className={
@@ -1589,6 +1605,8 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                   <PencilIcon className="w-5 h-5 flex-shrink-0" />
                   <span className="whitespace-nowrap">Custom Metadata</span>
                 </button>
+                </>
+                )}
                 {installationTabsVisible && (
                   <>
                     <button

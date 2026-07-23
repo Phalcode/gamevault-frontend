@@ -32,6 +32,7 @@ import MultiSelectFilterDialog, {
 import { Strong, Text, TextLink } from "@/components/tailwind/text";
 import { isTauriApp } from "@/utils/tauri";
 import { useInstalledGames } from "@/hooks/useInstalledGames";
+import { useOnlineStatus } from "@/context/OfflineContext";
 import { SectionExpander } from "@/components/SectionExpander";
 import { RowCountControl } from "@/components/RowCountControl";
 
@@ -84,6 +85,8 @@ const LIB_ORDER_KEY = "app_library_order";
 
 export default function Library() {
   const { serverUrl, user } = useAuth();
+  const { isOnline } = useOnlineStatus();
+  const isTauri = isTauriApp();
 
   const CONTROL_HEIGHT_CLASS = "min-h-11 sm:min-h-9";
   const INPUT_CONTROL_HEIGHT_CLASS = "[&_input]:min-h-11 sm:[&_input]:min-h-9";
@@ -467,7 +470,6 @@ export default function Library() {
   useScrollRestoration("library_scroll_position", games.length > 0);
 
   // --- Installed games (Tauri only) ---
-  const isTauri = isTauriApp();
   const { installedGames, refetch: refetchInstalledGames } = useInstalledGames();
 
   const INSTALLED_ROWS_KEY = "installed_games_rows";
@@ -1119,7 +1121,13 @@ export default function Library() {
         )}
 
         {/* Server Games Section */}
-        {isTauri ? (
+        {isTauri && !isOnline ? (
+          <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted text-center">
+            <p className="font-semibold text-gv-text mb-2">Offline Mode</p>
+            <p>Server games are unavailable while offline.</p>
+            <p className="mt-1">Installed games remain fully playable above.</p>
+          </div>
+        ) : isTauri ? (
           <SectionExpander
             title={`Server Games (${games.length} of ${count ?? 0})`}
             defaultOpen={true}
