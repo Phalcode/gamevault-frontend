@@ -903,6 +903,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       speedLimitKB,
       trimSamples,
       computeSpeedBps,
+      extractArchive,
     ],
   );
 
@@ -1244,7 +1245,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [downloads, updateDownload, writeVersionConfig],
+    [downloads, updateDownload, writeVersionConfig, copyInstallationFiles, listInstallExecutables, launchInstallationExecutable],
   );
 
   const resetInstallationState = useCallback(
