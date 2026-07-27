@@ -1,0 +1,292 @@
+use crate::events::InstalledGameInfo;
+use crate::util::{parse_version_folder, stable_id_from_path, parse_i64_json, resolve_version_subdir};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+#[tauri::command]
+pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<InstalledGameInfo>, String> {
+  let candidate = PathBuf::from(&selected_root).join("GameVault");
+  let root = if candidate.exists() {
+    candidate
+  } else {
+    PathBuf::from(&selected_root)
+  };
+
+  if !root.exists() || !root.is_dir() {
+    return Ok(Vec::new());
+  }
+
+  let mut results: Vec<InstalledGameInfo> = Vec::new();
+
+  let game_dirs = fs::read_dir(&root).map_err(|e| format!("Failed to read GameVault root: {e}"))?;
+  for game_entry in game_dirs.flatten() {
+    let game_path = game_entry.path();
+    if !game_path.is_dir() {
+      continue;
+    }
+
+    let game_name = game_entry.file_name().to_string_lossy().to_string();
+
+    let metadata_path = game_path.join(".gamevault.metadata.json");
+    let game_metadata: Option<serde_json::Value> = if metadata_path.exists() {
+      fs::read_to_string(&metadata_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+    } else {
+      None
+    };
+
+    let resolved_game_title = game_name.clone();
+
+    let versions_root = game_path.join("Versions");
+    if !versions_root.exists() || !versions_root.is_dir() {
+      continue;
+    }
+
+    let version_dirs = fs::read_dir(&versions_root)
+      .map_err(|e| format!("Failed to read versions folder: {e}"))?;
+    for version_entry in version_dirs.flatten() {
+      let version_path = version_entry.path();
+      if !version_path.is_dir() {
+        continue;
+      }
+
+      let version_folder_name = version_entry.file_name().to_string_lossy().to_string();
+      let (version_id, version_name) = parse_version_folder(&version_folder_name);
+
+      let config_path = version_path.join(".gamevault.game.config.json");
+      if !config_path.exists() {
+        continue;
+      }
+
+      let cfg_value = fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+      let installation_finished = cfg_value
+        .get("installationfinished")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+      if !installation_finished {
+        continue;
+      }
+
+      let game_type = cfg_value
+        .get("gametype")
+        .and_then(|v| v.as_str())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+
+      let config_game_id = parse_i64_json(cfg_value.get("gameid"));
+      let metadata_game_id = game_metadata
+        .as_ref()
+        .and_then(|m| m.as_object())
+        .and_then(|obj| obj.values().find_map(|v| parse_i64_json(Some(v))));
+
+      let version_path_str = version_path.to_string_lossy().to_string();
+      let resolved_game_id = config_game_id
+        .or(metadata_game_id)
+        .filter(|id| *id > 0)
+        .unwrap_or_else(|| stable_id_from_path(&version_path_str));
+
+      let installations_dir = resolve_version_subdir(&version_path, "Installation", "Installations");
+
+      let cache_dir = root.join(".cache").join("games");
+      let cache_file = cache_dir.join(format!("{}.json", resolved_game_id));
+      let cached_metadata: Option<serde_json::Value> = if cache_file.exists() {
+        fs::read_to_string(&cache_file)
+          .ok()
+          .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+      } else {
+        None
+      };
+
+      results.push(InstalledGameInfo {
+        game_id: resolved_game_id,
+        game_title: resolved_game_title.clone(),
+        game_metadata: game_metadata.clone(),
+        cached_metadata,
+        game_type,
+        version_id,
+        version_name,
+        installation_directory: installations_dir.to_string_lossy().to_string(),
+        version_directory: version_path_str,
+      });
+    }
+  }
+
+  Ok(results)
+}
+
+#[tauri::command]
+pub(crate) fn open_in_file_explorer(path: String) -> Result<(), String> {
+  Command::new("explorer")
+    .arg(path)
+    .spawn()
+    .map(|_| ())
+    .map_err(|e| format!("Failed to open folder: {e}"))
+}
+
+pub(crate) fn collect_launch_candidates(root: &Path, current: &Path, results: &mut Vec<String>) -> Result<(), String> {
+  let entries = fs::read_dir(current)
+    .map_err(|e| format!("Failed to read installation folder: {e}"))?;
+
+  for entry in entries {
+    let entry = entry.map_err(|e| format!("Failed to read installation folder entry: {e}"))?;
+    let path = entry.path();
+
+    if path.is_dir() {
+      collect_launch_candidates(root, &path, results)?;
+      continue;
+    }
+
+    #[cfg(windows)]
+    {
+      let ext = path
+        .extension()
+        .and_then(|v| v.to_str())
+        .map(|v| v.to_ascii_lowercase())
+        .unwrap_or_default();
+
+      if !matches!(ext.as_str(), "exe" | "bat" | "cmd" | "com" | "ps1" | "lnk") {
+        continue;
+      }
+    }
+
+    #[cfg(not(windows))]
+    {
+      use std::os::unix::fs::PermissionsExt;
+      let Ok(metadata) = fs::metadata(&path) else { continue };
+      let mode = metadata.permissions().mode();
+      if mode & 0o111 == 0 {
+        continue;
+      }
+    }
+
+    if let Ok(relative) = path.strip_prefix(root) {
+      results.push(relative.to_string_lossy().replace('\\', "/"));
+    }
+  }
+
+  Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn list_launch_executables(installation_path: String) -> Result<Vec<String>, String> {
+  let root = PathBuf::from(&installation_path);
+  if !root.exists() || !root.is_dir() {
+    return Ok(Vec::new());
+  }
+
+  let mut results = Vec::new();
+  collect_launch_candidates(&root, &root, &mut results)?;
+  results.sort_by(|a, b| {
+    a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase())
+  });
+  Ok(results)
+}
+
+#[tauri::command]
+pub(crate) fn launch_game(
+  installation_path: String,
+  executable_relative_path: String,
+  launch_parameters: Option<String>,
+  run_as_admin: Option<bool>,
+) -> Result<(), String> {
+  let root = PathBuf::from(&installation_path);
+  let exe_path = root.join(executable_relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+  if !exe_path.exists() || !exe_path.is_file() {
+    return Err("Selected executable does not exist".to_string());
+  }
+
+  let working_dir = exe_path.parent().unwrap_or(&root);
+
+  #[cfg(windows)]
+  if run_as_admin.unwrap_or(false) {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ffi::OsStr;
+
+    let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(std::iter::once(0)).collect();
+    let file: Vec<u16> = exe_path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let params_str = launch_parameters.as_deref().unwrap_or("");
+    let params_w: Vec<u16> = OsStr::new(params_str).encode_wide().chain(std::iter::once(0)).collect();
+    let dir_str = working_dir.as_os_str();
+    let dir_w: Vec<u16> = dir_str.encode_wide().chain(std::iter::once(0)).collect();
+
+    let result = unsafe {
+      winapi::um::shellapi::ShellExecuteW(
+        std::ptr::null_mut(),
+        verb.as_ptr(),
+        file.as_ptr(),
+        params_w.as_ptr(),
+        dir_w.as_ptr(),
+        winapi::um::winuser::SW_SHOWNORMAL,
+      )
+    };
+
+    if (result as isize) <= 32 {
+      return Err(format!("Failed to launch game as admin (ShellExecute error code: {})", result as isize));
+    }
+    return Ok(());
+  }
+
+  let mut command = Command::new(&exe_path);
+  command.current_dir(working_dir);
+
+  if let Some(ref params) = launch_parameters {
+    let params = params.trim();
+    if !params.is_empty() {
+      #[cfg(windows)]
+      {
+        command.raw_arg(params);
+      }
+      #[cfg(not(windows))]
+      {
+        for arg in params.split_whitespace() {
+          command.arg(arg);
+        }
+      }
+    }
+  }
+
+  #[cfg(windows)]
+  {
+    command.creation_flags(0x00000200);
+  }
+
+  match command.spawn() {
+    Ok(_) => Ok(()),
+    #[cfg(windows)]
+    Err(ref e) if e.raw_os_error() == Some(740) => {
+      use std::os::windows::ffi::OsStrExt;
+      use std::ffi::OsStr;
+
+      let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(std::iter::once(0)).collect();
+      let file: Vec<u16> = exe_path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+      let params_str = launch_parameters.as_deref().unwrap_or("");
+      let params_w: Vec<u16> = OsStr::new(params_str).encode_wide().chain(std::iter::once(0)).collect();
+      let dir_str = working_dir.as_os_str();
+      let dir_w: Vec<u16> = dir_str.encode_wide().chain(std::iter::once(0)).collect();
+
+      let result = unsafe {
+        winapi::um::shellapi::ShellExecuteW(
+          std::ptr::null_mut(),
+          verb.as_ptr(),
+          file.as_ptr(),
+          params_w.as_ptr(),
+          dir_w.as_ptr(),
+          winapi::um::winuser::SW_SHOWNORMAL,
+        )
+      };
+
+      if (result as isize) <= 32 {
+        return Err(format!("Failed to launch game as admin (ShellExecute error code: {})", result as isize));
+      }
+      Ok(())
+    }
+    Err(e) => Err(format!("Failed to launch game: {e}")),
+  }
+}
