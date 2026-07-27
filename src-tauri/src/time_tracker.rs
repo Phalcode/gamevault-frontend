@@ -14,7 +14,8 @@ pub(crate) fn start_game_time_tracker(
   server_url: String,
   user_id: i64,
   access_token: String,
-  download_path: String,
+  download_path: Option<String>,
+  download_paths: Option<Vec<String>>,
 ) -> Result<(), String> {
   if let Ok(mut tx) = tracker_stop_tx().lock() {
     if let Some(sender) = tx.take() {
@@ -22,11 +23,21 @@ pub(crate) fn start_game_time_tracker(
     }
   }
 
+  // Build paths list: prefer download_paths if provided and non-empty,
+  // otherwise fall back to single download_path
+  let paths: Vec<String> = match download_paths {
+    Some(ref dps) if !dps.is_empty() => dps.clone(),
+    _ => match download_path {
+      Some(ref dp) if !dp.is_empty() => vec![dp.clone()],
+      _ => Vec::new(),
+    },
+  };
+
   let config = TrackerConfig {
     server_url,
     user_id,
     access_token,
-    download_path,
+    download_paths: paths,
   };
 
   if let Ok(mut cfg) = tracker_config().lock() {
@@ -86,14 +97,17 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>) {
       Err(_) => continue,
     };
 
-    if config.download_path.is_empty() || config.server_url.is_empty() {
+    if config.download_paths.is_empty() || config.server_url.is_empty() {
       continue;
     }
 
-    let installed = match list_installed_games(config.download_path.clone()) {
-      Ok(games) => games,
-      Err(_) => continue,
-    };
+    // Collect installed games from all root paths
+    let mut installed = Vec::new();
+    for path in &config.download_paths {
+      if let Ok(games) = list_installed_games(path.clone()) {
+        installed.extend(games);
+      }
+    }
 
     if installed.is_empty() {
       continue;
@@ -176,17 +190,19 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>) {
         .await;
 
       if result.is_err() {
-        save_offline_time(&config.download_path, config.user_id, game_id);
+        save_offline_time(&config.download_paths, config.user_id, game_id);
       }
     }
   }
 }
 
-fn save_offline_time(download_path: &str, user_id: i64, game_id: i64) {
-  let installed = match list_installed_games(download_path.to_string()) {
-    Ok(games) => games,
-    Err(_) => return,
-  };
+fn save_offline_time(download_paths: &[String], user_id: i64, game_id: i64) {
+  let mut installed = Vec::new();
+  for path in download_paths {
+    if let Ok(games) = list_installed_games(path.to_string()) {
+      installed.extend(games);
+    }
+  }
 
   let target = match installed.iter().find(|g| g.game_id == game_id) {
     Some(g) => g,

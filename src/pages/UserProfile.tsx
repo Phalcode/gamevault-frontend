@@ -10,6 +10,7 @@ import { Media } from "@/components/Media";
 import CoverPlaceholder from "@/components/CoverPlaceholder";
 import { UserEditorModal } from "@/components/admin/UserEditorModal";
 import { useAuth } from "@/context/AuthContext";
+import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { getGameCoverMediaId } from "@/hooks/useGames";
 import { getRoleLabel } from "@/utils/roles";
@@ -23,6 +24,7 @@ import {
   PencilSquareIcon,
   PlayCircleIcon,
   SparklesIcon,
+  TrashIcon,
   UserGroupIcon,
 } from "@heroicons/react/24/outline";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -93,6 +95,16 @@ function formatDate(value: unknown, fallback = "Never") {
     return new Date(timestamp).toLocaleDateString();
   } catch {
     return fallback;
+  }
+}
+
+function formatFullDateTime(value: unknown): string | null {
+  const timestamp = toTimestamp(value);
+  if (timestamp === -Infinity) return null;
+  try {
+    return new Date(timestamp).toLocaleString();
+  } catch {
+    return null;
   }
 }
 
@@ -277,14 +289,20 @@ function BackButton({ navigate }: { navigate: (delta: number) => void }) {
   );
 }
 
-function ProfileProgressCard({ progress }: { progress: Progress }) {
+function ProfileProgressCard({
+  progress,
+  onDelete,
+}: {
+  progress: Progress;
+  onDelete?: (progressId: number, gameId: number) => void;
+}) {
   const game = progress.game;
   const title = game?.metadata?.title || game?.title || "Unknown Game";
   const meta = getProgressMeta(progress.state);
   return (
     <Link
       to={game?.id ? `/library/${game.id}` : "/library"}
-      className="group block rounded-3xl focus:outline-none focus:ring-2 focus:ring-gv-accent-cool"
+      className="group relative block rounded-3xl focus:outline-none focus:ring-2 focus:ring-gv-accent-cool"
     >
       <article className="surface-panel h-full rounded-3xl p-4 transition-[transform,box-shadow,border-color] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)">
         <div className="flex gap-4">
@@ -311,11 +329,27 @@ function ProfileProgressCard({ progress }: { progress: Progress }) {
               </div>
               <div className="flex min-w-0 items-center gap-2">
                 <SparklesIcon className="size-4 shrink-0 text-gv-accent-cool" />
-                <span className="truncate">Last played {formatDate(progress.last_played_at)}</span>
+                <span className="truncate" title={formatFullDateTime(progress.last_played_at) ?? undefined}>Last played {formatDate(progress.last_played_at)}</span>
               </div>
             </div>
           </div>
         </div>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const gid = (progress.game as any)?.id ?? (game as any)?.id ?? 0;
+              onDelete(progress.id, gid);
+            }}
+            className="absolute bottom-3 right-3 rounded-xl p-2 text-gv-muted hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer"
+            aria-label="Delete progress entry"
+            title="Delete progress entry"
+          >
+            <TrashIcon className="h-4 w-4" />
+          </button>
+        )}
       </article>
     </Link>
   );
@@ -323,6 +357,7 @@ function ProfileProgressCard({ progress }: { progress: Progress }) {
 
 export default function UserProfile() {
   const { serverUrl, authFetch, user: loggedIn } = useAuth();
+  const { showAlert } = useAlertDialog();
   const { id } = useParams<{ id?: string }>();
 
   const [user, setUser] = useState<GamevaultUser | null>(null);
@@ -413,6 +448,51 @@ export default function UserProfile() {
     setProgressFilter("all");
     setProgressSort("last");
   }, [userId]);
+
+  const handleDeleteProgress = useCallback(
+    async (progressId: number, gameId: number) => {
+      if (!serverUrl || !userId || !gameId) return;
+
+      const confirmed = await showAlert({
+        title: "Delete progress entry?",
+        description:
+          "This will permanently remove the playtime, state, and history for this game. This action cannot be undone.",
+        affirmativeText: "Delete",
+        negativeText: "Cancel",
+      });
+
+      if (!confirmed) return;
+
+      try {
+        const base = serverUrl.replace(/\/+$/, "");
+        const res = await authFetch(
+          `${base}/api/progresses/user/${userId}/game/${gameId}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok && res.status !== 204) {
+          throw new Error(`Delete failed (${res.status})`);
+        }
+        // Remove from local state
+        setUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                progresses: prev.progresses?.filter(
+                  (p) => p.id !== progressId,
+                ),
+              }
+            : prev,
+        );
+      } catch (err: any) {
+        console.error("Failed to delete progress:", err);
+        showAlert({
+          title: "Failed to delete progress",
+          description: err?.message || "An unknown error occurred.",
+        });
+      }
+    },
+    [serverUrl, userId, authFetch, showAlert],
+  );
 
   if (!serverUrl) {
     return (
@@ -539,8 +619,8 @@ export default function UserProfile() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3 text-sm text-white/80">
-                  <span>Joined {formatDate(user.created_at, "Unknown")}</span>
-                  <span>Last seen {formatDate(stats.lastPlayed, "Never")}</span>
+                  <span title={formatFullDateTime(user.created_at) ?? undefined}>Joined {formatDate(user.created_at, "Unknown")}</span>
+                  <span title={formatFullDateTime(stats.lastPlayed) ?? undefined}>Last seen {formatDate(stats.lastPlayed, "Never")}</span>
                   <span>{formatPlaytime(stats.totalMinutes)} logged</span>
                 </div>
               </div>
@@ -653,7 +733,11 @@ export default function UserProfile() {
           <div className="mt-5 overflow-x-hidden md:max-h-168 md:overflow-y-auto grid gap-4 md:grid-cols-2">
             {allProgresses.length > 0 ? (
               allProgresses.map((progress) => (
-                <ProfileProgressCard key={`all-${progress.id}`} progress={progress} />
+                <ProfileProgressCard
+                  key={`all-${progress.id}`}
+                  progress={progress}
+                  onDelete={isOwnProfile ? handleDeleteProgress : undefined}
+                />
               ))
             ) : (
               <div className="surface-panel-soft rounded-3xl p-6 text-sm text-gv-muted md:col-span-2">

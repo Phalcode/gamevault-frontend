@@ -34,6 +34,7 @@ export interface ActiveDownload {
   extractionDirectory?: string;
   installationDirectory?: string;
   versionDirectory?: string;
+  downloadRootPath?: string;
   downloadedFilePath?: string;
   received: number;
   total: number | null;
@@ -67,6 +68,7 @@ interface DownloadContextValue {
     gameMetadata?: GameMetadata;
     gameType?: GamevaultGameTypeEnum;
     filename: string;
+    downloadRootPath?: string;
   }) => void;
   cancelDownload: (gameId: number) => void;
   pauseDownload: (gameId: number) => void;
@@ -400,6 +402,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       gameType,
       filename,
       resumePosition,
+      downloadRootPath,
     }: {
       gameId: number;
       versionId: number;
@@ -409,6 +412,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       gameType?: GamevaultGameTypeEnum;
       filename: string;
       resumePosition?: number;
+      downloadRootPath?: string;
     }) => {
       if (!serverUrl) return;
       if (downloads[gameId]?.status === "downloading") return;
@@ -426,6 +430,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         gameType,
         versionName,
         filename,
+        downloadRootPath,
         received: resumePosition && resumePosition > 0 ? resumePosition : 0,
         total: null,
         progress: 0,
@@ -447,8 +452,16 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         // Handle Tauri-specific downloads
         if (isDesktop) {
           dlog("=== Starting Tauri Download ===");
-          const downloadPath = localStorage.getItem("tauri_download_path");
-          dlog("Tauri download path from localStorage:", downloadPath);
+          const downloadPath =
+            downloadRootPath ||
+            (() => {
+              try {
+                return localStorage.getItem("tauri_download_path");
+              } catch {
+                return null;
+              }
+            })();
+          dlog("Tauri download path:", downloadPath);
           if (!downloadPath) {
             updateDownload(gameId, {
               status: "error",
@@ -518,6 +531,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             installationDirectory: installationsVersionFolder,
             versionDirectory: versionBaseFolder,
             downloadedFilePath: filePath,
+            downloadRootPath: downloadPath,
           });
           dlog("Full file path:", filePath);
           dlog("File path type:", typeof filePath);
@@ -894,7 +908,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           await writeVersionConfig(d.versionDirectory, {
             downloadfinished: false,
             extractionfinished: false,
-            installationfinished: false,
             downloadprogress: "",
           });
         } catch (error) {
@@ -982,6 +995,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         gameMetadata: d.gameMetadata,
         gameType: d.gameType,
         filename: d.filename,
+        downloadRootPath: d.downloadRootPath,
       });
     },
     [downloads, startDownload],
@@ -1404,72 +1418,78 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
     const recoverDownloads = async () => {
       if (!isTauriApp()) return;
-      const selectedRoot = localStorage.getItem("tauri_download_path");
-      if (!selectedRoot) return;
 
       try {
+        const { getRootPaths } = await import("@/utils/rootPaths");
+        const rootPaths = getRootPaths();
+        if (!rootPaths.length) return;
+
         const { invoke } = await import("@tauri-apps/api/core");
-        const recoveredCards = await invoke<any[]>("recover_download_cards", {
-          selectedRoot,
-        });
         const recovered: Record<number, ActiveDownload> = {};
 
-        for (const card of recoveredCards || []) {
-          const gameId = Number(card.gameId || 0);
-          if (!gameId) continue;
+        for (const root of rootPaths) {
+          const recoveredCards = await invoke<any[]>("recover_download_cards", {
+            selectedRoot: root.path,
+          }).catch(() => [] as any[]);
 
-          recovered[gameId] = {
-            gameId,
-            versionId: Number(card.versionId || 0),
-            gameTitle: String(card.gameTitle || "Unknown Game"),
-            gameMetadata: card.gameMetadata,
-            gameType: card.gameType
-              ? (String(card.gameType) as GamevaultGameTypeEnum)
-              : undefined,
-            versionName: String(card.versionName || ""),
-            filename: String(card.filename || "download.bin"),
-            downloadDirectory: String(card.downloadDirectory || ""),
-            extractionDirectory: String(card.extractionDirectory || ""),
-            installationDirectory: String(card.installationDirectory || ""),
-            versionDirectory: String(card.versionDirectory || ""),
-            downloadedFilePath: card.downloadedFilePath
-              ? String(card.downloadedFilePath)
-              : undefined,
-            received: Number(card.received || 0),
-            total:
-              card.total !== undefined && card.total !== null
-                ? Number(card.total)
-                : null,
-            progress: Number(card.progress || 0),
-            abortController: new AbortController(),
-            startedAt: performance.now(),
-            speedBps: undefined,
-            status:
-              card.status === "completed"
-                ? "completed"
-                : card.status === "paused"
-                  ? "paused"
-                : card.status === "error"
-                  ? "error"
-                  : "aborted",
-            extractionStatus:
-              card.extractionStatus === "completed"
+          for (const card of recoveredCards || []) {
+            const gameId = Number(card.gameId || 0);
+            if (!gameId || recovered[gameId]) continue;
+
+            recovered[gameId] = {
+              gameId,
+              versionId: Number(card.versionId || 0),
+              gameTitle: String(card.gameTitle || "Unknown Game"),
+              gameMetadata: card.gameMetadata,
+              gameType: card.gameType
+                ? (String(card.gameType) as GamevaultGameTypeEnum)
+                : undefined,
+              versionName: String(card.versionName || ""),
+              filename: String(card.filename || "download.bin"),
+              downloadDirectory: String(card.downloadDirectory || ""),
+              extractionDirectory: String(card.extractionDirectory || ""),
+              installationDirectory: String(card.installationDirectory || ""),
+              versionDirectory: String(card.versionDirectory || ""),
+              downloadedFilePath: card.downloadedFilePath
+                ? String(card.downloadedFilePath)
+                : undefined,
+              downloadRootPath: root.path,
+              received: Number(card.received || 0),
+              total:
+                card.total !== undefined && card.total !== null
+                  ? Number(card.total)
+                  : null,
+              progress: Number(card.progress || 0),
+              abortController: new AbortController(),
+              startedAt: performance.now(),
+              speedBps: undefined,
+              status:
+                card.status === "completed"
+                  ? "completed"
+                  : card.status === "paused"
+                    ? "paused"
+                  : card.status === "error"
+                    ? "error"
+                    : "aborted",
+              extractionStatus:
+                card.extractionStatus === "completed"
+                  ? "completed"
+                  : "idle",
+              extractionProgress:
+                card.extractionProgress !== undefined &&
+                card.extractionProgress !== null
+                  ? Number(card.extractionProgress)
+                  : null,
+              installationStatus: card.installationFinished
                 ? "completed"
                 : "idle",
-            extractionProgress:
-              card.extractionProgress !== undefined &&
-              card.extractionProgress !== null
-                ? Number(card.extractionProgress)
-                : null,
-            installationStatus: card.installationFinished
-              ? "completed"
-              : "idle",
-            installationProgress: card.installationFinished ? 100 : null,
-            installationCurrentFile: undefined,
-            installationError: undefined,
-            installationExitCode: card.installationFinished ? 0 : null,
-            cachedMetadata: card.cachedMetadata ?? null,
-          };
+              installationProgress: card.installationFinished ? 100 : null,
+              installationCurrentFile: undefined,
+              installationError: undefined,
+              installationExitCode: card.installationFinished ? 0 : null,
+              cachedMetadata: card.cachedMetadata ?? null,
+            };
+          }
         }
 
         if (!mounted || !Object.keys(recovered).length) return;
@@ -1509,27 +1529,28 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     const cleanupOrphanCaches = async () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
+        const { getRootPaths } = await import("@/utils/rootPaths");
         const cachedIds = await invoke<number[]>("list_cached_game_ids");
         if (!cachedIds.length) return;
 
-        // Get installed game IDs
-        const selectedRoot = localStorage.getItem("tauri_download_path");
+        // Get installed game IDs from all roots
+        const rootPaths = getRootPaths();
         const knownIds = new Set<number>();
-        if (selectedRoot) {
-          const installed = await invoke<any[]>("list_installed_games", { selectedRoot });
+        for (const root of rootPaths) {
+          const installed = await invoke<any[]>("list_installed_games", { selectedRoot: root.path }).catch(() => [] as any[]);
           for (const g of installed) {
             const id = g.gameId ?? g.game_id ?? 0;
             if (id > 0) knownIds.add(id);
           }
-        }
 
-        // Active downloads
-        const recovered = await invoke<any[]>("recover_download_cards", {
-          selectedRoot: selectedRoot || "",
-        }).catch(() => []);
-        for (const c of recovered) {
-          const id = Number(c.gameId || 0);
-          if (id > 0) knownIds.add(id);
+          // Active downloads
+          const recovered = await invoke<any[]>("recover_download_cards", {
+            selectedRoot: root.path,
+          }).catch(() => [] as any[]);
+          for (const c of recovered) {
+            const id = Number(c.gameId || 0);
+            if (id > 0) knownIds.add(id);
+          }
         }
 
         // Delete caches for games that are neither installed nor actively downloading

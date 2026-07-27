@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { isTauriApp } from "@/utils/tauri";
+import { getRootPaths } from "@/utils/rootPaths";
 
 export function useGameTimeTracker() {
   const { serverUrl, user, auth } = useAuth();
@@ -16,9 +17,9 @@ export function useGameTimeTracker() {
 
     const userId = user?.id;
     const accessToken = auth?.access_token;
-    const downloadPath = localStorage.getItem("tauri_download_path");
+    const downloadPaths = getRootPaths().map((p) => p.path);
 
-    if (!serverUrl || !userId || !accessToken || !downloadPath) {
+    if (!serverUrl || !userId || !accessToken || !downloadPaths.length) {
       // If tracker was running but credentials are gone (logout), stop it
       if (startedRef.current) {
         startedRef.current = false;
@@ -36,7 +37,8 @@ export function useGameTimeTracker() {
         serverUrl,
         userId,
         accessToken,
-        downloadPath,
+        downloadPath: null,
+        downloadPaths,
       }).catch(() => {});
     });
 
@@ -70,34 +72,37 @@ export function useGameTimeTracker() {
 
     (async () => {
       try {
-        const selectedRoot = localStorage.getItem("tauri_download_path");
-        if (!selectedRoot) return;
+        const rootPaths = getRootPaths();
+        if (!rootPaths.length) return;
 
         const { invoke } = await import("@tauri-apps/api/core");
-        const files = await invoke<any[]>("get_offline_time_files", {
-          selectedRoot,
-        });
 
-        for (const file of files) {
-          if (!file.accumulatedMinutes || file.accumulatedMinutes <= 0) {
-            await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
-            continue;
-          }
+        for (const root of rootPaths) {
+          const files = await invoke<any[]>("get_offline_time_files", {
+            selectedRoot: root.path,
+          }).catch(() => [] as any[]);
 
-          try {
-            const success = await invoke<boolean>("sync_offline_time", {
-              serverUrl,
-              accessToken: auth.access_token,
-              userId: file.userId,
-              gameId: file.gameId,
-              minutes: file.accumulatedMinutes,
-            });
-
-            if (success) {
+          for (const file of files) {
+            if (!file.accumulatedMinutes || file.accumulatedMinutes <= 0) {
               await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+              continue;
             }
-          } catch {
-            // Retry on next reconnect
+
+            try {
+              const success = await invoke<boolean>("sync_offline_time", {
+                serverUrl,
+                accessToken: auth.access_token,
+                userId: file.userId,
+                gameId: file.gameId,
+                minutes: file.accumulatedMinutes,
+              });
+
+              if (success) {
+                await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+              }
+            } catch {
+              // Retry on next reconnect
+            }
           }
         }
       } catch {
@@ -115,35 +120,38 @@ export function useGameTimeTracker() {
       syncInFlightRef.current = true;
 
       try {
-        const selectedRoot = localStorage.getItem("tauri_download_path");
-        if (!selectedRoot) return;
+        const rootPaths = getRootPaths();
+        if (!rootPaths.length) return;
 
         const { invoke } = await import("@tauri-apps/api/core");
-        const files = await invoke<any[]>("get_offline_time_files", {
-          selectedRoot,
-        });
 
-        for (const file of files) {
-          if (!file.accumulatedMinutes || file.accumulatedMinutes <= 0) {
-            // Delete empty files
-            await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
-            continue;
-          }
+        for (const root of rootPaths) {
+          const files = await invoke<any[]>("get_offline_time_files", {
+            selectedRoot: root.path,
+          }).catch(() => [] as any[]);
 
-          try {
-            const success = await invoke<boolean>("sync_offline_time", {
-              serverUrl,
-              accessToken: auth?.access_token || "",
-              userId: file.userId,
-              gameId: file.gameId,
-              minutes: file.accumulatedMinutes,
-            });
-
-            if (success) {
+          for (const file of files) {
+            if (!file.accumulatedMinutes || file.accumulatedMinutes <= 0) {
+              // Delete empty files
               await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+              continue;
             }
-          } catch {
-            // Retry on next reconnect
+
+            try {
+              const success = await invoke<boolean>("sync_offline_time", {
+                serverUrl,
+                accessToken: auth?.access_token || "",
+                userId: file.userId,
+                gameId: file.gameId,
+                minutes: file.accumulatedMinutes,
+              });
+
+              if (success) {
+                await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+              }
+            } catch {
+              // Retry on next reconnect
+            }
           }
         }
       } catch {

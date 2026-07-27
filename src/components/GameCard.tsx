@@ -14,6 +14,8 @@ import { StarIcon as StarOutline } from "@heroicons/react/24/outline";
 import { Button } from "@tw/button";
 import { GameSettings } from "@/components/admin/GameSettings";
 import { VersionSelectDialog } from "@/components/VersionSelectDialog";
+import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
+import { getRootPaths } from "@/utils/rootPaths";
 import { isTauriApp } from "@/utils/tauri";
 import { Alert, AlertTitle } from "@tw/alert";
 import {
@@ -25,7 +27,7 @@ import {
 } from "@tw/dropdown";
 import clsx from "clsx";
 import { useCallback, useMemo, useState, useEffect } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { GameVersion } from "@/api/models/GameVersion";
 
 export function GameCard({
@@ -62,6 +64,9 @@ export function GameCard({
   const [pendingDownloadAction, setPendingDownloadAction] = useState<
     "direct" | "tauri" | "client" | null
   >(null);
+  const [rootSelectOpen, setRootSelectOpen] = useState(false);
+  const [pendingRootPath, setPendingRootPath] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const coverId = getGameCoverMediaId(localGame) as number | string | null;
 
@@ -172,7 +177,7 @@ export function GameCard({
   }, [localGame.versions, serverUrl, authFetch, game.id]);
 
   const executeDownloadAction = useCallback(
-    (action: "direct" | "tauri" | "client", selectedVersion: GameVersion) => {
+    (action: "direct" | "tauri" | "client", selectedVersion: GameVersion, rootPath?: string) => {
       const resolvedTitle = localGame.metadata?.title || localGame.title;
       const filePathFallback = selectedVersion.file_path
         ? selectedVersion.file_path.split(/[/\\]/).pop()
@@ -196,6 +201,7 @@ export function GameCard({
         gameMetadata: localGame.metadata,
         gameType: (selectedVersion.type || localGame.type) as any,
         filename: selectedFilename,
+        downloadRootPath: rootPath,
       });
 
       showAlert({
@@ -206,7 +212,7 @@ export function GameCard({
   );
 
   const selectVersionAndRun = useCallback(
-    async (action: "direct" | "tauri" | "client") => {
+    async (action: "direct" | "tauri" | "client", rootPath?: string) => {
       const versions = await resolveVersions();
 
       if (!versions.length) {
@@ -218,12 +224,13 @@ export function GameCard({
       }
 
       if (versions.length === 1) {
-        executeDownloadAction(action, versions[0]);
+        executeDownloadAction(action, versions[0], rootPath);
         return;
       }
 
       setSelectableVersions(versions);
       setPendingDownloadAction(action);
+      setPendingRootPath(rootPath ?? null);
       setVersionDialogOpen(true);
     },
     [resolveVersions, showAlert, executeDownloadAction],
@@ -247,22 +254,40 @@ export function GameCard({
       console.log("Game ID:", game.id);
 
       try {
-        // Get download path from localStorage
-        const downloadPath = localStorage.getItem("tauri_download_path");
-        console.log("Download path check:", downloadPath);
-        if (!downloadPath) {
-          alert("Please select a download location in Settings first.");
+        const rootPaths = getRootPaths();
+        console.log("Root paths:", rootPaths);
+        if (rootPaths.length === 0) {
+          alert("Please configure a download location in Settings first.");
           return;
         }
 
-        console.log("Starting download...");
-        await selectVersionAndRun("tauri");
+        if (rootPaths.length === 1) {
+          console.log("Single root path — proceeding directly");
+          await selectVersionAndRun("tauri", rootPaths[0].path);
+          return;
+        }
+
+        console.log("Multiple root paths — showing selection dialog");
+        setRootSelectOpen(true);
       } catch (error) {
         console.error("Error starting Tauri download:", error);
       }
     },
     [serverUrl, selectVersionAndRun],
   );
+
+  const handleRootPathSelect = useCallback(
+    (rootPath: string) => {
+      setRootSelectOpen(false);
+      void selectVersionAndRun("tauri", rootPath);
+    },
+    [selectVersionAndRun],
+  );
+
+  const handleGoToSettingsFromRootSelect = useCallback(() => {
+    setRootSelectOpen(false);
+    navigate("/settings");
+  }, [navigate]);
 
   const handlePlayGame = useCallback(
     async (e: React.MouseEvent) => {
@@ -329,12 +354,13 @@ export function GameCard({
   const handleVersionSelect = useCallback(
     (selectedVersion: GameVersion) => {
       if (!pendingDownloadAction) return;
-      executeDownloadAction(pendingDownloadAction, selectedVersion);
+      executeDownloadAction(pendingDownloadAction, selectedVersion, pendingRootPath ?? undefined);
       setVersionDialogOpen(false);
       setPendingDownloadAction(null);
+      setPendingRootPath(null);
       setSelectableVersions([]);
     },
-    [pendingDownloadAction, executeDownloadAction],
+    [pendingDownloadAction, pendingRootPath, executeDownloadAction],
   );
 
   const gameViewUrl = `/library/${game.id}`;
@@ -554,6 +580,20 @@ export function GameCard({
           onUninstalled={onUninstalledCallback}
         />
       )}
+      <RootPathSelectDialog
+        open={rootSelectOpen}
+        gameTitle={localGame.metadata?.title || localGame.title || "Game"}
+        rootPaths={(() => {
+          try {
+            return getRootPaths();
+          } catch {
+            return [];
+          }
+        })()}
+        onSelect={handleRootPathSelect}
+        onClose={() => setRootSelectOpen(false)}
+        onGoToSettings={handleGoToSettingsFromRootSelect}
+      />
       <VersionSelectDialog
         open={versionDialogOpen}
         gameTitle={localGame.metadata?.title || localGame.title || "Game"}
@@ -561,6 +601,7 @@ export function GameCard({
         onClose={() => {
           setVersionDialogOpen(false);
           setPendingDownloadAction(null);
+          setPendingRootPath(null);
           setSelectableVersions([]);
         }}
         onSelect={handleVersionSelect}

@@ -109,6 +109,16 @@ function formatDate(value: unknown, fallback = "Never") {
   }
 }
 
+function formatFullDateTime(value: unknown): string | null {
+  const timestamp = toTimestamp(value);
+  if (timestamp === -Infinity) return null;
+  try {
+    return new Date(timestamp).toLocaleString();
+  } catch {
+    return null;
+  }
+}
+
 function formatPlaytime(minutes: number) {
   if (!minutes) return "0 min";
   if (minutes < 60) return `${minutes} min`;
@@ -329,7 +339,7 @@ function NetworkUserCard({
                   @{getUserHandle(user)}
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gv-muted">
-                  <span>Last seen {formatDate(stats.lastPlayed)}</span>
+                  <span title={formatFullDateTime(stats.lastPlayed) ?? undefined}>Last seen {formatDate(stats.lastPlayed)}</span>
                   <span>{formatPlaytime(stats.totalMinutes)} logged</span>
                 </div>
               </div>
@@ -427,7 +437,7 @@ function ProfileProgressCard({ progress }: { progress: Progress }) {
               </div>
               <div className="flex items-center gap-2">
                 <SparklesIcon className="size-4 text-gv-accent-cool" />
-                <span>Last played {formatDate(progress.last_played_at)}</span>
+                <span title={formatFullDateTime(progress.last_played_at) ?? undefined}>Last played {formatDate(progress.last_played_at)}</span>
               </div>
             </div>
             <div className="mt-4 text-xs uppercase tracking-[0.16em] text-gv-muted/80">

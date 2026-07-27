@@ -85,7 +85,7 @@ type InstalledGameInfo = {
   versionDirectory: string;
 };
 
-const DOWNLOAD_PATH_KEY = "tauri_download_path";
+import { getRootPaths } from "@/utils/rootPaths";
 
 function isSetupInstallType(gameType?: string) {
   return gameType === GamevaultGameTypeEnum.windows_setup;
@@ -240,46 +240,67 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
   const findInstalledGame = useCallback(async (): Promise<InstalledGameInfo | null> => {
     if (!isTauri) return null;
-    const selectedRoot = localStorage.getItem(DOWNLOAD_PATH_KEY);
-    if (!selectedRoot) return null;
+    const rootPaths = getRootPaths();
+    if (!rootPaths.length) return null;
 
     const { invoke } = await import("@tauri-apps/api/core");
-    const recoveredCards = await invoke<any[]>("recover_download_cards", {
-      selectedRoot,
-    });
 
-    const match = (recoveredCards || [])
+    const allResults: any[] = [];
+    const seen = new Set<string>();
+
+    for (const root of rootPaths) {
+      const rawResults = await invoke<any[]>("list_installed_games", {
+        selectedRoot: root.path,
+      }).catch(() => [] as any[]);
+
+      for (const r of rawResults) {
+        const id = r.gameId ?? r.game_id ?? 0;
+        const vd = r.versionDirectory ?? r.version_directory ?? "";
+        const key = `${id}:${vd}`;
+        if (id > 0 && !seen.has(key)) {
+          seen.add(key);
+          allResults.push(r);
+        }
+      }
+    }
+
+    const match = allResults
       .filter(
-        (card) =>
-          Number(card.gameId || 0) === workingGame.id &&
-          Boolean(card.installationFinished) &&
-          typeof card.installationDirectory === "string" &&
-          card.installationDirectory.trim().length > 0 &&
-          typeof card.versionDirectory === "string" &&
-          card.versionDirectory.trim().length > 0,
+        (r) =>
+          Number(r.gameId ?? r.game_id ?? 0) === workingGame.id &&
+          typeof (r.installationDirectory ?? r.installation_directory) === "string" &&
+          (r.installationDirectory ?? r.installation_directory ?? "").trim().length > 0 &&
+          typeof (r.versionDirectory ?? r.version_directory) === "string" &&
+          (r.versionDirectory ?? r.version_directory ?? "").trim().length > 0,
       )
       .sort(
-        (left, right) =>
-          Number(right.versionId || 0) - Number(left.versionId || 0),
+        (a, b) =>
+          Number(b.versionId ?? b.version_id ?? 0) -
+          Number(a.versionId ?? a.version_id ?? 0),
       )[0];
 
     if (!match) return null;
 
     return {
-      gameId: Number(match.gameId || workingGame.id),
+      gameId: Number(match.gameId ?? match.game_id ?? workingGame.id),
       gameTitle:
-        String(match.gameTitle || "").trim() ||
+        String(match.gameTitle ?? match.game_title ?? "").trim() ||
         workingGame.metadata?.title ||
         workingGame.title ||
         "Game",
       gameType:
-        typeof match.gameType === "string" && match.gameType.trim().length > 0
-          ? match.gameType
+        typeof (match.gameType ?? match.game_type) === "string" &&
+        (match.gameType ?? match.game_type ?? "").trim().length > 0
+          ? (match.gameType ?? match.game_type)
           : undefined,
-      versionId: Number(match.versionId || 0),
-      versionName: String(match.versionName || "").trim(),
-      installationDirectory: String(match.installationDirectory || ""),
-      versionDirectory: String(match.versionDirectory || ""),
+      versionId: Number(match.versionId ?? match.version_id ?? 0),
+      versionName: String(match.versionName ?? match.version_name ?? "").trim(),
+      installationDirectory: String(
+        match.installationDirectory ?? match.installation_directory ?? "",
+      ),
+      versionDirectory: String(
+        match.versionDirectory ?? match.version_directory ?? "",
+      ),
     };
   }, [isTauri, workingGame.id, workingGame.metadata?.title, workingGame.title]);
 

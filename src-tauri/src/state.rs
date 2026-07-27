@@ -18,7 +18,7 @@ pub(crate) struct TrackerConfig {
   pub server_url: String,
   pub user_id: i64,
   pub access_token: String,
-  pub download_path: String,
+  pub download_paths: Vec<String>,
 }
 
 static TRACKER_CONFIG: OnceLock<Mutex<Option<TrackerConfig>>> = OnceLock::new();

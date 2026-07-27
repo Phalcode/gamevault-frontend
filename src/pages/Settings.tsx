@@ -12,15 +12,24 @@ import { Button } from "@/components/tailwind/button";
 import ThemeSelect from "@/components/ThemeSelect";
 import { isAnalyticsEnabled, setAnalyticsEnabled } from "@/utils/analytics";
 import {
+  type RootPathEntry,
+  getRootPaths,
+  addRootPath,
+  removeRootPath,
+  updateRootPath,
+  updateRootPathLabel,
+} from "@/utils/rootPaths";
+import {
   FolderArrowDownIcon,
-  ClipboardDocumentIcon,
-  CheckIcon,
   ComputerDesktopIcon,
   ChartBarIcon,
+  PlusIcon,
+  XMarkIcon,
+  TagIcon,
+  FolderIcon,
 } from "@heroicons/react/24/outline";
 
 const RETAIN_KEY = "app_retain_library_prefs";
-const DOWNLOAD_PATH_KEY = "tauri_download_path";
 const AUTOSTART_MINIMIZED_KEY = "tauri_start_minimized";
 
 export default function Settings() {
@@ -37,14 +46,9 @@ export default function Settings() {
   const [analyticsConsent, setAnalyticsConsent] = useState<boolean>(() => {
     return isAnalyticsEnabled();
   });
-  const [downloadPath, setDownloadPath] = useState<string>(() => {
-    try {
-      return localStorage.getItem(DOWNLOAD_PATH_KEY) || "";
-    } catch {
-      return "";
-    }
-  });
-  const [pathCopied, setPathCopied] = useState(false);
+  const [rootPaths, setRootPaths] = useState<RootPathEntry[]>(() =>
+    getRootPaths(),
+  );
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(
     null,
   );
@@ -117,7 +121,7 @@ export default function Settings() {
     }
   };
 
-  const handleSelectDownloadFolder = async (e: React.MouseEvent) => {
+  const handleAddRootPath = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (!isTauri) return;
@@ -129,8 +133,8 @@ export default function Settings() {
         title: "Select Download Directory",
       });
       if (selected && typeof selected === "string") {
-        setDownloadPath(selected);
-        localStorage.setItem(DOWNLOAD_PATH_KEY, selected);
+        const updated = addRootPath(selected);
+        setRootPaths(updated);
 
         try {
           const { invoke } = await import("@tauri-apps/api/core");
@@ -146,21 +150,42 @@ export default function Settings() {
     }
   };
 
-  const handleCopyPath = async () => {
-    if (!downloadPath) return;
+  const handleBrowseRootPath = async (id: string) => {
+    if (!isTauri) return;
     try {
-      await navigator.clipboard.writeText(downloadPath);
-      setPathCopied(true);
-      setTimeout(() => setPathCopied(false), 2000);
-    } catch {
-      // Clipboard API unavailable
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Download Directory",
+      });
+      if (selected && typeof selected === "string") {
+        const updated = updateRootPath(id, selected);
+        setRootPaths(updated);
+
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const { join } = await import("@tauri-apps/api/path");
+          const gameVaultRoot = await join(selected, "GameVault");
+          await invoke("fs_create_dir_all", { path: gameVaultRoot });
+        } catch {
+          // Folder creation is best-effort
+        }
+      }
+    } catch (error) {
+      console.error("Error re-selecting download folder:", error);
     }
   };
 
-  // Truncate path for display: show last 2 segments
-  const displayPath = downloadPath
-    ? downloadPath.split(/[\\/]/).slice(-2).join("/")
-    : "No folder selected";
+  const handleRemoveRootPath = (id: string) => {
+    const updated = removeRootPath(id);
+    setRootPaths(updated);
+  };
+
+  const handleLabelChange = (id: string, label: string) => {
+    const updated = updateRootPathLabel(id, label);
+    setRootPaths(updated);
+  };
 
   return (
     <div className="flex min-h-full flex-col gap-6">
@@ -181,50 +206,79 @@ export default function Settings() {
 
             {isTauri && (
               <Field className="mt-6">
-                <Label>Download folder</Label>
+                <Label>Download folders</Label>
                 <Text className="mb-2">
-                  Game files will be stored in a GameVault subfolder at this
+                  Game files will be stored in a GameVault subfolder at each
                   location.
                 </Text>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Input
-                      type="text"
-                      value={downloadPath}
-                      readOnly
-                      className="pr-16"
-                      placeholder="Select a download folder"
-                      title={downloadPath || undefined}
-                    />
-                    {downloadPath && (
-                      <button
-                        type="button"
-                        onClick={handleCopyPath}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl p-2 text-gv-muted transition-colors hover:bg-gv-panel-soft hover:text-gv-text cursor-pointer"
-                        aria-label={
-                          pathCopied ? "Path copied" : "Copy path to clipboard"
-                        }
-                      >
-                        {pathCopied ? (
-                          <CheckIcon className="h-4 w-4 text-green-400" />
-                        ) : (
-                          <ClipboardDocumentIcon className="h-4 w-4" />
-                        )}
-                      </button>
-                    )}
+
+                {rootPaths.length === 0 && (
+                  <div className="flex items-center gap-2 rounded-xl border border-dashed border-gv-line p-4 text-sm text-gv-muted">
+                    <FolderIcon className="h-5 w-5 shrink-0" />
+                    No download folders configured. Click below to add one.
                   </div>
+                )}
+
+                <div className="space-y-2">
+                  {rootPaths.map((root) => (
+                    <div
+                      key={root.id}
+                      className="flex flex-col gap-2 rounded-xl border border-gv-line bg-gv-panel-soft p-3"
+                    >
+                      <div className="flex items-center gap-2">
+                        {/* Label input */}
+                        <div className="relative flex-shrink-0">
+                          <TagIcon className="absolute left-2 top-1/2 h-4 w-4 stroke-[1.8] -translate-y-1/2 text-gv-muted" />
+                          <Input
+                            type="text"
+                            value={root.label}
+                            onChange={(e: any) =>
+                              handleLabelChange(root.id, e.target.value)
+                            }
+                            placeholder="Label"
+                            className="w-24 pl-7 text-xs"
+                            aria-label="Label for this download folder"
+                          />
+                        </div>
+
+                        {/* Browse button */}
+                        <Button
+                          type="button"
+                          color="zinc"
+                          className="text-xs shrink-0"
+                          onClick={() => handleBrowseRootPath(root.id)}
+                        >
+                          <FolderArrowDownIcon className="h-4 w-4 stroke-[1.8]" />
+                          Choose
+                        </Button>
+
+                        {/* Remove button */}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRootPath(root.id)}
+                          className="rounded-xl p-1.5 text-gv-muted hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer"
+                          aria-label="Remove download folder"
+                        >
+                          <XMarkIcon className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <Text className="text-xs text-gv-muted break-all">
+                        {root.path}
+                      </Text>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-3">
                   <Button
                     type="button"
-                    color="zinc"
-                    onClick={handleSelectDownloadFolder}
+                    color="indigo"
+                    onClick={handleAddRootPath}
                   >
-                    <FolderArrowDownIcon className="h-5 w-5" />
-                    Browse
+                    <PlusIcon className="h-4 w-4" />
+                    Add Root Directory
                   </Button>
                 </div>
-                {downloadPath && (
-                  <Text className="mt-1 text-xs">{displayPath}</Text>
-                )}
               </Field>
             )}
 

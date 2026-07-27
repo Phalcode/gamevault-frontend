@@ -15,6 +15,8 @@ import Card from "@/components/Card";
 import { useDownloads } from "@/context/DownloadContext";
 import { GameVersion } from "@/api/models/GameVersion";
 import { VersionSelectDialog } from "@/components/VersionSelectDialog";
+import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
+import { getRootPaths } from "@/utils/rootPaths";
 import {
   useEffect,
   useMemo,
@@ -75,6 +77,8 @@ export default function GameView() {
     "direct" | "tauri" | "client" | null
   >(null);
   const [selectableVersions, setSelectableVersions] = useState<GameVersion[]>([]);
+  const [rootSelectOpen, setRootSelectOpen] = useState(false);
+  const [pendingRootPath, setPendingRootPath] = useState<string | null>(null);
   const isTauri = isTauriApp();
   const { isOnline } = useOnlineStatus();
   const backgroundMediaId = game?.metadata?.background?.id;
@@ -113,6 +117,22 @@ export default function GameView() {
         backgroundRevokeRef.current = objectUrl;
         setBackgroundUrl(objectUrl);
       } catch {
+        // Offline fallback: try Tauri local cache for background image
+        if (isTauriApp() && backgroundMediaId && !cancelled) {
+          try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const cachedBytes = await invoke<number[] | null>("load_cached_image", {
+              mediaId: Number(backgroundMediaId),
+            });
+            if (cachedBytes && cachedBytes.length > 0) {
+              const blob = new Blob([new Uint8Array(cachedBytes)]);
+              const objectUrl = URL.createObjectURL(blob);
+              backgroundRevokeRef.current = objectUrl;
+              setBackgroundUrl(objectUrl);
+              return;
+            }
+          } catch { /* cached image not available */ }
+        }
         if (!cancelled) setBackgroundUrl(null);
       }
     })();
@@ -348,7 +368,7 @@ export default function GameView() {
   }, [game, serverUrl, numericId, authFetch]);
 
   const executeDownloadAction = useCallback(
-    (action: "direct" | "tauri" | "client", selectedVersion: GameVersion) => {
+    (action: "direct" | "tauri" | "client", selectedVersion: GameVersion, rootPath?: string) => {
       if (!game) return;
       const resolvedTitle = title || game.title;
       const filePathFallback = selectedVersion.file_path
@@ -372,6 +392,7 @@ export default function GameView() {
         gameMetadata: game.metadata,
         gameType: (selectedVersion.type || game.type) as any,
         filename: selectedFilename,
+        downloadRootPath: rootPath,
       });
 
       showAlert({
@@ -382,7 +403,7 @@ export default function GameView() {
   );
 
   const selectVersionAndRun = useCallback(
-    async (action: "direct" | "tauri" | "client") => {
+    async (action: "direct" | "tauri" | "client", rootPath?: string) => {
       const versions = await resolveVersions();
 
       if (!versions.length) {
@@ -394,12 +415,13 @@ export default function GameView() {
       }
 
       if (versions.length === 1) {
-        executeDownloadAction(action, versions[0]);
+        executeDownloadAction(action, versions[0], rootPath);
         return;
       }
 
       setSelectableVersions(versions);
       setPendingDownloadAction(action);
+      setPendingRootPath(rootPath ?? null);
       setVersionDialogOpen(true);
     },
     [resolveVersions, showAlert, executeDownloadAction],
@@ -414,18 +436,36 @@ export default function GameView() {
     if (!game) return;
 
     try {
-      // Get download path from localStorage
-      const downloadPath = localStorage.getItem("tauri_download_path");
-      if (!downloadPath) {
-        alert("Please select a download location in Settings first.");
+      const rootPaths = getRootPaths();
+      if (rootPaths.length === 0) {
+        alert("Please configure a download location in Settings first.");
         return;
       }
 
-      await selectVersionAndRun("tauri");
+      if (rootPaths.length === 1) {
+        await selectVersionAndRun("tauri", rootPaths[0].path);
+        return;
+      }
+
+      // Multiple roots — show selection dialog
+      setRootSelectOpen(true);
     } catch (error) {
       console.error("Error starting Tauri download:", error);
     }
   }, [game, selectVersionAndRun]);
+
+  const handleRootPathSelect = useCallback(
+    (rootPath: string) => {
+      setRootSelectOpen(false);
+      void selectVersionAndRun("tauri", rootPath);
+    },
+    [selectVersionAndRun],
+  );
+
+  const handleGoToSettingsFromRootSelect = useCallback(() => {
+    setRootSelectOpen(false);
+    navigate("/settings");
+  }, [navigate]);
 
   const handleClientDownload = useCallback(() => {
     if (!game) return;
@@ -435,12 +475,13 @@ export default function GameView() {
   const handleVersionSelect = useCallback(
     (selectedVersion: GameVersion) => {
       if (!pendingDownloadAction) return;
-      executeDownloadAction(pendingDownloadAction, selectedVersion);
+      executeDownloadAction(pendingDownloadAction, selectedVersion, pendingRootPath ?? undefined);
       setVersionDialogOpen(false);
       setPendingDownloadAction(null);
+      setPendingRootPath(null);
       setSelectableVersions([]);
     },
-    [pendingDownloadAction, executeDownloadAction],
+    [pendingDownloadAction, pendingRootPath, executeDownloadAction],
   );
 
   const PROGRESS_LABEL: Record<string, string> = {
@@ -1141,6 +1182,20 @@ export default function GameView() {
             onGameUpdated={(updatedGame) => setGame(updatedGame)}
           />
         )}
+        <RootPathSelectDialog
+          open={rootSelectOpen}
+          gameTitle={title || game?.title || "Game"}
+          rootPaths={(() => {
+            try {
+              return getRootPaths();
+            } catch {
+              return [];
+            }
+          })()}
+          onSelect={handleRootPathSelect}
+          onClose={() => setRootSelectOpen(false)}
+          onGoToSettings={handleGoToSettingsFromRootSelect}
+        />
         <VersionSelectDialog
           open={versionDialogOpen}
           gameTitle={title || game?.title || "Game"}
@@ -1148,6 +1203,7 @@ export default function GameView() {
           onClose={() => {
             setVersionDialogOpen(false);
             setPendingDownloadAction(null);
+            setPendingRootPath(null);
             setSelectableVersions([]);
           }}
           onSelect={handleVersionSelect}
