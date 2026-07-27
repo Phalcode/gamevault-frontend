@@ -46,6 +46,7 @@
       "allow": [{ "path": "$HOME/**" }, { "path": "$DOWNLOAD/**" }]
     },
     "fs:allow-home-read-recursive",
-    "fs:allow-home-write-recursive"
+    "fs:allow-home-write-recursive",
+    "autostart:default"
   ]
 }

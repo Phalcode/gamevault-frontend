@@ -31,6 +31,9 @@ import {
 
 const RETAIN_KEY = "app_retain_library_prefs";
 const AUTOSTART_MINIMIZED_KEY = "tauri_start_minimized";
+const AUTO_EXTRACT_KEY = "tauri_auto_extract";
+const AUTO_INSTALL_KEY = "tauri_auto_install";
+const AUTO_DELETE_SOURCE_KEY = "tauri_auto_delete_source";
 
 export default function Settings() {
   const { speedLimitKB, setSpeedLimitKB, formatSpeed, formatLimit } =
@@ -55,6 +58,27 @@ export default function Settings() {
   const [startMinimized, setStartMinimized] = useState<boolean>(() => {
     try {
       return localStorage.getItem(AUTOSTART_MINIMIZED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [autoExtract, setAutoExtract] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AUTO_EXTRACT_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [autoInstall, setAutoInstall] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AUTO_INSTALL_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [autoDeleteSource, setAutoDeleteSource] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AUTO_DELETE_SOURCE_KEY) === "1";
     } catch {
       return false;
     }
@@ -104,14 +128,39 @@ export default function Settings() {
   // Persist startMinimized to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(
-        AUTOSTART_MINIMIZED_KEY,
-        startMinimized ? "1" : "0",
-      );
+      localStorage.setItem(AUTOSTART_MINIMIZED_KEY, startMinimized ? "1" : "0");
     } catch {
       console.warn("Failed to persist start minimized preference");
     }
   }, [startMinimized]);
+
+  // Persist auto-flow settings to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(AUTO_EXTRACT_KEY, autoExtract ? "1" : "0");
+    } catch {
+      console.warn("Failed to persist auto-extract preference");
+    }
+  }, [autoExtract]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(AUTO_INSTALL_KEY, autoInstall ? "1" : "0");
+    } catch {
+      console.warn("Failed to persist auto-install preference");
+    }
+  }, [autoInstall]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        AUTO_DELETE_SOURCE_KEY,
+        autoDeleteSource ? "1" : "0",
+      );
+    } catch {
+      console.warn("Failed to persist auto-delete preference");
+    }
+  }, [autoDeleteSource]);
 
   const handleSpeedChange = (raw: number) => {
     if (Number.isNaN(raw) || raw <= 0) {
@@ -410,9 +459,8 @@ export default function Settings() {
                     onChange={async (v: boolean) => {
                       setAutostartEnabled(v);
                       try {
-                        const { enable, disable } = await import(
-                          "@tauri-apps/plugin-autostart"
-                        );
+                        const { enable, disable } =
+                          await import("@tauri-apps/plugin-autostart");
                         if (v) {
                           await enable();
                         } else {
@@ -444,13 +492,64 @@ export default function Settings() {
                     disabled={!autostartEnabled}
                     onChange={(v: boolean) => setStartMinimized(v)}
                   />
-                  <Label>
-                    Minimize GameVault to System Tray on Startup
-                  </Label>
+                  <Label>Minimize GameVault to System Tray on Startup</Label>
                 </SwitchField>
                 <Text className="mt-1">
                   When auto-start is enabled, GameVault will start silently in
                   the system tray instead of opening the full window.
+                </Text>
+              </Field>
+
+              <Field className="mt-6">
+                <SwitchField>
+                  <Switch
+                    name="autoExtract"
+                    color="indigo"
+                    aria-label="Automatically extract downloaded archives"
+                    checked={autoExtract}
+                    onChange={(v: boolean) => setAutoExtract(v)}
+                  />
+                  <Label>Auto-Extract Downloads</Label>
+                </SwitchField>
+                <Text className="mt-1">
+                  Automatically extract archives as soon as a download finishes.
+                  Password-protected archives will still require manual
+                  extraction.
+                </Text>
+              </Field>
+
+              <Field className="mt-6">
+                <SwitchField>
+                  <Switch
+                    name="autoInstall"
+                    color="indigo"
+                    aria-label="Automatically install games after extraction"
+                    checked={autoInstall}
+                    onChange={(v: boolean) => setAutoInstall(v)}
+                  />
+                  <Label>Auto-Install Games</Label>
+                </SwitchField>
+                <Text className="mt-1">
+                  After extraction, automatically copy portable games or launch
+                  installers for setup games.
+                </Text>
+              </Field>
+
+              <Field className="mt-6">
+                <SwitchField>
+                  <Switch
+                    name="autoDeleteSource"
+                    color="indigo"
+                    aria-label="Delete downloaded and extracted files after portable game install"
+                    checked={autoDeleteSource}
+                    onChange={(v: boolean) => setAutoDeleteSource(v)}
+                  />
+                  <Label>Auto-Delete Source Files</Label>
+                </SwitchField>
+                <Text className="mt-1">
+                  After a portable game is installed, delete the downloaded
+                  archive and extracted files to save disk space. Does not apply
+                  to setup-based games.
                 </Text>
               </Field>
             </Fieldset>

@@ -45,7 +45,12 @@ export interface ActiveDownload {
   status: "downloading" | "paused" | "completed" | "error" | "aborted";
   error?: string;
   cachedMetadata?: Record<string, any> | null;
-  extractionStatus?: "idle" | "extracting" | "completed" | "error" | "needs-password";
+  extractionStatus?:
+    | "idle"
+    | "extracting"
+    | "completed"
+    | "error"
+    | "needs-password";
   extractionProgress?: number | null;
   extractionCurrentFile?: string;
   extractionError?: string;
@@ -178,62 +183,64 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const applyDefaultLaunchConfig = useCallback(
-    async (d: ActiveDownload) => {
-      if (!d.versionDirectory || !d.installationDirectory) return;
-      const { join } = await import("@tauri-apps/api/path");
-      const { invoke } = await import("@tauri-apps/api/core");
+  const applyDefaultLaunchConfig = useCallback(async (d: ActiveDownload) => {
+    if (!d.versionDirectory || !d.installationDirectory) return;
+    const { join } = await import("@tauri-apps/api/path");
+    const { invoke } = await import("@tauri-apps/api/core");
 
-      const configPath = await join(
-        d.versionDirectory,
-        ".gamevault.game.config.json",
-      );
+    const configPath = await join(
+      d.versionDirectory,
+      ".gamevault.game.config.json",
+    );
 
-      let current: Record<string, any> = {};
-      if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
-        try {
-          current = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath }));
-        } catch {
-          current = {};
-        }
-      }
-
-      // Never overwrite a user-configured launch executable
-      if (current.launchexecutable) return;
-
-      const metaExe = (d.gameMetadata as any)?.launch_executable as
-        | string
-        | undefined;
-      const metaParams = (d.gameMetadata as any)?.launch_parameters as
-        | string
-        | undefined;
-
-      let resolvedExe: string | undefined;
-      if (metaExe && metaExe.trim()) {
-        // Normalize separators for comparison — list_launch_executables always returns forward slashes
-        const normalized = metaExe.trim().replace(/\\/g, "/").toLowerCase();
-        // Match against the actual executable list (same source as the Listbox)
-        const exeList = await invoke<string[]>("list_launch_executables", {
-          installationPath: d.installationDirectory,
-        });
-        // Case-insensitive match; use the exact casing from the list so it matches the UI
-        const match = exeList.find(
-          (e) => e.replace(/\\/g, "/").toLowerCase() === normalized,
+    let current: Record<string, any> = {};
+    if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
+      try {
+        current = JSON.parse(
+          await invoke<string>("fs_read_text_file", { path: configPath }),
         );
-        if (match) resolvedExe = match;
+      } catch {
+        current = {};
       }
+    }
 
-      const resolvedParams =
-        metaParams && metaParams.trim() ? metaParams.trim() : undefined;
+    // Never overwrite a user-configured launch executable
+    if (current.launchexecutable) return;
 
-      if (!resolvedExe && !resolvedParams) return;
+    const metaExe = (d.gameMetadata as any)?.launch_executable as
+      | string
+      | undefined;
+    const metaParams = (d.gameMetadata as any)?.launch_parameters as
+      | string
+      | undefined;
 
-      if (resolvedExe !== undefined) current.launchexecutable = resolvedExe;
-      if (resolvedParams !== undefined) current.launchparameters = resolvedParams;
-      await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(current, null, 2) });
-    },
-    [],
-  );
+    let resolvedExe: string | undefined;
+    if (metaExe && metaExe.trim()) {
+      // Normalize separators for comparison — list_launch_executables always returns forward slashes
+      const normalized = metaExe.trim().replace(/\\/g, "/").toLowerCase();
+      // Match against the actual executable list (same source as the Listbox)
+      const exeList = await invoke<string[]>("list_launch_executables", {
+        installationPath: d.installationDirectory,
+      });
+      // Case-insensitive match; use the exact casing from the list so it matches the UI
+      const match = exeList.find(
+        (e) => e.replace(/\\/g, "/").toLowerCase() === normalized,
+      );
+      if (match) resolvedExe = match;
+    }
+
+    const resolvedParams =
+      metaParams && metaParams.trim() ? metaParams.trim() : undefined;
+
+    if (!resolvedExe && !resolvedParams) return;
+
+    if (resolvedExe !== undefined) current.launchexecutable = resolvedExe;
+    if (resolvedParams !== undefined) current.launchparameters = resolvedParams;
+    await invoke("fs_write_text_file", {
+      path: configPath,
+      content: JSON.stringify(current, null, 2),
+    });
+  }, []);
 
   const cacheInstalledGameData = useCallback(
     async (gameId: number) => {
@@ -267,7 +274,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                 contentType: blob.type || "image/png",
               });
             }
-          } catch { /* ignore image cache failures */ }
+          } catch {
+            /* ignore image cache failures */
+          }
         }
 
         // Cache background image
@@ -284,7 +293,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                 contentType: blob.type || "image/png",
               });
             }
-          } catch { /* ignore image cache failures */ }
+          } catch {
+            /* ignore image cache failures */
+          }
         }
       } catch {
         // Silently fail — caching is best-effort, never block the user
@@ -307,7 +318,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       let current: GameVaultConfig = { ...DEFAULT_GAME_VAULT_CONFIG };
       if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
         try {
-          const raw = await invoke<string>("fs_read_text_file", { path: configPath });
+          const raw = await invoke<string>("fs_read_text_file", {
+            path: configPath,
+          });
           const parsed = JSON.parse(raw) as Partial<GameVaultConfig>;
           current = {
             ...DEFAULT_GAME_VAULT_CONFIG,
@@ -322,7 +335,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         ...current,
         ...patch,
       };
-      await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(next, null, 2) });
+      await invoke("fs_write_text_file", {
+        path: configPath,
+        content: JSON.stringify(next, null, 2),
+      });
     },
     [],
   );
@@ -333,14 +349,20 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       const { join } = await import("@tauri-apps/api/path");
       const { invoke } = await import("@tauri-apps/api/core");
 
-      const serverIdentifier = serverInfo?.server_uuid || serverUrl || "unknown";
+      const serverIdentifier =
+        serverInfo?.server_uuid || serverUrl || "unknown";
 
-      const metadataPath = await join(gameFolderPath, ".gamevault.metadata.json");
+      const metadataPath = await join(
+        gameFolderPath,
+        ".gamevault.metadata.json",
+      );
 
       let current: Record<string, string> = {};
       if (await invoke<boolean>("fs_path_exists", { path: metadataPath })) {
         try {
-          const raw = await invoke<string>("fs_read_text_file", { path: metadataPath });
+          const raw = await invoke<string>("fs_read_text_file", {
+            path: metadataPath,
+          });
           current = JSON.parse(raw) as Record<string, string>;
         } catch {
           current = {};
@@ -348,7 +370,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       }
 
       current[serverIdentifier] = String(gameId);
-      await invoke("fs_write_text_file", { path: metadataPath, content: JSON.stringify(current, null, 2) });
+      await invoke("fs_write_text_file", {
+        path: metadataPath,
+        content: JSON.stringify(current, null, 2),
+      });
     },
     [serverInfo, serverUrl],
   );
@@ -484,7 +509,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
           const gameFolderName =
             sanitizeFolderName(gameTitle) || `Game-${gameId}`;
-          const versionFolderName = `(${versionId}) ${versionName ?? ""}`.trimEnd();
+          const versionFolderName =
+            `(${versionId}) ${versionName ?? ""}`.trimEnd();
 
           const gameVaultRoot = await join(downloadPath, "GameVault");
           const gameFolderPath = await join(gameVaultRoot, gameFolderName);
@@ -508,7 +534,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
           await invoke("fs_create_dir_all", { path: downloadsVersionFolder });
           await invoke("fs_create_dir_all", { path: extractionsVersionFolder });
-          await invoke("fs_create_dir_all", { path: installationsVersionFolder });
+          await invoke("fs_create_dir_all", {
+            path: installationsVersionFolder,
+          });
           await writeGameMetadata(gameFolderPath, gameId);
           await writeVersionConfig(versionBaseFolder, {
             versionid: versionId,
@@ -645,6 +673,22 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               });
               // Cache game data + images for offline use (Download tab)
               cacheInstalledGameData(gameId);
+
+              // Auto-extract if enabled
+              try {
+                if (
+                  typeof localStorage !== "undefined" &&
+                  localStorage.getItem("tauri_auto_extract") === "1"
+                ) {
+                  setTimeout(() => {
+                    extractArchive(gameId).catch((e: any) =>
+                      console.error("Auto-extract failed:", e),
+                    );
+                  }, 50);
+                }
+              } catch {
+                // localStorage not available
+              }
             } else if (payload.status === "aborted") {
               void writeVersionConfig(versionBaseFolder, {
                 downloadfinished: false,
@@ -768,7 +812,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         const reader = res.body?.getReader();
         if (!reader) throw new Error("Streaming not supported");
         const chunks: (Uint8Array | ArrayBuffer)[] = writer ? [] : [];
-        let received = resumePosition && resumePosition > 0 ? resumePosition : 0;
+        let received =
+          resumePosition && resumePosition > 0 ? resumePosition : 0;
         let lastSamplePush = performance.now();
         while (true) {
           const { done, value } = await reader.read();
@@ -781,7 +826,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             const progress = progressDecimal * 100; // Convert to percentage
             const now = performance.now();
             const samples = speedSamplesRef.current[gameId];
-            if (now - lastSamplePush >= SAMPLE_INTERVAL_MS || progressDecimal === 1) {
+            if (
+              now - lastSamplePush >= SAMPLE_INTERVAL_MS ||
+              progressDecimal === 1
+            ) {
               samples.push({ t: now, bytes: received });
               trimSamples(samples, now);
               lastSamplePush = now;
@@ -816,9 +864,17 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       } catch (err: any) {
         if (isDesktop && tauriFilePath) {
           try {
-            const { invoke: invokeCleanup } = await import("@tauri-apps/api/core");
-            if (await invokeCleanup<boolean>("fs_path_exists", { path: tauriFilePath })) {
-              await invokeCleanup("fs_remove", { path: tauriFilePath, recursive: false });
+            const { invoke: invokeCleanup } =
+              await import("@tauri-apps/api/core");
+            if (
+              await invokeCleanup<boolean>("fs_path_exists", {
+                path: tauriFilePath,
+              })
+            ) {
+              await invokeCleanup("fs_remove", {
+                path: tauriFilePath,
+                recursive: false,
+              });
             }
           } catch (cleanupError) {
             console.warn("Could not remove partial download:", cleanupError);
@@ -861,24 +917,29 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       speedLimitKB,
       trimSamples,
       computeSpeedBps,
+      extractArchive,
     ],
   );
 
-  const pauseDownload = useCallback((gameId: number) => {
-    const d = downloads[gameId];
-    if (!d || d.status !== "downloading") return;
-    if (isTauriApp()) {
-      import("@tauri-apps/api/core")
-        .then(({ invoke }) => invoke("pause_download_task", { gameId }))
-        .catch(() => {});
-      return;
-    }
-    d.abortController.abort();6
-    updateDownload(gameId, {
-      status: "paused",
-      speedBps: undefined,
-    });
-  }, [downloads, updateDownload]);
+  const pauseDownload = useCallback(
+    (gameId: number) => {
+      const d = downloads[gameId];
+      if (!d || d.status !== "downloading") return;
+      if (isTauriApp()) {
+        import("@tauri-apps/api/core")
+          .then(({ invoke }) => invoke("pause_download_task", { gameId }))
+          .catch(() => {});
+        return;
+      }
+      d.abortController.abort();
+      6;
+      updateDownload(gameId, {
+        status: "paused",
+        speedBps: undefined,
+      });
+    },
+    [downloads, updateDownload],
+  );
 
   const resumeDownload = useCallback(
     (gameId: number) => {
@@ -911,7 +972,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             downloadprogress: "",
           });
         } catch (error) {
-          console.warn("Failed to reset game config flags before deletion:", error);
+          console.warn(
+            "Failed to reset game config flags before deletion:",
+            error,
+          );
         }
       }
 
@@ -944,7 +1008,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         stopExtractListener();
         delete tauriExtractUnlistenRef.current[gameId];
       }
-      const stopInstallCopyListener = tauriInstallCopyUnlistenRef.current[gameId];
+      const stopInstallCopyListener =
+        tauriInstallCopyUnlistenRef.current[gameId];
       if (stopInstallCopyListener) {
         stopInstallCopyListener();
         delete tauriInstallCopyUnlistenRef.current[gameId];
@@ -961,12 +1026,29 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
       if (isTauriApp()) {
         try {
-          const { invoke: invokeFsCleanup } = await import("@tauri-apps/api/core");
-          if (d.downloadDirectory && (await invokeFsCleanup<boolean>("fs_path_exists", { path: d.downloadDirectory }))) {
-            await invokeFsCleanup("fs_remove", { path: d.downloadDirectory, recursive: true });
+          const { invoke: invokeFsCleanup } =
+            await import("@tauri-apps/api/core");
+          if (
+            d.downloadDirectory &&
+            (await invokeFsCleanup<boolean>("fs_path_exists", {
+              path: d.downloadDirectory,
+            }))
+          ) {
+            await invokeFsCleanup("fs_remove", {
+              path: d.downloadDirectory,
+              recursive: true,
+            });
           }
-          if (d.extractionDirectory && (await invokeFsCleanup<boolean>("fs_path_exists", { path: d.extractionDirectory }))) {
-            await invokeFsCleanup("fs_remove", { path: d.extractionDirectory, recursive: true });
+          if (
+            d.extractionDirectory &&
+            (await invokeFsCleanup<boolean>("fs_path_exists", {
+              path: d.extractionDirectory,
+            }))
+          ) {
+            await invokeFsCleanup("fs_remove", {
+              path: d.extractionDirectory,
+              recursive: true,
+            });
           }
         } catch (error) {
           console.warn("Failed to delete download/extraction folders:", error);
@@ -1060,6 +1142,47 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               extractionProgress: 100,
               extractionCurrentFile: undefined,
             });
+
+            // Auto-install if enabled
+            try {
+              if (
+                typeof localStorage !== "undefined" &&
+                localStorage.getItem("tauri_auto_install") === "1"
+              ) {
+                const dl = downloads[gameId];
+                const gameType = dl?.gameType;
+                const isPortable =
+                  gameType === "WINDOWS_PORTABLE" ||
+                  gameType === "LINUX_PORTABLE" ||
+                  gameType === "WINDOWS_SOFTWARE" ||
+                  gameType === "LINUX_SOFTWARE";
+                const isSetup = gameType === "WINDOWS_SETUP";
+
+                if (isPortable) {
+                  setTimeout(() => {
+                    copyInstallationFiles(gameId).catch((e: any) =>
+                      console.error("Auto-install (portable) failed:", e),
+                    );
+                  }, 50);
+                } else if (isSetup) {
+                  setTimeout(async () => {
+                    try {
+                      const candidates = await listInstallExecutables(gameId);
+                      if (candidates.length > 0) {
+                        await launchInstallationExecutable(
+                          gameId,
+                          candidates[0],
+                        );
+                      }
+                    } catch (e: any) {
+                      console.error("Auto-install (setup) failed:", e);
+                    }
+                  }, 50);
+                }
+              }
+            } catch {
+              // localStorage not available
+            }
           } else if (payload.status === "needs-password") {
             updateDownload(gameId, {
               extractionStatus: "needs-password",
@@ -1136,7 +1259,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [downloads, updateDownload, writeVersionConfig],
+    [downloads, updateDownload, writeVersionConfig, copyInstallationFiles, listInstallExecutables, launchInstallationExecutable],
   );
 
   const resetInstallationState = useCallback(
@@ -1194,57 +1317,90 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           delete tauriInstallCopyUnlistenRef.current[gameId];
         }
 
-        const unlisten = await listen<any>("install-copy-progress", async (event) => {
-          const payload = event.payload;
-          if (!payload || payload.gameId !== gameId) return;
+        const unlisten = await listen<any>(
+          "install-copy-progress",
+          async (event) => {
+            const payload = event.payload;
+            if (!payload || payload.gameId !== gameId) return;
 
-          if (payload.status === "copying") {
-            updateDownload(gameId, {
-              installationStatus: "copying",
-              installationProgress:
-                typeof payload.progress === "number"
-                  ? Math.max(0, Math.min(100, payload.progress))
-                  : null,
-              installationCurrentFile:
-                typeof payload.currentFile === "string" && payload.currentFile
-                  ? payload.currentFile
-                  : undefined,
-              installationError: undefined,
-            });
-            return;
-          }
-
-          if (payload.status === "completed") {
-            if (d.versionDirectory) {
-              await writeVersionConfig(d.versionDirectory, {
-                installationfinished: true,
+            if (payload.status === "copying") {
+              updateDownload(gameId, {
+                installationStatus: "copying",
+                installationProgress:
+                  typeof payload.progress === "number"
+                    ? Math.max(0, Math.min(100, payload.progress))
+                    : null,
+                installationCurrentFile:
+                  typeof payload.currentFile === "string" && payload.currentFile
+                    ? payload.currentFile
+                    : undefined,
+                installationError: undefined,
               });
-              await applyDefaultLaunchConfig(d);
+              return;
             }
-            updateDownload(gameId, {
-              installationStatus: "completed",
-              installationProgress: 100,
-              installationCurrentFile: undefined,
-              installationError: undefined,
-            });
-            // Cache game data for offline use
-            cacheInstalledGameData(gameId);
-          } else if (payload.status === "error") {
-            updateDownload(gameId, {
-              installationStatus: "error",
-              installationProgress: null,
-              installationError:
-                (typeof payload.error === "string" && payload.error) ||
-                "Installation copy failed.",
-            });
-          }
 
-          const stop = tauriInstallCopyUnlistenRef.current[gameId];
-          if (stop) {
-            stop();
-            delete tauriInstallCopyUnlistenRef.current[gameId];
-          }
-        });
+            if (payload.status === "completed") {
+              if (d.versionDirectory) {
+                await writeVersionConfig(d.versionDirectory, {
+                  installationfinished: true,
+                });
+                await applyDefaultLaunchConfig(d);
+              }
+              updateDownload(gameId, {
+                installationStatus: "completed",
+                installationProgress: 100,
+                installationCurrentFile: undefined,
+                installationError: undefined,
+              });
+              // Cache game data for offline use
+              cacheInstalledGameData(gameId);
+
+              // Auto-delete source files for portable games
+              try {
+                if (
+                  typeof localStorage !== "undefined" &&
+                  localStorage.getItem("tauri_auto_delete_source") === "1" &&
+                  d.downloadDirectory &&
+                  d.extractionDirectory
+                ) {
+                  const dlDir = d.downloadDirectory;
+                  const extDir = d.extractionDirectory;
+                  setTimeout(async () => {
+                    try {
+                      const { invoke } = await import("@tauri-apps/api/core");
+                      await invoke("fs_remove", {
+                        path: dlDir,
+                        recursive: true,
+                      }).catch(() => {});
+                      await invoke("fs_remove", {
+                        path: extDir,
+                        recursive: true,
+                      }).catch(() => {});
+                    } catch {
+                      // Best-effort cleanup
+                    }
+                  }, 500);
+                }
+              } catch {
+                // localStorage not available
+              }
+            } else if (payload.status === "error") {
+              updateDownload(gameId, {
+                installationStatus: "error",
+                installationProgress: null,
+                installationError:
+                  (typeof payload.error === "string" && payload.error) ||
+                  "Installation copy failed.",
+              });
+            }
+
+            const stop = tauriInstallCopyUnlistenRef.current[gameId];
+            if (stop) {
+              stop();
+              delete tauriInstallCopyUnlistenRef.current[gameId];
+            }
+          },
+        );
 
         tauriInstallCopyUnlistenRef.current[gameId] = unlisten;
 
@@ -1298,69 +1454,102 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           delete tauriInstallerUnlistenRef.current[gameId];
         }
 
-        const unlisten = await listen<any>("installer-status", async (event) => {
-          const payload = event.payload;
-          if (!payload || payload.gameId !== gameId) return;
+        const unlisten = await listen<any>(
+          "installer-status",
+          async (event) => {
+            const payload = event.payload;
+            if (!payload || payload.gameId !== gameId) return;
 
-          if (payload.status === "launching") {
-            updateDownload(gameId, {
-              installationStatus: "launching",
-              installationCurrentFile:
-                typeof payload.currentFile === "string" && payload.currentFile
-                  ? payload.currentFile
-                  : installerRelativePath,
-              installationError: undefined,
-            });
-            return;
-          }
-
-          if (payload.status === "running") {
-            updateDownload(gameId, {
-              installationStatus: "running",
-              installationCurrentFile:
-                typeof payload.currentFile === "string" && payload.currentFile
-                  ? payload.currentFile
-                  : installerRelativePath,
-              installationError: undefined,
-            });
-            return;
-          }
-
-          if (payload.status === "completed") {
-            if (d.versionDirectory) {
-              await writeVersionConfig(d.versionDirectory, {
-                installationfinished: true,
+            if (payload.status === "launching") {
+              updateDownload(gameId, {
+                installationStatus: "launching",
+                installationCurrentFile:
+                  typeof payload.currentFile === "string" && payload.currentFile
+                    ? payload.currentFile
+                    : installerRelativePath,
+                installationError: undefined,
               });
-              await applyDefaultLaunchConfig(d);
+              return;
             }
-            updateDownload(gameId, {
-              installationStatus: "completed",
-              installationCurrentFile: undefined,
-              installationError: undefined,
-              installationExitCode:
-                typeof payload.exitCode === "number" ? payload.exitCode : 0,
-            });
-            // Cache game data for offline use
-            cacheInstalledGameData(gameId);
-          } else if (payload.status === "error") {
-            updateDownload(gameId, {
-              installationStatus: "error",
-              installationError:
-                (typeof payload.error === "string" && payload.error) ||
-                "Installer exited with an error.",
-              installationExitCode:
-                typeof payload.exitCode === "number"
-                  ? payload.exitCode
-                  : null,
-            });
-          }
 
-          const stop = tauriInstallerUnlistenRef.current[gameId];
-          if (stop) {
-            stop();
-            delete tauriInstallerUnlistenRef.current[gameId];
-          }
-        });
+            if (payload.status === "running") {
+              updateDownload(gameId, {
+                installationStatus: "running",
+                installationCurrentFile:
+                  typeof payload.currentFile === "string" && payload.currentFile
+                    ? payload.currentFile
+                    : installerRelativePath,
+                installationError: undefined,
+              });
+              return;
+            }
+
+            if (payload.status === "completed") {
+              if (d.versionDirectory) {
+                await writeVersionConfig(d.versionDirectory, {
+                  installationfinished: true,
+                });
+                await applyDefaultLaunchConfig(d);
+              }
+              updateDownload(gameId, {
+                installationStatus: "completed",
+                installationCurrentFile: undefined,
+                installationError: undefined,
+                installationExitCode:
+                  typeof payload.exitCode === "number" ? payload.exitCode : 0,
+              });
+              // Cache game data for offline use
+              cacheInstalledGameData(gameId);
+
+              // Auto-delete source files for setup games (best-effort)
+              try {
+                if (
+                  typeof localStorage !== "undefined" &&
+                  localStorage.getItem("tauri_auto_delete_source") === "1" &&
+                  d.downloadDirectory &&
+                  d.extractionDirectory
+                ) {
+                  const dlDir = d.downloadDirectory;
+                  const extDir = d.extractionDirectory;
+                  setTimeout(async () => {
+                    try {
+                      const { invoke } = await import("@tauri-apps/api/core");
+                      await invoke("fs_remove", {
+                        path: dlDir,
+                        recursive: true,
+                      }).catch(() => {});
+                      await invoke("fs_remove", {
+                        path: extDir,
+                        recursive: true,
+                      }).catch(() => {});
+                    } catch {
+                      // Best-effort cleanup
+                    }
+                  }, 500);
+                }
+              } catch {
+                // localStorage not available
+              }
+            } else if (payload.status === "error") {
+              updateDownload(gameId, {
+                installationStatus: "error",
+                installationError:
+                  (typeof payload.error === "string" && payload.error) ||
+                  "Installer exited with an error.",
+                installationExitCode:
+                  typeof payload.exitCode === "number"
+                    ? payload.exitCode
+                    : null,
+              });
+            }
+
+            const stop = tauriInstallerUnlistenRef.current[gameId];
+            if (stop) {
+              stop();
+              delete tauriInstallerUnlistenRef.current[gameId];
+            }
+          },
+        );
 
         tauriInstallerUnlistenRef.current[gameId] = unlisten;
 
@@ -1498,7 +1687,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         // Load cached game data so recovered cards have full metadata (cover, etc.)
         for (const [idStr, dl] of Object.entries(recovered)) {
           try {
-            const cached = await invoke<string | null>("load_cached_game", { gameId: Number(idStr) });
+            const cached = await invoke<string | null>("load_cached_game", {
+              gameId: Number(idStr),
+            });
             if (cached && mounted) {
               const parsed = JSON.parse(cached);
               // cache stores the full GamevaultGame; extract just the metadata for GameMetadata shape
@@ -1506,13 +1697,21 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               setDownloads((prev) => {
                 const existing = prev[Number(idStr)];
                 if (!existing) return prev;
-                return { ...prev, [Number(idStr)]: { ...existing, gameMetadata: meta } };
+                return {
+                  ...prev,
+                  [Number(idStr)]: { ...existing, gameMetadata: meta },
+                };
               });
             }
-          } catch { /* best-effort */ }
+          } catch {
+            /* best-effort */
+          }
         }
       } catch (error) {
-        console.warn("Failed to recover downloads from GameVault config:", error);
+        console.warn(
+          "Failed to recover downloads from GameVault config:",
+          error,
+        );
       }
     };
 
@@ -1559,7 +1758,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             await invoke("delete_cached_game", { gameId: id }).catch(() => {});
           }
         }
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
     };
 
     cleanupOrphanCaches();
