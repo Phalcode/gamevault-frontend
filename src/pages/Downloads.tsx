@@ -16,6 +16,7 @@ import {
   type GamevaultGameTypeEnum as GameType,
 } from "@/api/models/GamevaultGame";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
 import {
   ArchiveBoxIcon,
   ArrowDownTrayIcon,
@@ -951,7 +952,15 @@ export default function Downloads() {
                                 </div>
                               )}
 
-                              <div className="mt-3 flex justify-end">
+                              <div className="mt-3 flex justify-end gap-2">
+                                {download.installationStatus === "completed" && (
+                                  <Link
+                                    to={`/library/${download.gameId}`}
+                                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-gv-text ring-1 ring-inset ring-gv-line hover:bg-gv-panel-soft transition"
+                                  >
+                                    Go to Game
+                                  </Link>
+                                )}
                                 <Button
                                   color="indigo"
                                   onClick={() => void openInstallFlow(download)}
