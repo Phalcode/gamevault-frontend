@@ -3165,7 +3165,7 @@ pub fn run() {
       delete_cached_image,
       get_offline_time_files,
       delete_offline_time_file,
-      sync_offline_time
+      sync_offline_time,
       get_start_minimized,
       set_start_minimized
     ])
