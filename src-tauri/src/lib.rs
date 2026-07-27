@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File as StdFile;
@@ -15,6 +15,8 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tauri::Manager;
+use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use unrar::Archive;
@@ -2997,6 +2999,43 @@ async fn sync_offline_time(
 }
 
 // ── End offline cache & time tracking commands ────────────────────────────────
+// ── App Settings (start-minimized config persisted to app data dir) ──────────
+
+#[derive(Serialize, Deserialize, Default)]
+struct AppSettings {
+  #[serde(default)]
+  start_minimized: bool,
+}
+
+fn settings_path(app: &tauri::AppHandle) -> PathBuf {
+  app.path().app_data_dir().unwrap().join("gamevault-settings.json")
+}
+
+#[tauri::command]
+fn get_start_minimized(app: tauri::AppHandle) -> bool {
+  let path = settings_path(&app);
+  if path.exists() {
+    if let Ok(data) = std::fs::read_to_string(&path) {
+      if let Ok(settings) = serde_json::from_str::<AppSettings>(&data) {
+        return settings.start_minimized;
+      }
+    }
+  }
+  false
+}
+
+#[tauri::command]
+fn set_start_minimized(app: tauri::AppHandle, minimized: bool) -> Result<(), String> {
+  let path = settings_path(&app);
+  if let Some(parent) = path.parent() {
+    std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {}", e))?;
+  }
+  let settings = AppSettings { start_minimized: minimized };
+  let data = serde_json::to_string_pretty(&settings).map_err(|e| format!("Failed to serialize: {}", e))?;
+  std::fs::write(&path, &data).map_err(|e| format!("Failed to write config: {}", e))
+}
+
+// ── End App Settings ─────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -3004,6 +3043,7 @@ pub fn run() {
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
+    .plugin(tauri_plugin_autostart::init(Default::default(), None))
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -3012,6 +3052,86 @@ pub fn run() {
             .build(),
         )?;
       }
+
+      // ── System tray with Show / Quit menu ──────────────────────────────
+
+      let show_item = MenuItemBuilder::with_id("show", "Show").build(app)?;
+      let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+      let menu = MenuBuilder::new(app)
+        .item(&show_item)
+        .item(&quit_item)
+        .build()?;
+
+      let _tray = TrayIconBuilder::new()
+        .icon(app.default_window_icon().unwrap().clone())
+        .menu(&menu)
+        .on_menu_event(|app, event| {
+          match event.id.as_ref() {
+            "show" => {
+              if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+              }
+            }
+            "quit" => {
+              app.exit(0);
+            }
+            _ => {}
+          }
+        })
+        .on_tray_icon_event(|tray, event| {
+          if let TrayIconEvent::Click {
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            ..
+          } = event
+          {
+            let app = tray.app_handle();
+            if let Some(window) = app.get_webview_window("main") {
+              if window.is_visible().unwrap_or(false) {
+                let _ = window.hide();
+              } else {
+                let _ = window.show();
+                let _ = window.set_focus();
+              }
+            }
+          }
+        })
+        .build(app)?;
+
+      // ── Close-to-tray: intercept window close, hide instead of quit ────
+
+      if let Some(window) = app.get_webview_window("main") {
+        let window_handle = window.clone();
+        window.on_window_event(move |event| {
+          if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = window_handle.hide();
+          }
+        });
+      }
+
+      // ── Conditionally hide window at startup ───────────────────────────
+
+      {
+        let path = app.path().app_data_dir().unwrap().join("gamevault-settings.json");
+        let start_minimized = if path.exists() {
+          std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|data| serde_json::from_str::<AppSettings>(&data).ok())
+            .map(|s| s.start_minimized)
+            .unwrap_or(false)
+        } else {
+          false
+        };
+
+        if start_minimized {
+          if let Some(window) = app.get_webview_window("main") {
+            let _ = window.hide();
+          }
+        }
+      }
+
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
@@ -3046,6 +3166,8 @@ pub fn run() {
       get_offline_time_files,
       delete_offline_time_file,
       sync_offline_time
+      get_start_minimized,
+      set_start_minimized
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

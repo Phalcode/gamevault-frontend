@@ -21,6 +21,7 @@ import {
 
 const RETAIN_KEY = "app_retain_library_prefs";
 const DOWNLOAD_PATH_KEY = "tauri_download_path";
+const AUTOSTART_MINIMIZED_KEY = "tauri_start_minimized";
 
 export default function Settings() {
   const { speedLimitKB, setSpeedLimitKB, formatSpeed, formatLimit } =
@@ -44,6 +45,16 @@ export default function Settings() {
     }
   });
   const [pathCopied, setPathCopied] = useState(false);
+  const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(
+    null,
+  );
+  const [startMinimized, setStartMinimized] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AUTOSTART_MINIMIZED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const isTauri = isTauriApp();
 
   useEffect(() => {
@@ -53,6 +64,50 @@ export default function Settings() {
       console.warn("Failed to persist retain library prefs");
     }
   }, [retainLibraryPrefs]);
+
+  // Initialize autostart state from the Tauri plugin
+  useEffect(() => {
+    if (!isTauri) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { isEnabled } = await import("@tauri-apps/plugin-autostart");
+        const enabled = await isEnabled();
+        if (!cancelled) setAutostartEnabled(enabled);
+      } catch (e) {
+        console.error("Failed to check autostart status:", e);
+        if (!cancelled) setAutostartEnabled(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTauri]);
+
+  // Sync startMinimized to Rust backend config file
+  useEffect(() => {
+    if (!isTauri) return;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("set_start_minimized", { minimized: startMinimized });
+      } catch (e) {
+        console.error("Failed to sync start minimized preference:", e);
+      }
+    })();
+  }, [startMinimized, isTauri]);
+
+  // Persist startMinimized to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        AUTOSTART_MINIMIZED_KEY,
+        startMinimized ? "1" : "0",
+      );
+    } catch {
+      console.warn("Failed to persist start minimized preference");
+    }
+  }, [startMinimized]);
 
   const handleSpeedChange = (raw: number) => {
     if (Number.isNaN(raw) || raw <= 0) {
@@ -277,6 +332,76 @@ export default function Settings() {
             </Field>
           </Fieldset>
         </section>
+
+        {/* Desktop Section — Tauri only */}
+        {isTauri && (
+          <section className="rounded-2xl border border-gv-line bg-gv-panel p-6">
+            <Fieldset>
+              <Legend className="flex items-center gap-2">
+                <ComputerDesktopIcon className="size-5" />
+                Desktop
+              </Legend>
+              <Text className="mt-1">
+                Configure how GameVault behaves on your desktop.
+              </Text>
+
+              <Field className="mt-6">
+                <SwitchField>
+                  <Switch
+                    name="autostart"
+                    color="indigo"
+                    aria-label="Launch GameVault on computer startup"
+                    checked={autostartEnabled ?? false}
+                    disabled={autostartEnabled === null}
+                    onChange={async (v: boolean) => {
+                      setAutostartEnabled(v);
+                      try {
+                        const { enable, disable } = await import(
+                          "@tauri-apps/plugin-autostart"
+                        );
+                        if (v) {
+                          await enable();
+                        } else {
+                          await disable();
+                          // Force start-minimized off when autostart is disabled
+                          setStartMinimized(false);
+                        }
+                      } catch (e) {
+                        console.error("Failed to update autostart:", e);
+                        setAutostartEnabled(!v); // Revert on failure
+                      }
+                    }}
+                  />
+                  <Label>Launch GameVault on Computer Startup</Label>
+                </SwitchField>
+                <Text className="mt-1">
+                  Automatically start GameVault when you log in to your
+                  computer.
+                </Text>
+              </Field>
+
+              <Field className="mt-6">
+                <SwitchField>
+                  <Switch
+                    name="startMinimized"
+                    color="indigo"
+                    aria-label="Minimize GameVault to system tray on startup"
+                    checked={startMinimized}
+                    disabled={!autostartEnabled}
+                    onChange={(v: boolean) => setStartMinimized(v)}
+                  />
+                  <Label>
+                    Minimize GameVault to System Tray on Startup
+                  </Label>
+                </SwitchField>
+                <Text className="mt-1">
+                  When auto-start is enabled, GameVault will start silently in
+                  the system tray instead of opening the full window.
+                </Text>
+              </Field>
+            </Fieldset>
+          </section>
+        )}
 
         {/* Dev Tools — only visible in development builds */}
         {import.meta.env.DEV && (
