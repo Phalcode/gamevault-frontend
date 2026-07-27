@@ -416,6 +416,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const tauriExtractUnlistenRef = useRef<Record<number, () => void>>({});
   const tauriInstallCopyUnlistenRef = useRef<Record<number, () => void>>({});
   const tauriInstallerUnlistenRef = useRef<Record<number, () => void>>({});
+  const extractArchiveRef = useRef<((gameId: number, password?: string) => Promise<void>) | null>(null);
+  const copyInstallationFilesRef = useRef<((gameId: number) => Promise<void>) | null>(null);
+  const listInstallExecutablesRef = useRef<((gameId: number) => Promise<string[]>) | null>(null);
+  const launchInstallationExecutableRef = useRef<((gameId: number, installerRelativePath: string) => Promise<void>) | null>(null);
 
   const startDownload = useCallback(
     async ({
@@ -681,7 +685,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                   localStorage.getItem("tauri_auto_extract") === "1"
                 ) {
                   setTimeout(() => {
-                    extractArchive(gameId).catch((e: any) =>
+                    extractArchiveRef.current?.(gameId).catch((e: any) =>
                       console.error("Auto-extract failed:", e),
                     );
                   }, 50);
@@ -917,7 +921,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       speedLimitKB,
       trimSamples,
       computeSpeedBps,
-      extractArchive,
     ],
   );
 
@@ -1160,16 +1163,16 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
                 if (isPortable) {
                   setTimeout(() => {
-                    copyInstallationFiles(gameId).catch((e: any) =>
+                    copyInstallationFilesRef.current?.(gameId).catch((e: any) =>
                       console.error("Auto-install (portable) failed:", e),
                     );
                   }, 50);
                 } else if (isSetup) {
                   setTimeout(async () => {
                     try {
-                      const candidates = await listInstallExecutables(gameId);
+                      const candidates = await listInstallExecutablesRef.current?.(gameId) ?? [];
                       if (candidates.length > 0) {
-                        await launchInstallationExecutable(
+                        await launchInstallationExecutableRef.current?.(
                           gameId,
                           candidates[0],
                         );
@@ -1259,8 +1262,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [downloads, updateDownload, writeVersionConfig, copyInstallationFiles, listInstallExecutables, launchInstallationExecutable],
+    [downloads, updateDownload, writeVersionConfig],
   );
+  extractArchiveRef.current = extractArchive;
 
   const resetInstallationState = useCallback(
     (gameId: number) => {
@@ -1287,6 +1291,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     },
     [downloads],
   );
+  listInstallExecutablesRef.current = listInstallExecutables;
 
   const copyInstallationFiles = useCallback(
     async (gameId: number) => {
@@ -1424,6 +1429,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     },
     [downloads, updateDownload],
   );
+  copyInstallationFilesRef.current = copyInstallationFiles;
 
   const launchInstallationExecutable = useCallback(
     async (gameId: number, installerRelativePath: string) => {
@@ -1574,6 +1580,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     },
     [downloads, updateDownload],
   );
+  launchInstallationExecutableRef.current = launchInstallationExecutable;
 
   const setSpeedLimitKB = useCallback((v: number) => {
     const val = Math.max(0, v || 0);
