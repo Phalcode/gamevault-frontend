@@ -10,7 +10,6 @@ mod time_tracker;
 mod cache;
 mod settings;
 
-use serde::{Serialize, Deserialize};
 use tauri::Manager;
 use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};

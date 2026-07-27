@@ -4,6 +4,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 #[tauri::command]
 pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<InstalledGameInfo>, String> {
   let candidate = PathBuf::from(&selected_root).join("GameVault");

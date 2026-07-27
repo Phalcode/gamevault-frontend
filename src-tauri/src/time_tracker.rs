@@ -1,4 +1,3 @@
-use crate::events::InstalledGameInfo;
 use crate::games::{list_installed_games, collect_launch_candidates};
 use crate::state::{tracker_config, tracker_stop_tx, TrackerConfig};
 use crate::util::paths_match;
@@ -8,7 +7,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sysinfo::System;
-use tauri::Emitter;
 use tokio::sync::watch;
 
 #[tauri::command]
