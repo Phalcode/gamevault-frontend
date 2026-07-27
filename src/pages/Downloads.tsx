@@ -609,9 +609,9 @@ export default function Downloads() {
               >
                 <div className="flex flex-col items-start gap-4 sm:flex-row">
                   <div className="shrink-0">
-                    {download.gameMetadata?.cover ? (
+                    {(download.gameMetadata as any)?.cover ? (
                       <Media
-                        media={download.gameMetadata.cover as any}
+                        media={(download.gameMetadata as any).cover}
                         width={96}
                         height={136}
                         square

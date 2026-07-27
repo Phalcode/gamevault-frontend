@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { useAuth } from "./AuthContext";
+import { useServerStatus } from "@/hooks/useServerStatus";
 import { isTauriApp } from "@/utils/tauri";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import type { GameMetadata } from "@/api/models/GameMetadata";
@@ -42,6 +43,7 @@ export interface ActiveDownload {
   speedBps?: number;
   status: "downloading" | "paused" | "completed" | "error" | "aborted";
   error?: string;
+  cachedMetadata?: Record<string, any> | null;
   extractionStatus?: "idle" | "extracting" | "completed" | "error" | "needs-password";
   extractionProgress?: number | null;
   extractionCurrentFile?: string;
@@ -99,6 +101,7 @@ const DEFAULT_GAME_VAULT_CONFIG: GameVaultConfig = {
 
 export function DownloadProvider({ children }: { children: ReactNode }) {
   const { serverUrl, authFetch, auth } = useAuth();
+  const { info: serverInfo } = useServerStatus();
   const [downloads, setDownloads] = useState<Record<number, ActiveDownload>>(
     {},
   );
@@ -231,7 +234,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   );
 
   const cacheInstalledGameData = useCallback(
-    async (gameId: number, selectedRoot: string) => {
+    async (gameId: number) => {
       if (!isTauriApp()) return;
       try {
         const base = serverUrl.replace(/\/+$/, "");
@@ -323,15 +326,29 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   );
 
   const writeGameMetadata = useCallback(
-    async (gameFolderPath: string, metadata: unknown) => {
+    async (gameFolderPath: string, gameId: number) => {
       if (!isTauriApp() || !gameFolderPath) return;
-      if (metadata === undefined || metadata === null) return;
       const { join } = await import("@tauri-apps/api/path");
       const { invoke } = await import("@tauri-apps/api/core");
+
+      const serverIdentifier = serverInfo?.server_uuid || serverUrl || "unknown";
+
       const metadataPath = await join(gameFolderPath, ".gamevault.metadata.json");
-      await invoke("fs_write_text_file", { path: metadataPath, content: JSON.stringify(metadata, null, 2) });
+
+      let current: Record<string, string> = {};
+      if (await invoke<boolean>("fs_path_exists", { path: metadataPath })) {
+        try {
+          const raw = await invoke<string>("fs_read_text_file", { path: metadataPath });
+          current = JSON.parse(raw) as Record<string, string>;
+        } catch {
+          current = {};
+        }
+      }
+
+      current[serverIdentifier] = String(gameId);
+      await invoke("fs_write_text_file", { path: metadataPath, content: JSON.stringify(current, null, 2) });
     },
-    [],
+    [serverInfo, serverUrl],
   );
 
   const cancelDownload = useCallback((gameId: number) => {
@@ -479,9 +496,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           await invoke("fs_create_dir_all", { path: downloadsVersionFolder });
           await invoke("fs_create_dir_all", { path: extractionsVersionFolder });
           await invoke("fs_create_dir_all", { path: installationsVersionFolder });
-          await writeGameMetadata(gameFolderPath, gameMetadata);
+          await writeGameMetadata(gameFolderPath, gameId);
           await writeVersionConfig(versionBaseFolder, {
-            gameid: gameId,
             versionid: versionId,
             gametype: gameType,
             downloadfinished: false,
@@ -613,6 +629,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                     ? payload.filePath
                     : undefined,
               });
+              // Cache game data + images for offline use (Download tab)
+              cacheInstalledGameData(gameId);
             } else if (payload.status === "aborted") {
               void writeVersionConfig(versionBaseFolder, {
                 downloadfinished: false,
@@ -1196,8 +1214,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               installationError: undefined,
             });
             // Cache game data for offline use
-            const root = localStorage.getItem("tauri_download_path");
-            if (root) cacheInstalledGameData(gameId, root);
+            cacheInstalledGameData(gameId);
           } else if (payload.status === "error") {
             updateDownload(gameId, {
               installationStatus: "error",
@@ -1310,8 +1327,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                 typeof payload.exitCode === "number" ? payload.exitCode : 0,
             });
             // Cache game data for offline use
-            const root = localStorage.getItem("tauri_download_path");
-            if (root) cacheInstalledGameData(gameId, root);
+            cacheInstalledGameData(gameId);
           } else if (payload.status === "error") {
             updateDownload(gameId, {
               installationStatus: "error",
@@ -1452,11 +1468,29 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             installationCurrentFile: undefined,
             installationError: undefined,
             installationExitCode: card.installationFinished ? 0 : null,
+            cachedMetadata: card.cachedMetadata ?? null,
           };
         }
 
         if (!mounted || !Object.keys(recovered).length) return;
         setDownloads((prev) => ({ ...recovered, ...prev }));
+
+        // Load cached game data so recovered cards have full metadata (cover, etc.)
+        for (const [idStr, dl] of Object.entries(recovered)) {
+          try {
+            const cached = await invoke<string | null>("load_cached_game", { gameId: Number(idStr) });
+            if (cached && mounted) {
+              const parsed = JSON.parse(cached);
+              // cache stores the full GamevaultGame; extract just the metadata for GameMetadata shape
+              const meta = parsed?.metadata || parsed;
+              setDownloads((prev) => {
+                const existing = prev[Number(idStr)];
+                if (!existing) return prev;
+                return { ...prev, [Number(idStr)]: { ...existing, gameMetadata: meta } };
+              });
+            }
+          } catch { /* best-effort */ }
+        }
       } catch (error) {
         console.warn("Failed to recover downloads from GameVault config:", error);
       }
@@ -1466,6 +1500,48 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  // Cleanup orphaned offline caches on startup
+  useEffect(() => {
+    if (!isTauriApp()) return;
+
+    const cleanupOrphanCaches = async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const cachedIds = await invoke<number[]>("list_cached_game_ids");
+        if (!cachedIds.length) return;
+
+        // Get installed game IDs
+        const selectedRoot = localStorage.getItem("tauri_download_path");
+        const knownIds = new Set<number>();
+        if (selectedRoot) {
+          const installed = await invoke<any[]>("list_installed_games", { selectedRoot });
+          for (const g of installed) {
+            const id = g.gameId ?? g.game_id ?? 0;
+            if (id > 0) knownIds.add(id);
+          }
+        }
+
+        // Active downloads
+        const recovered = await invoke<any[]>("recover_download_cards", {
+          selectedRoot: selectedRoot || "",
+        }).catch(() => []);
+        for (const c of recovered) {
+          const id = Number(c.gameId || 0);
+          if (id > 0) knownIds.add(id);
+        }
+
+        // Delete caches for games that are neither installed nor actively downloading
+        for (const id of cachedIds) {
+          if (!knownIds.has(id)) {
+            await invoke("delete_cached_game", { gameId: id }).catch(() => {});
+          }
+        }
+      } catch { /* best-effort */ }
+    };
+
+    cleanupOrphanCaches();
   }, []);
 
   const formatBytes = useCallback((bytes: number) => {

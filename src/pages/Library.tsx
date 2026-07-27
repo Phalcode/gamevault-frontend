@@ -497,7 +497,7 @@ export default function Library() {
   // Map installed games to a GamevaultGame-compatible shape for GameCard
   const installedAsGames: GamevaultGame[] = useMemo(() => {
     return installedGames.map((ig) => {
-      const meta = ig.gameMetadata as any;
+      const meta = (ig.cachedMetadata || ig.gameMetadata) as any;
       const g = {
         id: ig.gameId,
         created_at: new Date(),

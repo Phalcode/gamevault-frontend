@@ -236,8 +236,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await performRefresh();
       } catch (e) {
-        console.log("[auth] performRefresh failed, calling logout:", e instanceof Error ? e.message : String(e));
-        logout();
+        console.log("[auth] normal refresh failed:", e instanceof Error ? e.message : String(e));
+        // Network error while online? If Tauri + stored creds, re-enter offline mode.
+        // Only logout if this is a genuine auth failure (not a network blip).
+        if (isTauriApp() && localStorage.getItem(AUTH_REFRESH_STORAGE_KEY)) {
+          console.log("[auth] network failure, re-entering offline mode");
+          offlineModeRef.current = true;
+          offlineRefreshCooldownRef.current = Date.now() + 30_000;
+        } else {
+          logout();
+        }
       } finally {
         refreshInFlightRef.current = null;
       }
@@ -500,17 +508,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isTauriApp()) return;
 
     const unregister = onReconnect(async () => {
-      console.log("[auth] reconnect callback fired, offlineModeRef:", offlineModeRef.current);
-      offlineModeRef.current = false;
+      console.log("[auth] reconnect callback fired, refreshing...");
+      // Don't clear offlineModeRef — let performRefresh handle it on success.
+      // If refresh fails, ensureFreshToken's offline branch will retry with cooldown.
       const storedRefresh = localStorage.getItem(AUTH_REFRESH_STORAGE_KEY);
-      const storedServer = localStorage.getItem(AUTH_SERVER_STORAGE_KEY);
-      console.log("[auth] reconnect: storedRefresh:", !!storedRefresh, "storedServer:", !!storedServer);
-      if (!storedRefresh || !storedServer) return;
+      if (!storedRefresh) return;
 
       try {
-        console.log("[auth] reconnect: calling refreshWithToken...");
         const tokens = await refreshWithToken(storedRefresh);
-        console.log("[auth] reconnect: refresh succeeded, access_token:", !!tokens.access_token);
         if (!tokens.access_token) throw new Error("No access_token");
         authRef.current = tokens;
         setAuth(tokens);
@@ -518,12 +523,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem(AUTH_REFRESH_STORAGE_KEY, tokens.refresh_token);
         }
         nextTokenRefreshRef.current = computeNextTokenRefresh(tokens.access_token);
+        offlineModeRef.current = false;
+        // Re-fetch user data now that we're back online
         const me = await fetchCurrentUser();
         setUser(me);
         console.log("[auth] re-authenticated successfully");
       } catch (e) {
-        console.log("[auth] re-auth failed, staying with offline credentials");
-        offlineModeRef.current = true; // prevent refresh spam
+        console.log("[auth] reconnect refresh failed, staying offline:", e instanceof Error ? e.message : String(e));
       }
     });
 

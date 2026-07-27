@@ -137,6 +137,20 @@ export default function GameView() {
         const json = await res.json();
         if (!cancelled) setGame(json);
       } catch (e: any) {
+        // Offline fallback: try loading from local cache
+        if (isTauriApp() && !isOnline) {
+          try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const cached = await invoke<string | null>("load_cached_game", {
+              gameId: Number(numericId),
+            });
+            if (cached && !cancelled) {
+              const json = JSON.parse(cached);
+              setGame(json as GamevaultGame);
+              return;
+            }
+          } catch { /* cache not available */ }
+        }
         if (!cancelled) setError(e?.message || "Failed to load game");
       } finally {
         if (!cancelled) setLoading(false);
@@ -145,7 +159,7 @@ export default function GameView() {
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, authFetch, numericId]);
+  }, [serverUrl, authFetch, numericId, isOnline]);
 
   const coverId = game?.metadata?.cover?.id;
   const trailers = [
@@ -553,30 +567,6 @@ export default function GameView() {
 
   // Removed h-full overflow-auto to prevent nested scroll area causing double vertical scrollbar; letting parent layout manage vertical scrolling.
 
-  // Offline mode: game details unavailable
-  if (isTauri && !isOnline) {
-    return (
-      <div className="flex min-h-full flex-col items-center justify-center gap-4 p-8 text-center">
-        <div className="rounded-full bg-amber-500/15 p-4">
-          <svg className="h-8 w-8 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-          </svg>
-        </div>
-        <h2 className="text-lg font-semibold text-gv-text">Game details unavailable</h2>
-        <p className="max-w-md text-sm text-gv-muted">
-          Game details are not available in offline mode. Installed games can
-          still be launched directly from the Library.
-        </p>
-        <Button
-          color="zinc"
-          onClick={() => navigate("/library")}
-        >
-          <ChevronLeftIcon className="w-4 h-4" />
-          Back to Library
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <div className="relative isolate flex min-h-full flex-col overflow-hidden px-4 pb-4 sm:px-6 lg:px-8">
@@ -683,6 +673,7 @@ export default function GameView() {
                     className="h-9 px-3 gap-2 flex items-center justify-center"
                     title={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
                     onClick={handleTauriDownload}
+                    disabled={isTauri && !isOnline}
                   >
                     <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
                     {formattedSize && (
@@ -699,6 +690,7 @@ export default function GameView() {
                       aria-label={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
                       className="h-9 px-3 gap-2 flex items-center justify-center"
                       title={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
+                      disabled={isTauri && !isOnline}
                       onClick={(e: React.MouseEvent) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -732,7 +724,7 @@ export default function GameView() {
                 <Button
                   outline
                   onClick={toggleBookmark}
-                  disabled={!user || bookmarkBusy}
+                  disabled={!user || bookmarkBusy || (isTauri && !isOnline)}
                   className={clsx(
                     bookmarked
                       ? "size-11 p-0 flex items-center justify-center bg-yellow-400/20! border-yellow-400! text-yellow-400! backdrop-blur-md shadow-sm dark:bg-yellow-400/20! dark:border-yellow-400! dark:text-yellow-400!"
@@ -831,7 +823,7 @@ export default function GameView() {
                 name="progressState"
                 value={progressState || "UNPLAYED"}
                 onChange={(v: any) => updateProgressState(v)}
-                disabled={!user || progressUpdating}
+                disabled={!user || progressUpdating || (isTauri && !isOnline)}
                 className={progressSelectClassName}
               >
                 {progressStateOptions.map((o) => (

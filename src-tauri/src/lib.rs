@@ -84,6 +84,7 @@ struct RecoveredDownloadCard {
   version_id: i64,
   game_title: String,
   game_metadata: Option<serde_json::Value>,
+  cached_metadata: Option<serde_json::Value>,
   game_type: Option<String>,
   version_name: String,
   filename: String,
@@ -264,13 +265,7 @@ fn recover_download_cards(selected_root: String) -> Result<Vec<RecoveredDownload
       None
     };
 
-    let resolved_game_title = game_metadata
-      .as_ref()
-      .and_then(|m| m.get("title"))
-      .and_then(|v| v.as_str())
-      .map(|s| s.trim().to_string())
-      .filter(|s| !s.is_empty())
-      .unwrap_or(game_name);
+    let resolved_game_title = game_name;
 
     let versions_root = game_path.join("Versions");
     if !versions_root.exists() || !versions_root.is_dir() {
@@ -323,7 +318,8 @@ fn recover_download_cards(selected_root: String) -> Result<Vec<RecoveredDownload
       let config_game_id = parse_i64_json(cfg_value.get("gameid"));
       let metadata_game_id = game_metadata
         .as_ref()
-        .and_then(|m| parse_i64_json(m.get("id")).or_else(|| parse_i64_json(m.get("ID"))));
+        .and_then(|m| m.as_object())
+        .and_then(|obj| obj.values().find_map(|v| parse_i64_json(Some(v))));
 
       if !download_finished && !extraction_finished && download_progress.is_empty() {
         continue;
@@ -358,6 +354,17 @@ fn recover_download_cards(selected_root: String) -> Result<Vec<RecoveredDownload
         .or(metadata_game_id)
         .filter(|id| *id > 0)
         .unwrap_or_else(|| stable_id_from_path(&version_path_str));
+
+      let cache_dir = root.join(".cache").join("games");
+      let cache_file = cache_dir.join(format!("{}.json", recovered_game_id));
+      let cached_metadata: Option<serde_json::Value> = if cache_file.exists() {
+        fs::read_to_string(&cache_file)
+          .ok()
+          .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+      } else {
+        None
+      };
+
       let (progress_received, progress_total) = if let Some((left, right)) = download_progress.split_once('/') {
         (
           left.trim().parse::<u64>().unwrap_or(0),
@@ -413,6 +420,7 @@ fn recover_download_cards(selected_root: String) -> Result<Vec<RecoveredDownload
         },
         extraction_progress: if extraction_finished { Some(100.0) } else { None },
         installation_finished,
+        cached_metadata,
       });
     }
   }
@@ -467,13 +475,7 @@ fn list_installed_games(selected_root: String) -> Result<Vec<InstalledGameInfo>,
       None
     };
 
-    let resolved_game_title = game_metadata
-      .as_ref()
-      .and_then(|m| m.get("title"))
-      .and_then(|v| v.as_str())
-      .map(|s| s.trim().to_string())
-      .filter(|s| !s.is_empty())
-      .unwrap_or_else(|| game_name.clone());
+    let resolved_game_title = game_name.clone();
 
     let versions_root = game_path.join("Versions");
     if !versions_root.exists() || !versions_root.is_dir() {
@@ -519,7 +521,8 @@ fn list_installed_games(selected_root: String) -> Result<Vec<InstalledGameInfo>,
       let config_game_id = parse_i64_json(cfg_value.get("gameid"));
       let metadata_game_id = game_metadata
         .as_ref()
-        .and_then(|m| parse_i64_json(m.get("id")).or_else(|| parse_i64_json(m.get("ID"))));
+        .and_then(|m| m.as_object())
+        .and_then(|obj| obj.values().find_map(|v| parse_i64_json(Some(v))));
 
       let version_path_str = version_path.to_string_lossy().to_string();
       let resolved_game_id = config_game_id
@@ -2881,6 +2884,31 @@ fn list_cached_game_ids(app: tauri::AppHandle) -> Result<Vec<i64>, String> {
   Ok(ids)
 }
 
+#[tauri::command]
+fn delete_cached_game(app: tauri::AppHandle, game_id: i64) -> Result<(), String> {
+  let path = cache_root(&app).join("games").join(format!("{game_id}.json"));
+  if path.exists() {
+    fs::remove_file(&path).map_err(|e| format!("Failed to delete cached game: {e}"))?;
+  }
+  Ok(())
+}
+
+#[tauri::command]
+fn delete_cached_image(app: tauri::AppHandle, media_id: i64) -> Result<(), String> {
+  let images_dir = cache_root(&app).join("images");
+  if !images_dir.exists() {
+    return Ok(());
+  }
+  let prefix = format!("{media_id}.");
+  for entry in fs::read_dir(&images_dir).map_err(|e| format!("Failed to read images dir: {e}"))?.flatten() {
+    let name = entry.file_name().to_string_lossy().to_string();
+    if name.starts_with(&prefix) {
+      fs::remove_file(entry.path()).map_err(|e| format!("Failed to delete cached image: {e}"))?;
+    }
+  }
+  Ok(())
+}
+
 // ── Offline time tracking commands ────────────────────────────────────────────
 
 #[derive(Serialize, Clone)]
@@ -3013,6 +3041,8 @@ pub fn run() {
       load_cached_game,
       load_cached_image,
       list_cached_game_ids,
+      delete_cached_game,
+      delete_cached_image,
       get_offline_time_files,
       delete_offline_time_file,
       sync_offline_time
