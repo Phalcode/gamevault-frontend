@@ -2,6 +2,7 @@ import { Divider } from "@tw/divider";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { useDownloads } from "@/context/DownloadContext";
+import { useIgnoreList } from "@/context/IgnoreListContext";
 import { SwitchField, Switch } from "@tw/switch";
 import { Field, Fieldset, Label, Legend } from "@/components/tailwind/fieldset";
 import { Text } from "@/components/tailwind/text";
@@ -84,6 +85,8 @@ export default function Settings() {
     }
   });
   const isTauri = isTauriApp();
+  const { ignoreList, setIgnoreList } = useIgnoreList();
+  const [newIgnore, setNewIgnore] = useState("");
 
   useEffect(() => {
     try {
@@ -234,6 +237,24 @@ export default function Settings() {
   const handleLabelChange = (id: string, label: string) => {
     const updated = updateRootPathLabel(id, label);
     setRootPaths(updated);
+  };
+
+  const handleAddIgnore = async () => {
+    const name = newIgnore.trim();
+    if (!name) return;
+    const exists = ignoreList.some(
+      (existing) => existing.toLowerCase() === name.toLowerCase(),
+    );
+    if (exists) {
+      setNewIgnore("");
+      return;
+    }
+    await setIgnoreList([...ignoreList, name]);
+    setNewIgnore("");
+  };
+
+  const handleRemoveIgnore = async (name: string) => {
+    await setIgnoreList(ignoreList.filter((existing) => existing !== name));
   };
 
   return (
@@ -551,6 +572,74 @@ export default function Settings() {
                   archive and extracted files to save disk space. Does not apply
                   to setup-based games.
                 </Text>
+              </Field>
+            </Fieldset>
+          </section>
+        )}
+
+        {/* Ignore List Section — Tauri only */}
+        {isTauri && (
+          <section className="rounded-2xl border border-gv-line bg-gv-panel p-6">
+            <Fieldset>
+              <Legend className="flex items-center gap-2">
+                <TagIcon className="size-5" />
+                Ignore List
+              </Legend>
+              <Text className="mt-1">
+                Executables hidden from the installer and launch pickers, and
+                skipped by playtime tracking. Enter names without the file
+                extension.
+              </Text>
+
+              <Field className="mt-6">
+                <Label>Ignored executables</Label>
+                <div className="h-85 space-y-2 overflow-y-auto pr-1">
+                  {ignoreList.map((name) => (
+                    <div
+                      key={name}
+                      className="flex items-center gap-2 rounded-xl border border-gv-line bg-gv-panel-soft p-2"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-sm text-gv-text">
+                        {name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveIgnore(name)}
+                        className="rounded-xl p-1.5 text-gv-muted hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer"
+                        aria-label={`Remove ${name} from ignore list`}
+                      >
+                        <XMarkIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {ignoreList.length === 0 && (
+                    <div className="flex items-center gap-2 rounded-xl border border-dashed border-gv-line p-4 text-sm text-gv-muted">
+                      <TagIcon className="h-5 w-5 shrink-0" />
+                      No ignored executables. Add one below.
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 flex items-center gap-2">
+                  <Input
+                    type="text"
+                    value={newIgnore}
+                    onChange={(e: any) => setNewIgnore(e.target.value)}
+                    onKeyDown={(e: any) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddIgnore();
+                      }
+                    }}
+                    placeholder="e.g. setup"
+                    className="flex-1"
+                    aria-label="Executable name to ignore"
+                  />
+                  <Button type="button" color="indigo" onClick={handleAddIgnore}>
+                    <PlusIcon className="h-4 w-4" />
+                    Add
+                  </Button>
+                </div>
               </Field>
             </Fieldset>
           </section>

@@ -145,7 +145,9 @@ pub fn run() {
       time_tracker::delete_offline_time_file,
       time_tracker::sync_offline_time,
       settings::get_start_minimized,
-      settings::set_start_minimized
+      settings::set_start_minimized,
+      settings::get_ignore_list,
+      settings::set_ignore_list
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

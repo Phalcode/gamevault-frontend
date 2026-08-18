@@ -9,6 +9,7 @@ import {
 } from "./context/AlertDialogContext";
 import { AuthProvider } from "./context/AuthContext";
 import { DownloadProvider } from "./context/DownloadContext";
+import { IgnoreListProvider } from "./context/IgnoreListContext";
 import { OfflineProvider } from "./context/OfflineContext";
 import "./index.css";
 import DashboardLayout from "./layouts/DashboardLayout";
@@ -42,6 +43,7 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <AuthProvider>
       <OfflineProvider>
+        <IgnoreListProvider>
         <DownloadProvider>
           <AlertDialogProvider>
           <GlobalAlertDialogBridge />
@@ -77,6 +79,7 @@ createRoot(document.getElementById("root")!).render(
           </BrowserRouter>
         </AlertDialogProvider>
         </DownloadProvider>
+        </IgnoreListProvider>
       </OfflineProvider>
     </AuthProvider>
   </StrictMode>,

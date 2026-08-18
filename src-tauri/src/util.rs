@@ -148,3 +148,15 @@ pub(crate) fn paths_match(a: &Path, b: &Path) -> bool {
     a == b
   }
 }
+
+/// True when the executable's base name (without extension) is in `ignored`.
+/// Matching is case-insensitive; ignore-list entries have no extension.
+pub(crate) fn is_ignored_executable(path: &Path, ignored: &[String]) -> bool {
+  let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+    return false;
+  };
+  let stem_lower = stem.to_lowercase();
+  ignored
+    .iter()
+    .any(|name| name.to_lowercase() == stem_lower)
+}

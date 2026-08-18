@@ -1,6 +1,7 @@
 use crate::games::{list_installed_games, collect_launch_candidates};
+use crate::settings::load_settings;
 use crate::state::{tracker_config, tracker_stop_tx, TrackerConfig};
-use crate::util::paths_match;
+use crate::util::{is_ignored_executable, paths_match};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -11,6 +12,7 @@ use tokio::sync::watch;
 
 #[tauri::command]
 pub(crate) fn start_game_time_tracker(
+  app: tauri::AppHandle,
   server_url: String,
   user_id: i64,
   access_token: String,
@@ -49,7 +51,7 @@ pub(crate) fn start_game_time_tracker(
     *tx = Some(stop_tx);
   }
 
-  tauri::async_runtime::spawn(game_time_tracker_loop(stop_rx));
+  tauri::async_runtime::spawn(game_time_tracker_loop(stop_rx, app));
 
   Ok(())
 }
@@ -77,7 +79,7 @@ pub(crate) fn update_tracker_auth(access_token: String) -> Result<(), String> {
   Ok(())
 }
 
-async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>) {
+async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::AppHandle) {
   let mut interval = tokio::time::interval(Duration::from_secs(60));
   interval.tick().await;
 
@@ -126,11 +128,14 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>) {
         continue;
       }
 
+      let ignored = load_settings(&app).ignored_executables;
+
       let abs_paths: Vec<PathBuf> = candidates
         .iter()
         .map(|rel| {
           install_dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))
         })
+        .filter(|path| !is_ignored_executable(path, &ignored))
         .collect();
 
       game_exe_map

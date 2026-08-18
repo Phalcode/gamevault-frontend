@@ -1,5 +1,6 @@
 use crate::events::InstalledGameInfo;
-use crate::util::{parse_version_folder, stable_id_from_path, parse_i64_json, resolve_version_subdir};
+use crate::settings::load_settings;
+use crate::util::{is_ignored_executable, parse_version_folder, parse_i64_json, resolve_version_subdir, stable_id_from_path};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -178,14 +179,23 @@ pub(crate) fn collect_launch_candidates(root: &Path, current: &Path, results: &m
 }
 
 #[tauri::command]
-pub(crate) fn list_launch_executables(installation_path: String) -> Result<Vec<String>, String> {
+pub(crate) fn list_launch_executables(
+  app: tauri::AppHandle,
+  installation_path: String,
+) -> Result<Vec<String>, String> {
   let root = PathBuf::from(&installation_path);
   if !root.exists() || !root.is_dir() {
     return Ok(Vec::new());
   }
 
+  let ignored = load_settings(&app).ignored_executables;
+
   let mut results = Vec::new();
   collect_launch_candidates(&root, &root, &mut results)?;
+  results.retain(|rel| {
+    let rel_path = PathBuf::from(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    !is_ignored_executable(&rel_path, &ignored)
+  });
   results.sort_by(|a, b| {
     a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase())
   });
