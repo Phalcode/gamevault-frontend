@@ -94,16 +94,10 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            zip_name: gamevault-tauri-linux
           - os: windows-latest
             platform: windows
-            zip_name: gamevault-tauri-windows
           - os: macos-latest
             platform: macos
-            zip_name: gamevault-tauri-macos
-
-    env:
-      ARTIFACT_NAME: ${{ github.ref == 'refs/heads/master' && format('{0}-v{1}.zip', matrix.zip_name, needs.release.outputs.version) || format('{0}.zip', matrix.zip_name) }}
 
     steps:
       - name: Checkout
@@ -194,30 +188,6 @@ jobs:
           name: updater-metadata-${{ matrix.platform }}
           path: updater-metadata/${{ matrix.platform }}.json
 
-      - name: Zip bundle (Linux/macOS)
-        if: github.ref == 'refs/heads/develop' && matrix.os != 'windows-latest'
-        run: |
-          cd src-tauri/target/release/bundle
-          zip -r "$ARTIFACT_NAME" .
-          mv "$ARTIFACT_NAME" "$GITHUB_WORKSPACE/"
-
-      - name: Zip bundle (Windows)
-        if: github.ref == 'refs/heads/develop' && matrix.os == 'windows-latest'
-        run: |
-          cd src-tauri/target/release/bundle
-          powershell Compress-Archive -Path * -DestinationPath "$env:GITHUB_WORKSPACE\$env:ARTIFACT_NAME"
-
-      - name: Upload to unstable release
-        if: github.ref == 'refs/heads/develop'
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ${{ env.ARTIFACT_NAME }}
-          asset_name: ${{ env.ARTIFACT_NAME }}
-          tag: unstable
-          overwrite: true
-          prerelease: true
-
   updater-manifest:
     name: Publish updater manifest
     needs: [release, tauri]
@@ -292,3 +262,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ steps.manifest.outputs.channels_tag }}" updater-channels.json --clobber
+
+      - name: Clean unstable release assets
+        if: github.ref == 'refs/heads/develop'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mapfile -t allowed_assets < <(
+            node -e "const fs=require('fs'); const path=require('path'); const names=new Set(['gamevault-frontend.zip','unstable.json']); const dir='updater-metadata'; for (const file of fs.readdirSync(dir)) { if (!file.endsWith('.json')) continue; const data=JSON.parse(fs.readFileSync(path.join(dir,file),'utf8')); for (const name of data.releaseAssetNames || []) names.add(name); } if ('${{ steps.manifest.outputs.channels_tag }}' === 'unstable') names.add('updater-channels.json'); console.log([...names].join('\\n'));"
+          )
+
+          node scripts/cleanup-release-assets.mjs "${{ github.repository }}" unstable "${allowed_assets[@]}"

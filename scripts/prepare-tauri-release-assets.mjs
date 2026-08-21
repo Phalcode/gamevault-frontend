@@ -125,10 +125,20 @@ const updaterAssetPath = pickSingleFile(
   `${platform} updater bundle`,
 );
 const signaturePath = `${updaterAssetPath}.sig`;
+const updaterReleaseName = path.basename(updaterAssetPath);
 
 await stat(signaturePath);
 
-const releaseFiles = [updaterAssetPath, signaturePath];
+const releaseFiles = [
+  {
+    source: updaterAssetPath,
+    target: updaterReleaseName,
+  },
+  {
+    source: signaturePath,
+    target: `${updaterReleaseName}.sig`,
+  },
+];
 
 for (const optionalAsset of config.optionalReleaseAssets) {
   const assetPath = await resolveOptionalAsset(
@@ -136,7 +146,10 @@ for (const optionalAsset of config.optionalReleaseAssets) {
     optionalAsset.suffix,
   );
   if (assetPath) {
-    releaseFiles.push(assetPath);
+    releaseFiles.push({
+      source: assetPath,
+      target: path.basename(assetPath),
+    });
   }
 }
 
@@ -144,11 +157,8 @@ await rm(releaseAssetsDir, { recursive: true, force: true });
 await mkdir(releaseAssetsDir, { recursive: true });
 await mkdir(metadataDir, { recursive: true });
 
-for (const filePath of releaseFiles) {
-  await copyFile(
-    filePath,
-    path.join(releaseAssetsDir, path.basename(filePath)),
-  );
+for (const file of releaseFiles) {
+  await copyFile(file.source, path.join(releaseAssetsDir, file.target));
 }
 
 const signature = (await readFile(signaturePath, "utf8")).trim();
@@ -160,8 +170,9 @@ if (!signature) {
 const metadata = {
   version,
   platform: `${config.osKey}-${resolveArchKey()}`,
-  assetName: path.basename(updaterAssetPath),
+  assetName: updaterReleaseName,
   signature,
+  releaseAssetNames: releaseFiles.map((file) => file.target),
 };
 
 const metadataPath = path.join(metadataDir, `${platform}.json`);

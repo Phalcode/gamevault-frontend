@@ -69,6 +69,8 @@ If backend endpoints change, update the paths in `AuthContext` and the admin hoo
 - CI keeps a canonical `updater-channels.json` as the source of truth and derives `latest.json` and `unstable.json` from it.
 - The canonical `updater-channels.json` is stored on the latest stable release when one exists, and is merged forward by both `master` and `develop` runs.
 - The desktop app now lets users switch between `stable` and `unstable` channels in Settings.
+- CI publishes the native updater artifacts directly and no longer adds legacy `gamevault-tauri-*.zip` bundles for the desktop client.
+- On the moving `unstable` release, CI keeps the real versioned native asset names and deletes stale old assets so the release page stays clean over time.
 - CI expects a repository variable named `GV_TAURI_UPDATER_PUBKEY`.
 - CI expects the signing secret `TAURI_SIGNING_PRIVATE_KEY` and optionally `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 - Both stable and unstable desktop updater releases are signed in CI.
