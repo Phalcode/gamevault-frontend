@@ -25,7 +25,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "dmg", "appimage", "deb"],
+    "targets": ["nsis", "app", "dmg", "appimage", "deb"],
     "publisher": "Phalcode",
     "icon": [
       "icons/32x32.png",

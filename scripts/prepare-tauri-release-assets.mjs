@@ -91,7 +91,9 @@ function pickSingleFile(files, predicate, description) {
   const matches = files.filter(predicate).sort();
 
   if (matches.length === 0) {
-    throw new Error(`Could not find ${description}.`);
+    throw new Error(
+      `Could not find ${description}. Files seen: ${files.map((file) => path.basename(file)).join(", ") || "<none>"}`,
+    );
   }
 
   return matches[0];
