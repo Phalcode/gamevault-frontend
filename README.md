@@ -72,4 +72,5 @@ If backend endpoints change, update the paths in `AuthContext` and the admin hoo
 - CI expects a repository variable named `GV_TAURI_UPDATER_PUBKEY`.
 - CI expects the signing secret `TAURI_SIGNING_PRIVATE_KEY` and optionally `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 - Both stable and unstable desktop updater releases are signed in CI.
-- Local desktop production builds do not generate updater artifacts unless you build with the release overlay config in `src-tauri/tauri.release.conf.json`.
+- CI generates `src-tauri/tauri.release.generated.json` from `src-tauri/tauri.release.conf.json` and injects the updater public key there, because the Tauri bundler requires `plugins.updater.pubkey` in the parsed config.
+- Local desktop production builds do not generate updater artifacts unless you build with the release overlay config in `src-tauri/tauri.release.conf.json` or generate the same release config with your public key injected.

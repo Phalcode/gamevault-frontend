@@ -148,13 +148,18 @@ jobs:
           test -n "$GV_TAURI_UPDATER_PUBKEY"
           test -n "$TAURI_SIGNING_PRIVATE_KEY"
 
+      - name: Generate Tauri release config
+        env:
+          GV_TAURI_UPDATER_PUBKEY: ${{ vars.GV_TAURI_UPDATER_PUBKEY }}
+        run: node scripts/write-tauri-release-config.mjs src-tauri/tauri.release.conf.json src-tauri/tauri.release.generated.json
+
       - name: Build Tauri stable release
         if: github.ref == 'refs/heads/master'
         env:
           GV_TAURI_UPDATER_PUBKEY: ${{ vars.GV_TAURI_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri build --config src-tauri/tauri.release.conf.json
+        run: pnpm tauri build --config src-tauri/tauri.release.generated.json
 
       - name: Build Tauri unstable release
         if: github.ref == 'refs/heads/develop'
@@ -162,7 +167,7 @@ jobs:
           GV_TAURI_UPDATER_PUBKEY: ${{ vars.GV_TAURI_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri build --config src-tauri/tauri.release.conf.json
+        run: pnpm tauri build --config src-tauri/tauri.release.generated.json
 
       - name: Prepare Tauri release assets
         if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop'

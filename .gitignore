@@ -16,6 +16,7 @@ dist-ssr
 *.local
 release-assets/
 updater-metadata/
+src-tauri/tauri.release.generated.json
 
 # Editor directories and files
 .vscode-edge-profile/*
