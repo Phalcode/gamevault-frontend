@@ -6,6 +6,9 @@ on:
       - master
       - develop
 
+permissions:
+  contents: write
+
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: true
@@ -136,32 +139,68 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
 
-      - name: Build Tauri
-        run: pnpm tauri build
+      - name: Validate updater signing configuration
+        shell: bash
+        env:
+          GV_TAURI_UPDATER_PUBKEY: ${{ vars.GV_TAURI_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          test -n "$GV_TAURI_UPDATER_PUBKEY"
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+
+      - name: Build Tauri stable release
+        if: github.ref == 'refs/heads/master'
+        env:
+          GV_TAURI_UPDATER_PUBKEY: ${{ vars.GV_TAURI_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --config src-tauri/tauri.release.conf.json
+
+      - name: Build Tauri unstable release
+        if: github.ref == 'refs/heads/develop'
+        env:
+          GV_TAURI_UPDATER_PUBKEY: ${{ vars.GV_TAURI_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --config src-tauri/tauri.release.conf.json
+
+      - name: Prepare Tauri release assets
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop'
+        run: node scripts/prepare-tauri-release-assets.mjs ${{ matrix.platform }} ${{ needs.release.outputs.version }}
+
+      - name: Upload Tauri release assets
+        if: github.ref == 'refs/heads/master'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ needs.release.outputs.version }}" release-assets/${{ matrix.platform }}/* --clobber
+
+      - name: Upload unstable Tauri release assets
+        if: github.ref == 'refs/heads/develop'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload unstable release-assets/${{ matrix.platform }}/* --clobber
+
+      - name: Upload updater metadata artifact
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop'
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-metadata-${{ matrix.platform }}
+          path: updater-metadata/${{ matrix.platform }}.json
 
       - name: Zip bundle (Linux/macOS)
-        if: matrix.os != 'windows-latest'
+        if: github.ref == 'refs/heads/develop' && matrix.os != 'windows-latest'
         run: |
           cd src-tauri/target/release/bundle
           zip -r "$ARTIFACT_NAME" .
           mv "$ARTIFACT_NAME" "$GITHUB_WORKSPACE/"
 
       - name: Zip bundle (Windows)
-        if: matrix.os == 'windows-latest'
+        if: github.ref == 'refs/heads/develop' && matrix.os == 'windows-latest'
         run: |
           cd src-tauri/target/release/bundle
           powershell Compress-Archive -Path * -DestinationPath "$env:GITHUB_WORKSPACE\$env:ARTIFACT_NAME"
-
-      - name: Upload Tauri artifact to release
-        if: github.ref == 'refs/heads/master'
-        uses: actions/upload-release-asset@v1
-        with:
-          asset_path: ${{ env.ARTIFACT_NAME }}
-          asset_name: ${{ env.ARTIFACT_NAME }}
-          asset_content_type: application/zip
-          upload_url: ${{ needs.release.outputs.upload_url }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload to unstable release
         if: github.ref == 'refs/heads/develop'
@@ -173,3 +212,78 @@ jobs:
           tag: unstable
           overwrite: true
           prerelease: true
+
+  updater-manifest:
+    name: Publish updater manifest
+    needs: [release, tauri]
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') && needs.release.result == 'success' && needs.tauri.result == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Download updater metadata
+        uses: actions/download-artifact@v4
+        with:
+          pattern: updater-metadata-*
+          path: updater-metadata
+          merge-multiple: true
+
+      - name: Determine updater manifest target
+        id: manifest
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/master" ]; then
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+            echo "file=latest.json" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ needs.release.outputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "asset_tag=${{ needs.release.outputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "channels_tag=${{ needs.release.outputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=unstable" >> "$GITHUB_OUTPUT"
+            echo "file=unstable.json" >> "$GITHUB_OUTPUT"
+            echo "tag=unstable" >> "$GITHUB_OUTPUT"
+            echo "asset_tag=unstable" >> "$GITHUB_OUTPUT"
+            stable_tag=$(gh api repos/${{ github.repository }}/releases/latest --jq .tag_name 2>/dev/null || true)
+            if [ -n "$stable_tag" ]; then
+              echo "channels_tag=$stable_tag" >> "$GITHUB_OUTPUT"
+            else
+              echo "channels_tag=unstable" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Download existing updater channels source
+        shell: bash
+        run: |
+          rm -f existing-updater-channels.json
+          curl -fsSL "https://github.com/${{ github.repository }}/releases/latest/download/updater-channels.json" -o existing-updater-channels.json || true
+          if [ ! -s existing-updater-channels.json ]; then
+            curl -fsSL "https://github.com/${{ github.repository }}/releases/download/unstable/updater-channels.json" -o existing-updater-channels.json || true
+          fi
+
+      - name: Build current channel manifest
+        run: node scripts/build-tauri-updater-manifest.mjs ${{ needs.release.outputs.version }} updater-metadata current-channel.json ${{ github.repository }} ${{ steps.manifest.outputs.asset_tag }}
+
+      - name: Merge updater channels source
+        run: node scripts/merge-tauri-updater-channels.mjs existing-updater-channels.json ${{ steps.manifest.outputs.channel }} current-channel.json updater-channels.json
+
+      - name: Extract updater feed for current channel
+        run: node scripts/extract-tauri-updater-channel.mjs updater-channels.json ${{ steps.manifest.outputs.channel }} ${{ steps.manifest.outputs.file }}
+
+      - name: Upload updater manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.manifest.outputs.tag }}" "${{ steps.manifest.outputs.file }}" --clobber
+
+      - name: Upload updater channels source
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.manifest.outputs.channels_tag }}" updater-channels.json --clobber

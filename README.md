@@ -60,3 +60,16 @@ VITE_DEV_AUTOLOGIN_PASSWORD=devpassword
 Uncheck "Remember me" on login if you want the refresh token removed right after authenticating (session-only access token).
 
 If backend endpoints change, update the paths in `AuthContext` and the admin hook.
+
+## Desktop Updater Releases
+
+- Stable desktop auto-updates are published from the `master` branch through GitHub Releases.
+- Stable uses `latest.json` from the latest stable GitHub release.
+- Unstable uses `unstable.json` from the `unstable` prerelease tag.
+- CI keeps a canonical `updater-channels.json` as the source of truth and derives `latest.json` and `unstable.json` from it.
+- The canonical `updater-channels.json` is stored on the latest stable release when one exists, and is merged forward by both `master` and `develop` runs.
+- The desktop app now lets users switch between `stable` and `unstable` channels in Settings.
+- CI expects a repository variable named `GV_TAURI_UPDATER_PUBKEY`.
+- CI expects the signing secret `TAURI_SIGNING_PRIVATE_KEY` and optionally `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+- Both stable and unstable desktop updater releases are signed in CI.
+- Local desktop production builds do not generate updater artifacts unless you build with the release overlay config in `src-tauri/tauri.release.conf.json`.

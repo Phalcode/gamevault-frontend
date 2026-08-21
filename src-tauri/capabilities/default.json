@@ -47,6 +47,7 @@
     },
     "fs:allow-home-read-recursive",
     "fs:allow-home-write-recursive",
-    "autostart:default"
+    "autostart:default",
+    "updater:default"
   ]
 }

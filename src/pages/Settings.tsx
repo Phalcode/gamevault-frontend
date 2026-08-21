@@ -3,6 +3,7 @@ import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { useDownloads } from "@/context/DownloadContext";
 import { useIgnoreList } from "@/context/IgnoreListContext";
+import { useAppUpdater } from "@/context/AppUpdaterContext";
 import { SwitchField, Switch } from "@tw/switch";
 import { Field, Fieldset, Label, Legend } from "@/components/tailwind/fieldset";
 import { Text } from "@/components/tailwind/text";
@@ -10,6 +11,7 @@ import { useEffect, useState } from "react";
 import { isTauriApp } from "@/utils/tauri";
 import { isDebugTauriOverride, setDebugTauriOverride } from "@/utils/tauri";
 import { Button } from "@/components/tailwind/button";
+import { Select } from "@/components/tailwind/select";
 import ThemeSelect from "@/components/ThemeSelect";
 import { isAnalyticsEnabled, setAnalyticsEnabled } from "@/utils/analytics";
 import {
@@ -24,6 +26,7 @@ import {
   FolderArrowDownIcon,
   ComputerDesktopIcon,
   ChartBarIcon,
+  ArrowPathIcon,
   PlusIcon,
   XMarkIcon,
   TagIcon,
@@ -86,6 +89,18 @@ export default function Settings() {
   });
   const isTauri = isTauriApp();
   const { ignoreList, setIgnoreList } = useIgnoreList();
+  const {
+    updateChannel,
+    updaterEnabled,
+    updaterReady,
+    isChecking: isCheckingUpdates,
+    isInstalling: isInstallingUpdate,
+    availableVersion,
+    errorText: updaterErrorText,
+    statusText: updaterStatusText,
+    setUpdateChannel,
+    checkForUpdates,
+  } = useAppUpdater();
   const [newIgnore, setNewIgnore] = useState("");
 
   useEffect(() => {
@@ -297,7 +312,7 @@ export default function Settings() {
                     >
                       <div className="flex items-center gap-2">
                         {/* Label input */}
-                        <div className="relative flex-shrink-0">
+                        <div className="relative shrink-0">
                           <TagIcon className="absolute left-2 top-1/2 h-4 w-4 stroke-[1.8] -translate-y-1/2 text-gv-muted" />
                           <Input
                             type="text"
@@ -470,6 +485,25 @@ export default function Settings() {
               </Text>
 
               <Field className="mt-6">
+                <Label>Update channel</Label>
+                <Text className="mb-2">
+                  Stable follows the latest GitHub release. Unstable follows the
+                  continuously updated prerelease tag.
+                </Text>
+                <Select
+                  value={updateChannel}
+                  onChange={(event) =>
+                    setUpdateChannel(
+                      event.target.value as "stable" | "unstable",
+                    )
+                  }
+                >
+                  <option value="stable">Stable</option>
+                  <option value="unstable">Unstable</option>
+                </Select>
+              </Field>
+
+              <Field className="mt-6">
                 <SwitchField>
                   <Switch
                     name="autostart"
@@ -635,7 +669,11 @@ export default function Settings() {
                     className="flex-1"
                     aria-label="Executable name to ignore"
                   />
-                  <Button type="button" color="indigo" onClick={handleAddIgnore}>
+                  <Button
+                    type="button"
+                    color="indigo"
+                    onClick={handleAddIgnore}
+                  >
                     <PlusIcon className="h-4 w-4" />
                     Add
                   </Button>
@@ -697,18 +735,67 @@ export default function Settings() {
           </section>
         )}
 
-        {/* Version */}
-        <p className="px-1 text-xs text-gv-muted lg:col-span-2">
-          GameVault Web UI&nbsp;&nbsp;
-          <a
-            href={`https://github.com/Phalcode/gamevault-frontend/releases/tag/${__APP_VERSION__}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-gv-text underline underline-offset-2 transition-colors"
-          >
-            v{__APP_VERSION__}
-          </a>
-        </p>
+        <section className="rounded-2xl border border-gv-line bg-gv-panel-soft p-4 lg:col-span-2">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs text-gv-muted">
+                GameVault Web UI&nbsp;&nbsp;
+                <a
+                  href={`https://github.com/Phalcode/gamevault-frontend/releases/tag/${__APP_VERSION__}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-gv-text underline underline-offset-2 transition-colors"
+                >
+                  v{__APP_VERSION__}
+                </a>
+              </p>
+
+              {isTauri && (
+                <>
+                  <Text className="mt-2 text-xs">
+                    {updaterStatusText
+                      ? updaterStatusText
+                      : updaterReady
+                        ? updaterEnabled
+                          ? `Desktop auto-updates are enabled for the ${updateChannel} channel.`
+                          : "Desktop auto-updates are not configured for this build yet."
+                        : "Checking desktop updater availability..."}
+                  </Text>
+
+                  {availableVersion && !isInstallingUpdate && (
+                    <Text className="mt-1 text-xs">
+                      Update available: v{availableVersion}
+                    </Text>
+                  )}
+
+                  {updaterErrorText && (
+                    <Text className="mt-1 text-xs text-red-400">
+                      {updaterErrorText}
+                    </Text>
+                  )}
+                </>
+              )}
+            </div>
+
+            {isTauri && (
+              <Button
+                type="button"
+                color="indigo"
+                disabled={
+                  !updaterReady || isCheckingUpdates || isInstallingUpdate
+                }
+                onClick={() => void checkForUpdates({ manual: true })}
+              >
+                <ArrowPathIcon className="h-4 w-4" />
+                {isCheckingUpdates
+                  ? "Checking..."
+                  : isInstallingUpdate
+                    ? "Updating..."
+                    : "Check for updates"}
+              </Button>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
