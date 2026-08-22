@@ -115,23 +115,63 @@ async function resolveOptionalAsset(dirName, suffix) {
   }
 }
 
-// Inserts the human-readable platform label (e.g. "windows", "macos", "linux")
-// into a bundle filename so users can tell which OS an artifact targets.
-function includePlatformLabel(filename, version, platform) {
-  const versionIndex = filename.indexOf(version);
+const ARCH_LABELS = {
+  x86_64: "x64",
+  aarch64: "arm64",
+  i686: "i686",
+  armv7: "armv7",
+};
 
-  if (versionIndex !== -1) {
-    const insertAt = versionIndex + version.length;
-    return `${filename.slice(0, insertAt)}_${platform}${filename.slice(insertAt)}`;
-  }
+// Arch tokens as emitted by the Tauri bundler, in order of preference.
+const ARCH_TOKENS = [
+  "x86_64",
+  "amd64",
+  "aarch64",
+  "arm64",
+  "x64",
+  "i686",
+  "ia32",
+  "x86",
+  "armv7",
+  "arm",
+];
 
-  const extensionIndex = filename.lastIndexOf(".");
-  if (extensionIndex > 0) {
-    return `${filename.slice(0, extensionIndex)}_${platform}${filename.slice(extensionIndex)}`;
-  }
-
-  return `${filename}_${platform}`;
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+// Rebuilds a Tauri bundle filename into a clean, structured release name:
+//   <Product>-<os>-<arch>-<version><kind/extension>
+// e.g. GameVault_17.0.0_x64-setup.exe -> GameVault-windows-x64-17.0.0-setup.exe
+//      gamevault_17.0.0_amd64.AppImage -> GameVault-linux-x64-17.0.0.AppImage
+function toStructuredReleaseName(
+  filename,
+  version,
+  productName,
+  osLabel,
+  archLabel,
+) {
+  const pattern = new RegExp(`^(.+?)_${escapeRegExp(version)}_(.+)$`);
+  const match = filename.match(pattern);
+
+  if (!match) {
+    return `${productName}-${osLabel}-${archLabel}-${version}-${filename}`;
+  }
+
+  const [, , rest] = match;
+  const cleanedRest = ARCH_TOKENS.reduce(
+    (acc, token) => acc.replace(new RegExp(`^${token}(?=[.-]|$)`, "i"), ""),
+    rest,
+  );
+
+  return `${productName}-${osLabel}-${archLabel}-${version}${cleanedRest}`;
+}
+
+const tauriConfig = JSON.parse(
+  await readFile(path.join(repoRoot, "src-tauri", "tauri.conf.json"), "utf8"),
+);
+const productName = tauriConfig.productName || "GameVault";
+const archLabel = ARCH_LABELS[resolveArchKey()] || resolveArchKey();
 
 const updaterDirPath = path.join(bundleRoot, config.updaterDir);
 const updaterFiles = await listFiles(updaterDirPath);
@@ -143,10 +183,12 @@ const updaterAssetPath = pickSingleFile(
   `${platform} updater bundle`,
 );
 const signaturePath = `${updaterAssetPath}.sig`;
-const updaterReleaseName = includePlatformLabel(
+const updaterReleaseName = toStructuredReleaseName(
   path.basename(updaterAssetPath),
   version,
+  productName,
   platform,
+  archLabel,
 );
 
 await stat(signaturePath);
@@ -170,7 +212,13 @@ for (const optionalAsset of config.optionalReleaseAssets) {
   if (assetPath) {
     releaseFiles.push({
       source: assetPath,
-      target: includePlatformLabel(path.basename(assetPath), version, platform),
+      target: toStructuredReleaseName(
+        path.basename(assetPath),
+        version,
+        productName,
+        platform,
+        archLabel,
+      ),
     });
   }
 }
