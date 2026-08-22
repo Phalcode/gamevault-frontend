@@ -3,6 +3,11 @@ import { isTauriApp } from "@/utils/tauri";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { getRootPaths } from "@/utils/rootPaths";
+import { onGameUpdated } from "@/utils/gameUpdates";
+import {
+  getServerNamespace,
+  resolveApiMediaBlob,
+} from "@/utils/mediaCache";
 
 export interface InstalledGameInfo {
   gameId: number;
@@ -33,6 +38,7 @@ export function useInstalledGames() {
       try {
         const base = serverUrl.replace(/\/+$/, "");
         const { invoke } = await import("@tauri-apps/api/core");
+        const serverNamespace = getServerNamespace(serverUrl);
 
         // Fetch full game object
         const gameRes = await authFetch(`${base}/api/games/${gameId}`);
@@ -49,16 +55,19 @@ export function useInstalledGames() {
         const coverId = gameJson?.metadata?.cover?.id;
         if (coverId) {
           try {
-            const imgRes = await authFetch(`${base}/api/media/${coverId}`);
-            if (imgRes.ok) {
-              const blob = await imgRes.blob();
-              const bytes = new Uint8Array(await blob.arrayBuffer());
-              await invoke("cache_game_image", {
-                mediaId: Number(coverId),
-                bytes: Array.from(bytes),
-                contentType: blob.type || "image/png",
-              });
-            }
+            const blob = await resolveApiMediaBlob({
+              serverUrl,
+              mediaId: coverId,
+              authFetch,
+              owner: { gameId, slot: "cover" },
+            });
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            await invoke("cache_game_image", {
+              serverNamespace,
+              mediaId: Number(coverId),
+              bytes: Array.from(bytes),
+              contentType: blob.type || "image/png",
+            });
           } catch { /* ignore */ }
         }
 
@@ -66,16 +75,19 @@ export function useInstalledGames() {
         const bgId = gameJson?.metadata?.background?.id;
         if (bgId) {
           try {
-            const imgRes = await authFetch(`${base}/api/media/${bgId}`);
-            if (imgRes.ok) {
-              const blob = await imgRes.blob();
-              const bytes = new Uint8Array(await blob.arrayBuffer());
-              await invoke("cache_game_image", {
-                mediaId: Number(bgId),
-                bytes: Array.from(bytes),
-                contentType: blob.type || "image/png",
-              });
-            }
+            const blob = await resolveApiMediaBlob({
+              serverUrl,
+              mediaId: bgId,
+              authFetch,
+              owner: { gameId, slot: "background" },
+            });
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            await invoke("cache_game_image", {
+              serverNamespace,
+              mediaId: Number(bgId),
+              bytes: Array.from(bytes),
+              contentType: blob.type || "image/png",
+            });
           } catch { /* ignore */ }
         }
 
@@ -90,56 +102,6 @@ export function useInstalledGames() {
       } finally {
         cacheInFlightRef.current.delete(gameId);
       }
-    },
-    [serverUrl, authFetch, isOnline],
-  );
-
-  /** Cache only the cover/background images for a game that already has metadata cached */
-  const ensureImageCache = useCallback(
-    async (gameId: number, metadata: Record<string, any>) => {
-      if (!isTauriApp() || !isOnline) return;
-      try {
-        const base = serverUrl.replace(/\/+$/, "");
-        const { invoke } = await import("@tauri-apps/api/core");
-
-        const coverId = metadata?.cover?.id;
-        if (coverId) {
-          const existing = await invoke<number[] | null>("load_cached_image", {
-            mediaId: Number(coverId),
-          });
-          if (!existing || existing.length === 0) {
-            const imgRes = await authFetch(`${base}/api/media/${coverId}`);
-            if (imgRes.ok) {
-              const blob = await imgRes.blob();
-              const bytes = new Uint8Array(await blob.arrayBuffer());
-              await invoke("cache_game_image", {
-                mediaId: Number(coverId),
-                bytes: Array.from(bytes),
-                contentType: blob.type || "image/png",
-              });
-            }
-          }
-        }
-
-        const bgId = metadata?.background?.id;
-        if (bgId) {
-          const existing = await invoke<number[] | null>("load_cached_image", {
-            mediaId: Number(bgId),
-          });
-          if (!existing || existing.length === 0) {
-            const imgRes = await authFetch(`${base}/api/media/${bgId}`);
-            if (imgRes.ok) {
-              const blob = await imgRes.blob();
-              const bytes = new Uint8Array(await blob.arrayBuffer());
-              await invoke("cache_game_image", {
-                mediaId: Number(bgId),
-                bytes: Array.from(bytes),
-                contentType: blob.type || "image/png",
-              });
-            }
-          }
-        }
-      } catch { /* best-effort */ }
     },
     [serverUrl, authFetch, isOnline],
   );
@@ -206,18 +168,11 @@ export function useInstalledGames() {
 
       setInstalledGames(allResults);
 
-      // Lazy cache: if online, cache missing game data AND images
+      // Refresh server metadata while online so changed media IDs replace stale cache bindings.
       if (isOnline) {
         for (const game of allResults) {
           if (game.gameId <= 0) continue;
-          const meta = game.cachedMetadata || game.gameMetadata;
-          if (!game.cachedMetadata) {
-            // Full cache: game data + images
-            ensureGameCache(game.gameId);
-          } else if (meta) {
-            // Metadata cached but images may be missing
-            ensureImageCache(game.gameId, meta);
-          }
+          void ensureGameCache(game.gameId);
         }
       }
     } catch (err: any) {
@@ -226,11 +181,33 @@ export function useInstalledGames() {
     } finally {
       setLoading(false);
     }
-  }, [ensureGameCache, ensureImageCache, isOnline]);
+  }, [ensureGameCache, isOnline]);
 
   useEffect(() => {
     fetchInstalledGames();
   }, [fetchInstalledGames]);
+
+  useEffect(
+    () =>
+      onGameUpdated((updatedGame) => {
+        setInstalledGames((previous) =>
+          previous.map((game) =>
+            game.gameId === updatedGame.id
+              ? {
+                  ...game,
+                  gameTitle:
+                    updatedGame.metadata?.title ||
+                    updatedGame.title ||
+                    game.gameTitle,
+                  cachedMetadata: updatedGame,
+                }
+              : game,
+          ),
+        );
+        if (isOnline) void ensureGameCache(updatedGame.id);
+      }),
+    [ensureGameCache, isOnline],
+  );
 
   return { installedGames, loading, error, refetch: fetchInstalledGames };
 }

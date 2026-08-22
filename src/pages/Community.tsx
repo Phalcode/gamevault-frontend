@@ -274,6 +274,8 @@ function GamePoster({
           square
           alt={title}
           className="h-full w-full rounded-2xl"
+          gameId={game?.id}
+          mediaSlot="cover"
           fallback={
             <CoverPlaceholder
               title={title}

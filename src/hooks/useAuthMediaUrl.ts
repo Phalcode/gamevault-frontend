@@ -1,11 +1,29 @@
 import { useAuth } from "@/context/AuthContext";
-import { isTauriApp } from "@/utils/tauri";
-import { useEffect, useRef, useState } from "react";
+import { useOnlineStatus } from "@/context/OfflineContext";
+import {
+  GameMediaOwner,
+  invalidateMedia,
+  resolveApiMediaBlob,
+} from "@/utils/mediaCache";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-export function useAuthMediaUrl(mediaId?: number | string | null) {
+export function useAuthMediaUrl(
+  mediaId?: number | string | null,
+  owner?: GameMediaOwner,
+) {
   const { authFetch, serverUrl } = useAuth();
+  const { isOnline } = useOnlineStatus();
   const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [refreshRequest, setRefreshRequest] = useState<{
+    mediaId: number;
+    nonce: number;
+  } | null>(null);
   const revokeRef = useRef<string | null>(null);
+  const decodeRetryMediaIdRef = useRef<number | null>(null);
+  const ownerGameId = owner?.gameId;
+  const ownerSlot = owner?.slot;
 
   useEffect(
     () => () => {
@@ -23,48 +41,84 @@ export function useAuthMediaUrl(mediaId?: number | string | null) {
     }
 
     setUrl(null);
+    setError(null);
 
     const numericId = Number(mediaId);
-    if (!numericId || !serverUrl) return;
+    if (!numericId || !serverUrl) {
+      setLoading(false);
+      return;
+    }
 
     let cancelled = false;
+    setLoading(true);
 
     (async () => {
       try {
-        const base = serverUrl.replace(/\/+$/, "");
-        const res = await authFetch(`${base}/api/media/${numericId}`);
-        if (!res.ok) throw new Error(`Media fetch failed (${res.status})`);
-        const blob = await res.blob();
+        const blob = await resolveApiMediaBlob({
+          serverUrl,
+          mediaId: numericId,
+          authFetch,
+          owner:
+            ownerGameId && ownerSlot
+              ? { gameId: ownerGameId, slot: ownerSlot }
+              : undefined,
+          forceRefresh: refreshRequest?.mediaId === numericId,
+          allowTauriFallback: !isOnline,
+        });
         if (cancelled) return;
 
         const objectUrl = URL.createObjectURL(blob);
         revokeRef.current = objectUrl;
         setUrl(objectUrl);
-      } catch {
-        // Offline fallback: try Tauri local cache
-        if (isTauriApp() && numericId) {
-          try {
-            const { invoke } = await import("@tauri-apps/api/core");
-            const cachedBytes = await invoke<number[] | null>("load_cached_image", {
-              mediaId: numericId,
-            });
-            if (cachedBytes && cachedBytes.length > 0 && !cancelled) {
-              const blob = new Blob([new Uint8Array(cachedBytes)]);
-              const objectUrl = URL.createObjectURL(blob);
-              revokeRef.current = objectUrl;
-              setUrl(objectUrl);
-              return;
-            }
-          } catch { /* cached image not available */ }
+      } catch (caughtError) {
+        if (!cancelled) {
+          setUrl(null);
+          setError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : "Failed to load image",
+          );
         }
-        if (!cancelled) setUrl(null);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [mediaId, serverUrl, authFetch]);
+  }, [
+    mediaId,
+    serverUrl,
+    authFetch,
+    ownerGameId,
+    ownerSlot,
+    refreshRequest,
+    isOnline,
+  ]);
 
-  return url;
+  useEffect(() => {
+    decodeRetryMediaIdRef.current = null;
+  }, [mediaId]);
+
+  const retryAfterDecodeError = useCallback(() => {
+    const numericId = Number(mediaId);
+    if (!numericId || !serverUrl) {
+      setError("Failed to decode image");
+      return;
+    }
+
+    if (decodeRetryMediaIdRef.current === numericId) {
+      setError("Failed to decode image");
+      return;
+    }
+
+    decodeRetryMediaIdRef.current = numericId;
+    setLoading(true);
+    void invalidateMedia(serverUrl, numericId).finally(() => {
+      setRefreshRequest({ mediaId: numericId, nonce: Date.now() });
+    });
+  }, [mediaId, serverUrl]);
+
+  return { url, error, loading, retryAfterDecodeError };
 }

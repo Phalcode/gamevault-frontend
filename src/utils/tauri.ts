@@ -29,5 +29,7 @@ export function setDebugTauriOverride(enabled: boolean): void {
  */
 export function isTauriApp(): boolean {
   if (isDebugTauriOverride()) return true;
-  return Boolean((window as any).__TAURI_INTERNALS__);
+  return (
+    typeof window !== "undefined" && Boolean((window as any).__TAURI_INTERNALS__)
+  );
 }

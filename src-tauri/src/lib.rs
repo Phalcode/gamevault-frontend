@@ -138,6 +138,7 @@ pub fn run() {
       cache::cache_game_image,
       cache::load_cached_game,
       cache::load_cached_image,
+      cache::cleanup_cached_images,
       cache::list_cached_game_ids,
       cache::delete_cached_game,
       cache::delete_cached_image,

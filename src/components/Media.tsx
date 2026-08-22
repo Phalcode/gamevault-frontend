@@ -1,7 +1,6 @@
-import { useAuth } from "@/context/AuthContext";
-import { useOnlineStatus } from "@/context/OfflineContext";
-import { isTauriApp } from "@/utils/tauri";
-import React, { useEffect, useRef, useState } from "react";
+import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
+import { GameMediaSlot } from "@/utils/mediaCache";
+import React, { useEffect, useState } from "react";
 import { Media as MediaType } from "../api";
 
 interface Props {
@@ -15,6 +14,8 @@ interface Props {
   fit?: "contain" | "cover";
   fallback?: React.ReactNode;
   onClick?: React.MouseEventHandler;
+  gameId?: number;
+  mediaSlot?: GameMediaSlot;
 }
 
 export function Media({
@@ -28,77 +29,29 @@ export function Media({
   fit = "contain",
   fallback,
   onClick = () => {},
+  gameId,
+  mediaSlot,
 }: Props) {
   const imageId = media?.id;
-  const { authFetch, serverUrl } = useAuth();
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [stalled, setStalled] = useState(false);
-  const revokeRef = useRef<string | null>(null);
-
-  useEffect(
-    () => () => {
-      if (revokeRef.current) URL.revokeObjectURL(revokeRef.current);
-    },
-    [],
+  const {
+    url: blobUrl,
+    error,
+    loading,
+    retryAfterDecodeError,
+  } = useAuthMediaUrl(
+    imageId,
+    gameId && mediaSlot ? { gameId, slot: mediaSlot } : undefined,
   );
 
   useEffect(() => {
-    if (revokeRef.current) {
-      URL.revokeObjectURL(revokeRef.current);
-      revokeRef.current = null;
-    }
-    setBlobUrl(null);
-    setError(null);
     setStalled(false);
-    if (!imageId || !serverUrl) return;
-    let cancelled = false;
+    if (!loading || blobUrl || error) return;
     const stallTimer = window.setTimeout(() => {
-      if (!cancelled) setStalled(true);
+      setStalled(true);
     }, 1200);
-    (async () => {
-      try {
-        const base = serverUrl.replace(/\/+$/, "");
-        const mediaUrl = `${base}/api/media/${imageId}`;
-        const res = await authFetch(mediaUrl);
-        if (!res.ok) throw new Error(`Media fetch failed (${res.status})`);
-        const blob = await res.blob();
-        if (cancelled) return;
-        window.clearTimeout(stallTimer);
-        setStalled(false);
-        const url = URL.createObjectURL(blob);
-        revokeRef.current = url;
-        setBlobUrl(url);
-      } catch (e: any) {
-        // Offline fallback: try Tauri local cache
-        if (isTauriApp() && imageId) {
-          try {
-            const { invoke } = await import("@tauri-apps/api/core");
-            const cachedBytes = await invoke<number[] | null>("load_cached_image", {
-              mediaId: Number(imageId),
-            });
-            if (cachedBytes && cachedBytes.length > 0 && !cancelled) {
-              const blob = new Blob([new Uint8Array(cachedBytes)]);
-              window.clearTimeout(stallTimer);
-              setStalled(false);
-              const url = URL.createObjectURL(blob);
-              revokeRef.current = url;
-              setBlobUrl(url);
-              return;
-            }
-          } catch { /* cached image not available */ }
-        }
-        if (!cancelled) {
-          window.clearTimeout(stallTimer);
-          setError(e?.message || "Failed to load image");
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(stallTimer);
-    };
-  }, [imageId, serverUrl, authFetch]);
+    return () => window.clearTimeout(stallTimer);
+  }, [imageId, loading, blobUrl, error]);
 
   const dimW = (width ?? size) + "px";
   const dimH = (height ?? size) + "px";
@@ -155,7 +108,7 @@ export function Media({
           style={{ width: "100%", height: "100%", objectFit: fit }}
           draggable={false}
           onClick={onClick}
-          onError={() => setError("Failed to decode image")}
+          onError={retryAfterDecodeError}
         />
       )}
       {showFallback && (

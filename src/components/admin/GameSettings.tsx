@@ -21,6 +21,11 @@ import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { isTauriApp } from "@/utils/tauri";
 import { useOnlineStatus } from "@/context/OfflineContext";
+import { emitGameUpdated } from "@/utils/gameUpdates";
+import {
+  GameMediaSlot,
+  resolveApiMediaBlob,
+} from "@/utils/mediaCache";
 import {
   PhotoIcon,
   CircleStackIcon,
@@ -819,6 +824,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       const updatedGame = await res.json();
       setFullGame(updatedGame);
       onGameUpdated?.(updatedGame);
+      emitGameUpdated(updatedGame);
 
       // Refresh providers to get updated priorities
       setMetadataProviders([]);
@@ -905,13 +911,18 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   const backgroundMediaId = workingGame.metadata?.background?.id;
 
   const fetchMediaBlobUrl = useCallback(
-    async (id: number): Promise<string | null> => {
+    async (
+      id: number,
+      slot?: GameMediaSlot,
+    ): Promise<string | null> => {
       if (!serverUrl || !id) return null;
       try {
-        const base = serverUrl.replace(/\/+$/, "");
-        const res = await authFetch(`${base}/api/media/${id}`);
-        if (!res.ok) throw new Error(`media ${id} ${res.status}`);
-        const blob = await res.blob();
+        const blob = await resolveApiMediaBlob({
+          serverUrl,
+          mediaId: id,
+          authFetch,
+          owner: slot ? { gameId: workingGame.id, slot } : undefined,
+        });
         const url = URL.createObjectURL(blob);
         revokeRef.current.push(url);
         return url;
@@ -919,14 +930,14 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         return null;
       }
     },
-    [serverUrl, authFetch],
+    [serverUrl, authFetch, workingGame.id],
   );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (coverMediaId && coverImg.original == null) {
-        const url = await fetchMediaBlobUrl(Number(coverMediaId));
+        const url = await fetchMediaBlobUrl(Number(coverMediaId), "cover");
         if (!cancelled && url)
           setCoverImg((s) => ({
             ...s,
@@ -936,7 +947,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
           }));
       }
       if (backgroundMediaId && bgImg.original == null) {
-        const url = await fetchMediaBlobUrl(Number(backgroundMediaId));
+        const url = await fetchMediaBlobUrl(
+          Number(backgroundMediaId),
+          "background",
+        );
         if (!cancelled && url)
           setBgImg((s) => ({
             ...s,
@@ -964,6 +978,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       if (workingGame.metadata?.cover?.id) {
         const url = await fetchMediaBlobUrl(
           Number(workingGame.metadata.cover.id),
+          "cover",
         );
         if (!cancelled && url) {
           setGameCoverUrl(url);
@@ -1145,6 +1160,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         const updatedGame = await res.json();
         setFullGame(updatedGame);
         onGameUpdated?.(updatedGame);
+        emitGameUpdated(updatedGame);
       }
 
       // Update local state to mark as saved
@@ -1472,6 +1488,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       const updatedGame = await res.json();
       setFullGame(updatedGame);
       onGameUpdated?.(updatedGame);
+      emitGameUpdated(updatedGame);
 
       await showAlert({
         title: "Success",
@@ -1536,6 +1553,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         const updatedGame = await res.json();
         setFullGame(updatedGame);
         onGameUpdated?.(updatedGame);
+        emitGameUpdated(updatedGame);
 
         await showAlert({
           title: "Success",

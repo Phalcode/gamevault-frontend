@@ -617,6 +617,8 @@ export default function Downloads() {
                         square
                         alt={`${download.gameTitle} cover art`}
                         className="overflow-hidden rounded-lg border border-gv-line bg-gv-panel-soft shadow-sm"
+                        gameId={download.gameId}
+                        mediaSlot="cover"
                         fallback={
                           <CoverPlaceholder
                             title={download.gameTitle || "Game"}

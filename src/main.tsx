@@ -26,10 +26,12 @@ import Downloads from "./pages/Downloads";
 import { GamevaultUserRoleEnum } from "./api";
 import { applyTheme, getStoredTheme } from "./utils/theme";
 import { isAnalyticsEnabled } from "./utils/analytics";
+import { startMediaCacheMaintenance } from "./utils/mediaCache";
 import * as Swetrix from "swetrix";
 
 // Apply stored theme immediately to prevent flash of wrong theme
 applyTheme(getStoredTheme());
+void startMediaCacheMaintenance();
 
 (window as any).global = window;
 

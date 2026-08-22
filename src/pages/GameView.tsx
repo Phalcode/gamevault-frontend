@@ -52,6 +52,7 @@ import {
 } from "@tw/dropdown";
 import { Alert, AlertTitle } from "@tw/alert";
 import { GameSettings } from "@/components/admin/GameSettings";
+import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { isTauriApp } from "@/utils/tauri";
 
 export default function GameView() {
@@ -82,65 +83,10 @@ export default function GameView() {
   const isTauri = isTauriApp();
   const { isOnline } = useOnlineStatus();
   const backgroundMediaId = game?.metadata?.background?.id;
-  const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
-  const backgroundRevokeRef = useRef<string | null>(null);
-
-  useEffect(
-    () => () => {
-      if (backgroundRevokeRef.current) {
-        URL.revokeObjectURL(backgroundRevokeRef.current);
-      }
-    },
-    [],
+  const { url: backgroundUrl } = useAuthMediaUrl(
+    backgroundMediaId,
+    game?.id ? { gameId: game.id, slot: "background" } : undefined,
   );
-
-  useEffect(() => {
-    if (backgroundRevokeRef.current) {
-      URL.revokeObjectURL(backgroundRevokeRef.current);
-      backgroundRevokeRef.current = null;
-    }
-
-    setBackgroundUrl(null);
-
-    if (!backgroundMediaId || !serverUrl) return;
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const base = serverUrl.replace(/\/+$/, "");
-        const res = await authFetch(`${base}/api/media/${backgroundMediaId}`);
-        if (!res.ok)
-          throw new Error(`Failed to load background (${res.status})`);
-        const blob = await res.blob();
-        if (cancelled) return;
-        const objectUrl = URL.createObjectURL(blob);
-        backgroundRevokeRef.current = objectUrl;
-        setBackgroundUrl(objectUrl);
-      } catch {
-        // Offline fallback: try Tauri local cache for background image
-        if (isTauriApp() && backgroundMediaId && !cancelled) {
-          try {
-            const { invoke } = await import("@tauri-apps/api/core");
-            const cachedBytes = await invoke<number[] | null>("load_cached_image", {
-              mediaId: Number(backgroundMediaId),
-            });
-            if (cachedBytes && cachedBytes.length > 0) {
-              const blob = new Blob([new Uint8Array(cachedBytes)]);
-              const objectUrl = URL.createObjectURL(blob);
-              backgroundRevokeRef.current = objectUrl;
-              setBackgroundUrl(objectUrl);
-              return;
-            }
-          } catch { /* cached image not available */ }
-        }
-        if (!cancelled) setBackgroundUrl(null);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [backgroundMediaId, serverUrl, authFetch]);
 
   useEffect(() => {
     if (!serverUrl || !numericId || Number.isNaN(numericId)) return;
@@ -685,6 +631,8 @@ export default function GameView() {
                   className="w-full h-full object-contain"
                   square
                   alt={title}
+                  gameId={game.id}
+                  mediaSlot="cover"
                   fallback={
                     <CoverPlaceholder
                       title={title || game.title || "Game"}

@@ -9,6 +9,7 @@ import { Field, Label } from "@/components/tailwind/fieldset";
 import { Input } from "@/components/tailwind/input";
 import { Text } from "@/components/tailwind/text";
 import { useAuth } from "@/context/AuthContext";
+import { resolveApiMediaBlob } from "@/utils/mediaCache";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GamevaultUser } from "../../api";
 
@@ -181,10 +182,11 @@ export function UserEditorModal({
     async (id: number): Promise<string | null> => {
       if (!serverUrl || !id) return null;
       try {
-        const base = serverUrl.replace(/\/+$/, "");
-        const res = await authFetch(`${base}/api/media/${id}`);
-        if (!res.ok) throw new Error(`media ${id} ${res.status}`);
-        const blob = await res.blob();
+        const blob = await resolveApiMediaBlob({
+          serverUrl,
+          mediaId: id,
+          authFetch,
+        });
         const url = URL.createObjectURL(blob);
         revokeRef.current.push(url);
         return url;

@@ -406,6 +406,8 @@ export function GameCard({
               className="h-full w-full object-contain rounded-none transition-transform duration-300 ease-out group-hover/card:scale-[1.02]"
               square
               alt={localGame.title}
+              gameId={localGame.id}
+              mediaSlot="cover"
               fallback={
                 <CoverPlaceholder
                   title={localGame.metadata?.title || localGame.title || "Game"}
@@ -482,9 +484,9 @@ export function GameCard({
               aria-label="Play"
               onClick={handlePlayGame}
               className={clsx(
-                "absolute bottom-3 left-1/2 -translate-x-1/2 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-500/90 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/30 backdrop-blur-sm transition-all duration-200",
+                "absolute bottom-3 left-1/2 -translate-x-1/2 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-indigo-400/40 bg-indigo-500/90 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/30 backdrop-blur-sm transition-all duration-200",
                 "opacity-0 translate-y-2 group-hover/card:opacity-100 group-hover/card:translate-y-0",
-                "hover:bg-emerald-400 active:scale-[0.97]",
+                "hover:bg-indigo-400 active:scale-[0.97]",
               )}
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4 fill-current">

@@ -8,11 +8,20 @@ import {
   useState,
 } from "react";
 import { useAuth } from "./AuthContext";
+import { useOnlineStatus } from "./OfflineContext";
 import { useServerStatus } from "@/hooks/useServerStatus";
 import { isTauriApp } from "@/utils/tauri";
+import { onGameUpdated } from "@/utils/gameUpdates";
+import {
+  getServerNamespace,
+  resolveApiMediaBlob,
+} from "@/utils/mediaCache";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import type { GameMetadata } from "@/api/models/GameMetadata";
-import type { GamevaultGameTypeEnum } from "@/api/models/GamevaultGame";
+import type {
+  GamevaultGame,
+  GamevaultGameTypeEnum,
+} from "@/api/models/GamevaultGame";
 
 type InstallationStatus =
   | "idle"
@@ -108,10 +117,16 @@ const DEFAULT_GAME_VAULT_CONFIG: GameVaultConfig = {
 
 export function DownloadProvider({ children }: { children: ReactNode }) {
   const { serverUrl, authFetch, auth } = useAuth();
+  const { isOnline } = useOnlineStatus();
   const { info: serverInfo } = useServerStatus();
   const [downloads, setDownloads] = useState<Record<number, ActiveDownload>>(
     {},
   );
+  const downloadGameIdsKey = Object.keys(downloads)
+    .map(Number)
+    .filter((gameId) => Number.isFinite(gameId) && gameId > 0)
+    .sort((left, right) => left - right)
+    .join(",");
   const [speedLimitKB, setSpeedLimitKBState] = useState<number>(() => {
     const NEW_KEY = "download_speed_limit_kb";
     const existing = localStorage.getItem(NEW_KEY);
@@ -243,16 +258,19 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const cacheInstalledGameData = useCallback(
-    async (gameId: number) => {
+    async (gameId: number, freshGame?: GamevaultGame) => {
       if (!isTauriApp()) return;
       try {
         const base = serverUrl.replace(/\/+$/, "");
         const { invoke } = await import("@tauri-apps/api/core");
+        const serverNamespace = getServerNamespace(serverUrl);
 
-        // Fetch full game object
-        const gameRes = await authFetch(`${base}/api/games/${gameId}`);
-        if (!gameRes.ok) return;
-        const gameJson = await gameRes.json();
+        let gameJson = freshGame;
+        if (!gameJson) {
+          const gameRes = await authFetch(`${base}/api/games/${gameId}`);
+          if (!gameRes.ok) return;
+          gameJson = (await gameRes.json()) as GamevaultGame;
+        }
 
         // Cache game data
         await invoke("cache_game_data", {
@@ -264,16 +282,19 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         const coverId = gameJson?.metadata?.cover?.id;
         if (coverId) {
           try {
-            const imgRes = await authFetch(`${base}/api/media/${coverId}`);
-            if (imgRes.ok) {
-              const blob = await imgRes.blob();
-              const bytes = new Uint8Array(await blob.arrayBuffer());
-              await invoke("cache_game_image", {
-                mediaId: Number(coverId),
-                bytes: Array.from(bytes),
-                contentType: blob.type || "image/png",
-              });
-            }
+            const blob = await resolveApiMediaBlob({
+              serverUrl,
+              mediaId: coverId,
+              authFetch,
+              owner: { gameId, slot: "cover" },
+            });
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            await invoke("cache_game_image", {
+              serverNamespace,
+              mediaId: Number(coverId),
+              bytes: Array.from(bytes),
+              contentType: blob.type || "image/png",
+            });
           } catch {
             /* ignore image cache failures */
           }
@@ -283,16 +304,19 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         const bgId = gameJson?.metadata?.background?.id;
         if (bgId) {
           try {
-            const imgRes = await authFetch(`${base}/api/media/${bgId}`);
-            if (imgRes.ok) {
-              const blob = await imgRes.blob();
-              const bytes = new Uint8Array(await blob.arrayBuffer());
-              await invoke("cache_game_image", {
-                mediaId: Number(bgId),
-                bytes: Array.from(bytes),
-                contentType: blob.type || "image/png",
-              });
-            }
+            const blob = await resolveApiMediaBlob({
+              serverUrl,
+              mediaId: bgId,
+              authFetch,
+              owner: { gameId, slot: "background" },
+            });
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            await invoke("cache_game_image", {
+              serverNamespace,
+              mediaId: Number(bgId),
+              bytes: Array.from(bytes),
+              contentType: blob.type || "image/png",
+            });
           } catch {
             /* ignore image cache failures */
           }
@@ -303,6 +327,90 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     },
     [serverUrl, authFetch],
   );
+
+  useEffect(() => {
+    if (!isOnline || !serverUrl || !downloadGameIdsKey) return;
+
+    const gameIds = downloadGameIdsKey.split(",").map(Number);
+    let cancelled = false;
+
+    void Promise.all(
+      gameIds.map(async (gameId) => {
+        try {
+          const base = serverUrl.replace(/\/+$/, "");
+          const response = await authFetch(`${base}/api/games/${gameId}`);
+          if (!response.ok) return null;
+          return (await response.json()) as GamevaultGame;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((games) => {
+      if (cancelled) return;
+      const freshGames = games.filter(
+        (game): game is GamevaultGame => game !== null,
+      );
+      if (!freshGames.length) return;
+
+      setDownloads((previous) => {
+        const next = { ...previous };
+        for (const game of freshGames) {
+          const existing = next[game.id];
+          if (!existing) continue;
+          next[game.id] = {
+            ...existing,
+            gameTitle:
+              game.metadata?.title || game.title || existing.gameTitle,
+            gameMetadata: game.metadata,
+          };
+        }
+        return next;
+      });
+
+      if (isTauriApp()) {
+        for (const game of freshGames) {
+          void cacheInstalledGameData(game.id, game);
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authFetch,
+    cacheInstalledGameData,
+    downloadGameIdsKey,
+    isOnline,
+    serverUrl,
+  ]);
+
+  useEffect(() => {
+    if (!downloadGameIdsKey) return;
+    const downloadGameIds = new Set(downloadGameIdsKey.split(",").map(Number));
+
+    return onGameUpdated((updatedGame) => {
+      if (!downloadGameIds.has(updatedGame.id)) return;
+      setDownloads((previous) => {
+        const existing = previous[updatedGame.id];
+        if (!existing) return previous;
+        return {
+          ...previous,
+          [updatedGame.id]: {
+            ...existing,
+            gameTitle:
+              updatedGame.metadata?.title ||
+              updatedGame.title ||
+              existing.gameTitle,
+            gameMetadata: updatedGame.metadata,
+          },
+        };
+      });
+      if (isOnline) {
+        void cacheInstalledGameData(updatedGame.id, updatedGame);
+      }
+    });
+  }, [cacheInstalledGameData, downloadGameIdsKey, isOnline]);
 
   const writeVersionConfig = useCallback(
     async (versionDirectory: string, patch: Partial<GameVaultConfig>) => {
@@ -547,7 +655,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             gametype: gameType,
             downloadfinished: false,
             extractionfinished: false,
-            installationfinished: false,
             downloadprogress:
               resumePosition && resumePosition > 0
                 ? `${resumePosition}/0`

@@ -257,6 +257,8 @@ function GamePoster({
           square
           alt={title}
           className="h-full w-full rounded-2xl"
+          gameId={game?.id}
+          mediaSlot="cover"
           fallback={
             <CoverPlaceholder
               title={title}
@@ -441,7 +443,9 @@ export default function UserProfile() {
       });
   }, [user, progressSearch, progressFilter, progressSort]);
 
-  const backdropUrl = useAuthMediaUrl(getPrimaryBackdropMediaId(user));
+  const { url: backdropUrl } = useAuthMediaUrl(
+    getPrimaryBackdropMediaId(user),
+  );
 
   useEffect(() => {
     setProgressSearch("");
