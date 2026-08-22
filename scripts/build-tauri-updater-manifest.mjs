@@ -57,13 +57,27 @@ for (const filePath of metadataFiles.sort()) {
 
 const manifest = {
   version,
-  pub_date: new Date().toISOString(),
   platforms,
 };
 
 const notes = process.env.GV_UPDATER_NOTES?.trim();
 if (notes) {
   manifest.notes = notes;
+}
+
+const buildId = process.env.GV_BUILD_ID?.trim();
+if (buildId) {
+  manifest.build_id = buildId;
+}
+
+const buildCommit = process.env.GV_BUILD_COMMIT?.trim();
+if (buildCommit) {
+  manifest.build_commit = buildCommit;
+}
+
+const buildChannel = process.env.GV_BUILD_CHANNEL?.trim();
+if (buildChannel) {
+  manifest.build_channel = buildChannel;
 }
 
 const outputDir = path.dirname(outputPath);

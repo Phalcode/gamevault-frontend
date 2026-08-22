@@ -54,7 +54,6 @@ type PendingUpdate = {
   body?: string | null;
   currentVersion: string;
   channel: UpdateChannel;
-  pubDate?: string | null;
 };
 
 interface GithubReleaseFallback {

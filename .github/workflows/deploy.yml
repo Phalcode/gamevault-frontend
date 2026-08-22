@@ -18,6 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.package-version.outputs.current-version }}
+      build_version: ${{ steps.build-info.outputs.build_version }}
+      build_channel: ${{ steps.build-info.outputs.build_channel }}
+      build_commit: ${{ steps.build-info.outputs.build_commit }}
+      build_id: ${{ steps.build-info.outputs.build_id }}
+      release_ref: ${{ steps.build-info.outputs.release_ref }}
       upload_url: ${{ steps.release.outputs.upload_url }}
     steps:
       - name: Checkout
@@ -26,6 +31,12 @@ jobs:
       - name: Fetch Current Package Version
         id: package-version
         uses: martinbeentjes/npm-get-version-action@v1.3.1
+
+      - name: Compute build metadata
+        id: build-info
+        env:
+          GV_BUILD_CHANNEL: ${{ github.ref == 'refs/heads/master' && 'stable' || 'unstable' }}
+        run: node scripts/compute-build-info.mjs package.json
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -40,6 +51,12 @@ jobs:
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
 
       - name: Build
+        env:
+          GV_BUILD_VERSION: ${{ steps.build-info.outputs.build_version }}
+          GV_BUILD_CHANNEL: ${{ steps.build-info.outputs.build_channel }}
+          GV_BUILD_COMMIT: ${{ steps.build-info.outputs.build_commit }}
+          GV_BUILD_ID: ${{ steps.build-info.outputs.build_id }}
+          GV_RELEASE_REF: ${{ steps.build-info.outputs.release_ref }}
         run: pnpm run build
 
       - name: Zip dist folder
@@ -147,12 +164,20 @@ jobs:
           GV_TAURI_UPDATER_PUBKEY: ${{ vars.GV_TAURI_UPDATER_PUBKEY }}
         run: node scripts/write-tauri-release-config.mjs src-tauri/tauri.release.conf.json src-tauri/tauri.release.generated.json
 
+      - name: Write Cargo build version
+        run: node scripts/write-cargo-version.mjs src-tauri/Cargo.toml ${{ needs.release.outputs.build_version }}
+
       - name: Build Tauri stable release
         if: github.ref == 'refs/heads/master'
         env:
           GV_TAURI_UPDATER_PUBKEY: ${{ vars.GV_TAURI_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GV_BUILD_VERSION: ${{ needs.release.outputs.build_version }}
+          GV_BUILD_CHANNEL: ${{ needs.release.outputs.build_channel }}
+          GV_BUILD_COMMIT: ${{ needs.release.outputs.build_commit }}
+          GV_BUILD_ID: ${{ needs.release.outputs.build_id }}
+          GV_RELEASE_REF: ${{ needs.release.outputs.release_ref }}
         run: pnpm tauri build --config src-tauri/tauri.release.generated.json
 
       - name: Build Tauri unstable release
@@ -161,11 +186,16 @@ jobs:
           GV_TAURI_UPDATER_PUBKEY: ${{ vars.GV_TAURI_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GV_BUILD_VERSION: ${{ needs.release.outputs.build_version }}
+          GV_BUILD_CHANNEL: ${{ needs.release.outputs.build_channel }}
+          GV_BUILD_COMMIT: ${{ needs.release.outputs.build_commit }}
+          GV_BUILD_ID: ${{ needs.release.outputs.build_id }}
+          GV_RELEASE_REF: ${{ needs.release.outputs.release_ref }}
         run: pnpm tauri build --config src-tauri/tauri.release.generated.json
 
       - name: Prepare Tauri release assets
         if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop'
-        run: node scripts/prepare-tauri-release-assets.mjs ${{ matrix.platform }} ${{ needs.release.outputs.version }}
+        run: node scripts/prepare-tauri-release-assets.mjs ${{ matrix.platform }} ${{ needs.release.outputs.build_version }}
 
       - name: Upload Tauri release assets
         if: github.ref == 'refs/heads/master'
@@ -245,7 +275,11 @@ jobs:
           fi
 
       - name: Build current channel manifest
-        run: node scripts/build-tauri-updater-manifest.mjs ${{ needs.release.outputs.version }} updater-metadata current-channel.json ${{ github.repository }} ${{ steps.manifest.outputs.asset_tag }}
+        env:
+          GV_BUILD_COMMIT: ${{ needs.release.outputs.build_commit }}
+          GV_BUILD_ID: ${{ needs.release.outputs.build_id }}
+          GV_BUILD_CHANNEL: ${{ needs.release.outputs.build_channel }}
+        run: node scripts/build-tauri-updater-manifest.mjs ${{ needs.release.outputs.build_version }} updater-metadata current-channel.json ${{ github.repository }} ${{ steps.manifest.outputs.asset_tag }}
 
       - name: Merge updater channels source
         run: node scripts/merge-tauri-updater-channels.mjs existing-updater-channels.json ${{ steps.manifest.outputs.channel }} current-channel.json updater-channels.json

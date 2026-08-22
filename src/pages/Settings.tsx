@@ -485,25 +485,6 @@ export default function Settings() {
               </Text>
 
               <Field className="mt-6">
-                <Label>Update channel</Label>
-                <Text className="mb-2">
-                  Stable follows the latest GitHub release. Unstable follows the
-                  continuously updated prerelease tag.
-                </Text>
-                <Select
-                  value={updateChannel}
-                  onChange={(event) =>
-                    setUpdateChannel(
-                      event.target.value as "stable" | "unstable",
-                    )
-                  }
-                >
-                  <option value="stable">Stable</option>
-                  <option value="unstable">Unstable</option>
-                </Select>
-              </Field>
-
-              <Field className="mt-6">
                 <SwitchField>
                   <Switch
                     name="autostart"
@@ -778,21 +759,39 @@ export default function Settings() {
             </div>
 
             {isTauri && (
-              <Button
-                type="button"
-                color="indigo"
-                disabled={
-                  !updaterReady || isCheckingUpdates || isInstallingUpdate
-                }
-                onClick={() => void checkForUpdates({ manual: true })}
-              >
-                <ArrowPathIcon className="h-4 w-4" />
-                {isCheckingUpdates
-                  ? "Checking..."
-                  : isInstallingUpdate
-                    ? "Updating..."
-                    : "Check for updates"}
-              </Button>
+              <div className="flex flex-col gap-3 sm:items-end">
+                <div className="w-full sm:w-48">
+                  <Text className="mb-1 text-xs text-gv-muted">
+                    Update channel
+                  </Text>
+                  <Select
+                    value={updateChannel}
+                    onChange={(event) =>
+                      setUpdateChannel(
+                        event.target.value as "stable" | "unstable",
+                      )
+                    }
+                  >
+                    <option value="stable">Stable</option>
+                    <option value="unstable">Unstable</option>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  color="indigo"
+                  disabled={
+                    !updaterReady || isCheckingUpdates || isInstallingUpdate
+                  }
+                  onClick={() => void checkForUpdates({ manual: true })}
+                >
+                  <ArrowPathIcon className="h-4 w-4" />
+                  {isCheckingUpdates
+                    ? "Checking..."
+                    : isInstallingUpdate
+                      ? "Updating..."
+                      : "Check for updates"}
+                </Button>
+              </div>
             )}
           </div>
         </section>

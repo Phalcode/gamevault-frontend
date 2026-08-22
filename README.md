@@ -61,18 +61,31 @@ Uncheck "Remember me" on login if you want the refresh token removed right after
 
 If backend endpoints change, update the paths in `AuthContext` and the admin hook.
 
-## Desktop Updater Releases
+## Desktop Auto-Updates
 
-- Stable desktop auto-updates are published from the `master` branch through GitHub Releases.
-- Stable uses `latest.json` from the latest stable GitHub release.
-- Unstable uses `unstable.json` from the `unstable` prerelease tag.
-- CI keeps a canonical `updater-channels.json` as the source of truth and derives `latest.json` and `unstable.json` from it.
-- The canonical `updater-channels.json` is stored on the latest stable release when one exists, and is merged forward by both `master` and `develop` runs.
-- The desktop app now lets users switch between `stable` and `unstable` channels in Settings.
-- CI publishes the native updater artifacts directly and no longer adds legacy `gamevault-tauri-*.zip` bundles for the desktop client.
-- On the moving `unstable` release, CI keeps the real versioned native asset names and deletes stale old assets so the release page stays clean over time.
-- CI expects a repository variable named `GV_TAURI_UPDATER_PUBKEY`.
-- CI expects the signing secret `TAURI_SIGNING_PRIVATE_KEY` and optionally `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-- Both stable and unstable desktop updater releases are signed in CI.
-- CI generates `src-tauri/tauri.release.generated.json` from `src-tauri/tauri.release.conf.json` and injects the updater public key there, because the Tauri bundler requires `plugins.updater.pubkey` in the parsed config.
-- Local desktop production builds do not generate updater artifacts unless you build with the release overlay config in `src-tauri/tauri.release.conf.json` or generate the same release config with your public key injected.
+The desktop app (Tauri) updates itself from GitHub Releases.
+
+**Channels** – switchable in **Settings → Desktop → Update channel**:
+
+| Channel    | Branch    | Feed                                       |
+| ---------- | --------- | ------------------------------------------ |
+| `stable`   | `master`  | `releases/latest/download/latest.json`     |
+| `unstable` | `develop` | `releases/download/unstable/unstable.json` |
+
+The choice is persisted in `localStorage` (`gv_update_channel`).
+
+**How it works** – on startup or via `Check for updates`, the frontend calls the Tauri updater through Rust commands in `src-tauri/src/lib.rs`. The app confirms with the user, downloads, verifies the signature, and installs. If the feed is not published yet, it falls back to the GitHub release page.
+
+**Versioning** – stable uses the plain `package.json`/`Cargo.toml` version. Unstable builds get a CI-generated unique version `17.0.1-unstable.<run>.<attempt>`, injected into both the web and Rust builds and into the feed.
+
+**CI** – `.github/workflows/deploy.yml` builds signed updater artifacts per OS (`.exe`+`.sig`, `.app.tar.gz`+`.sig`, `.AppImage`+`.sig`), merges them into `updater-channels.json`, and derives `latest.json` / `unstable.json`. Stale `unstable` assets are cleaned up automatically.
+
+**Required GitHub config** – under **Settings → Secrets and variables → Actions**:
+
+- Variable `GV_TAURI_UPDATER_PUBKEY` (public key content)
+- Secret `TAURI_SIGNING_PRIVATE_KEY` (private key content)
+- Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (optional)
+
+Generate the keys once with `cargo tauri signer generate -w ~/.tauri/gamevault-updater.key`. Keep the private key and password safe — losing them breaks updates for existing installs.
+
+**Local builds** – a normal `tauri build` produces no updater artifacts. To create them locally, build with the release config and signing env (`pnpm tauri build --config src-tauri/tauri.release.conf.json`). CI uses `src-tauri/tauri.release.generated.json` with the pubkey injected, since the Tauri bundler requires `plugins.updater.pubkey` in the parsed config.

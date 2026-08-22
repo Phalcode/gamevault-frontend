@@ -46,7 +46,6 @@ impl UpdateChannel {
 struct UpdateState {
   channel: UpdateChannel,
   version: String,
-  pub_date: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,7 +54,6 @@ struct AvailableUpdate {
   body: Option<String>,
   current_version: String,
   channel: UpdateChannel,
-  pub_date: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -135,25 +133,7 @@ fn build_version_comparator(
     match channel {
       UpdateChannel::Stable => matching_state
         .is_some_and(|value| value.channel == UpdateChannel::Unstable),
-      UpdateChannel::Unstable => {
-        if release.version < current {
-          return false;
-        }
-
-        let previous_channel = matching_state.map(|value| value.channel);
-        if previous_channel != Some(UpdateChannel::Unstable) {
-          return true;
-        }
-
-        match (
-          release.pub_date.map(|value| value.to_string()),
-          matching_state.and_then(|value| value.pub_date.clone()),
-        ) {
-          (Some(remote), Some(installed)) => remote > installed,
-          (Some(_), None) => true,
-          _ => false,
-        }
-      }
+      UpdateChannel::Unstable => false,
     }
   }
 }
@@ -196,7 +176,6 @@ async fn check_for_app_update(
     body: value.body.clone(),
     current_version: value.current_version.clone(),
     channel,
-    pub_date: value.date.map(|date| date.to_string()),
   }))
 }
 
@@ -253,7 +232,6 @@ async fn download_and_install_app_update(
   let next_state = UpdateState {
     channel,
     version: update.version.clone(),
-    pub_date: update.date.map(|date| date.to_string()),
   };
   write_update_state(&app, &next_state)?;
 
