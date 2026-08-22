@@ -1,4 +1,5 @@
 export interface GameVaultConfig {
+  gameid?: number;
   versionid?: number;
   gametype?: string;
   downloadfinished: boolean;
