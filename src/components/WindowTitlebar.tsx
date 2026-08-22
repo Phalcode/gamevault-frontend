@@ -1,8 +1,4 @@
-import {
-  MinusIcon,
-  Squares2X2Icon,
-  XMarkIcon,
-} from "@heroicons/react/24/outline";
+import { MinusIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { isTauriApp } from "@/utils/tauri";
 
 async function minimizeWindow() {
@@ -49,7 +45,17 @@ export default function WindowTitlebar() {
           onClick={() => void toggleMaximizeWindow()}
           className={controlButtonClassName}
         >
-          <Squares2X2Icon className="size-3.5" />
+          <svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5">
+            <rect
+              x="3.5"
+              y="3.5"
+              width="9"
+              height="9"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            />
+          </svg>
         </button>
         <button
           type="button"

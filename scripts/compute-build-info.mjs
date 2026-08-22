@@ -51,7 +51,7 @@ const buildId = `${runNumber}.${runAttempt}`;
 const buildVersion =
   buildChannel === "stable"
     ? baseVersion
-    : `${major}.${minor}.${patch + 1}-unstable.${runNumber}.${runAttempt}`;
+    : `${major}.${minor}.${patch}-unstable.${runNumber}.${runAttempt}`;
 const releaseRef = buildChannel === "stable" ? baseVersion : "unstable";
 
 const result = {

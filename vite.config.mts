@@ -7,6 +7,8 @@ import pkg from "./package.json";
 export default defineConfig({
   plugins: [tsconfigPaths(), react(), tailwindcss()],
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_VERSION__: JSON.stringify(
+      process.env.GV_BUILD_VERSION || pkg.version,
+    ),
   },
 });
