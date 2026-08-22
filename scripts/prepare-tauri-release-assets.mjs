@@ -115,6 +115,24 @@ async function resolveOptionalAsset(dirName, suffix) {
   }
 }
 
+// Inserts the human-readable platform label (e.g. "windows", "macos", "linux")
+// into a bundle filename so users can tell which OS an artifact targets.
+function includePlatformLabel(filename, version, platform) {
+  const versionIndex = filename.indexOf(version);
+
+  if (versionIndex !== -1) {
+    const insertAt = versionIndex + version.length;
+    return `${filename.slice(0, insertAt)}_${platform}${filename.slice(insertAt)}`;
+  }
+
+  const extensionIndex = filename.lastIndexOf(".");
+  if (extensionIndex > 0) {
+    return `${filename.slice(0, extensionIndex)}_${platform}${filename.slice(extensionIndex)}`;
+  }
+
+  return `${filename}_${platform}`;
+}
+
 const updaterDirPath = path.join(bundleRoot, config.updaterDir);
 const updaterFiles = await listFiles(updaterDirPath);
 const updaterAssetPath = pickSingleFile(
@@ -125,7 +143,11 @@ const updaterAssetPath = pickSingleFile(
   `${platform} updater bundle`,
 );
 const signaturePath = `${updaterAssetPath}.sig`;
-const updaterReleaseName = path.basename(updaterAssetPath);
+const updaterReleaseName = includePlatformLabel(
+  path.basename(updaterAssetPath),
+  version,
+  platform,
+);
 
 await stat(signaturePath);
 
@@ -148,7 +170,7 @@ for (const optionalAsset of config.optionalReleaseAssets) {
   if (assetPath) {
     releaseFiles.push({
       source: assetPath,
-      target: path.basename(assetPath),
+      target: includePlatformLabel(path.basename(assetPath), version, platform),
     });
   }
 }
