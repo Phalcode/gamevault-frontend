@@ -3,6 +3,7 @@
 import * as Headless from "@headlessui/react";
 import React, { useState } from "react";
 import { NavbarItem } from "./navbar";
+import WindowTitlebar from "../WindowTitlebar";
 
 function OpenMenuIcon() {
   return (
@@ -72,43 +73,46 @@ export function SidebarLayout({
     : "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-5 sm:py-6 lg:px-8 lg:py-8";
 
   return (
-    <div className="relative isolate flex h-full min-h-0 w-full bg-gv-bg text-gv-text max-lg:flex-col">
-      {/* Sidebar on desktop */}
-      <div className="fixed inset-y-0 left-0 z-20 w-72 p-4 max-lg:hidden">{sidebar}</div>
-
-      {/* Sidebar on mobile */}
-      <MobileSidebar open={showSidebar} close={() => setShowSidebar(false)}>
-        {sidebar}
-      </MobileSidebar>
-
-      {/* Navbar on mobile — hamburger only; full nav (incl. logo) is in the slide-out sidebar */}
-      <header className="sticky top-0 z-30 flex items-center gap-3 bg-gv-shell/90 px-3 backdrop-blur-xl lg:hidden">
-        <div className="py-3">
-          <NavbarItem
-            onClick={() => setShowSidebar(true)}
-            aria-label="Open navigation"
-          >
-            <OpenMenuIcon />
-          </NavbarItem>
+    <div className="flex h-full min-h-0 w-full flex-col bg-gv-bg text-gv-text">
+      <WindowTitlebar />
+      <div className="relative isolate flex min-h-0 flex-1 w-full max-lg:flex-col">
+        {/* Sidebar on desktop */}
+        <div className="absolute inset-y-0 left-0 z-20 w-72 p-4 max-lg:hidden">
+          {sidebar}
         </div>
-      </header>
 
-      {/* Content */}
-      <main className={mainClassName}>
-        <div className={contentClassName}>
-          <div className={scrollAreaClassName} data-scroll-container=""> 
-            <div
-              className={
-                fullWidth
-                  ? "h-full w-full"
-                  : "mx-auto min-h-full max-w-7xl"
-              }
+        {/* Sidebar on mobile */}
+        <MobileSidebar open={showSidebar} close={() => setShowSidebar(false)}>
+          {sidebar}
+        </MobileSidebar>
+
+        {/* Navbar on mobile — hamburger only; full nav (incl. logo) is in the slide-out sidebar */}
+        <header className="sticky top-0 z-30 flex items-center gap-3 bg-gv-shell/90 px-3 backdrop-blur-xl lg:hidden">
+          <div className="py-3">
+            <NavbarItem
+              onClick={() => setShowSidebar(true)}
+              aria-label="Open navigation"
             >
-              {children}
+              <OpenMenuIcon />
+            </NavbarItem>
+          </div>
+        </header>
+
+        {/* Content */}
+        <main className={mainClassName}>
+          <div className={contentClassName}>
+            <div className={scrollAreaClassName} data-scroll-container="">
+              <div
+                className={
+                  fullWidth ? "h-full w-full" : "mx-auto min-h-full max-w-7xl"
+                }
+              >
+                {children}
+              </div>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
