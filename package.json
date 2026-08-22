@@ -15,7 +15,7 @@
     "build": "vite build",
     "test": "vitest run",
     "lint": "prettier --write . && eslint .",
-    "postinstall": "rimraf ./src/api && openapi-generator-cli generate -g typescript-fetch -i https://gamevault.alfagun74.de/api/docs-yaml -o ./src/api --global-property models,supportingFiles -p enumPropertyNaming=snake_case -p modelPropertyNaming=snake_case"
+    "postinstall": "node scripts/ensure-api-client.mjs"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.10",
@@ -25,6 +25,7 @@
     "@tauri-apps/plugin-autostart": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-fs": "^2.5.1",
+    "@tauri-apps/plugin-updater": "^2",
     "clsx": "^2.1.1",
     "idb": "^8.0.3",
     "motion": "^12.38.0",

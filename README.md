@@ -60,3 +60,32 @@ VITE_DEV_AUTOLOGIN_PASSWORD=devpassword
 Uncheck "Remember me" on login if you want the refresh token removed right after authenticating (session-only access token).
 
 If backend endpoints change, update the paths in `AuthContext` and the admin hook.
+
+## Desktop Auto-Updates
+
+The desktop app (Tauri) updates itself from GitHub Releases.
+
+**Channels** – switchable in **Settings → Desktop → Update channel**:
+
+| Channel    | Branch    | Feed                                       |
+| ---------- | --------- | ------------------------------------------ |
+| `stable`   | `master`  | `releases/latest/download/latest.json`     |
+| `unstable` | `develop` | `releases/download/unstable/unstable.json` |
+
+The choice is persisted in `localStorage` (`gv_update_channel`).
+
+**How it works** – on startup or via `Check for updates`, the frontend calls the Tauri updater through Rust commands in `src-tauri/src/lib.rs`. The app confirms with the user, downloads, verifies the signature, and installs. If the feed is not published yet, it falls back to the GitHub release page.
+
+**Versioning** – stable uses the plain `package.json`/`Cargo.toml` version. Unstable builds get a CI-generated unique version `17.0.1-unstable.<run>.<attempt>`, injected into both the web and Rust builds and into the feed.
+
+**CI** – `.github/workflows/deploy.yml` builds signed updater artifacts per OS (`.exe`+`.sig`, `.app.tar.gz`+`.sig`, `.AppImage`+`.sig`), merges them into `updater-channels.json`, and derives `latest.json` / `unstable.json`. Stale `unstable` assets are cleaned up automatically.
+
+**Required GitHub config** – under **Settings → Secrets and variables → Actions**:
+
+- Variable `GV_TAURI_UPDATER_PUBKEY` (public key content)
+- Secret `TAURI_SIGNING_PRIVATE_KEY` (private key content)
+- Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (optional)
+
+Generate the keys once with `cargo tauri signer generate -w ~/.tauri/gamevault-updater.key`. Keep the private key and password safe — losing them breaks updates for existing installs.
+
+**Local builds** – a normal `tauri build` produces no updater artifacts. To create them locally, build with the release config and signing env (`pnpm tauri build --config src-tauri/tauri.release.conf.json`). CI uses `src-tauri/tauri.release.generated.json` with the pubkey injected, since the Tauri bundler requires `plugins.updater.pubkey` in the parsed config.

@@ -1,6 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "GameVault",
+  "mainBinaryName": "GameVault",
   "identifier": "com.phalcode.gamevault",
   "build": {
     "frontendDist": "../dist",
@@ -16,6 +17,7 @@
         "height": 720,
         "resizable": true,
         "fullscreen": false,
+        "decorations": false,
         "devtools": true
       }
     ],
@@ -25,7 +27,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "dmg", "appimage", "deb"],
+    "targets": ["nsis", "app", "dmg", "appimage", "deb"],
     "publisher": "Phalcode",
     "icon": [
       "icons/32x32.png",
@@ -37,6 +39,16 @@
     "windows": {
       "nsis": {
         "installMode": "perMachine"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Phalcode/gamevault-frontend/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }
