@@ -243,6 +243,34 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   const workingGame = fullGame || game;
   const installationTabsVisible = isTauri && !!installedGame;
 
+  const openImageSearch = useCallback(
+    async (searchTerms: string) => {
+      const gameTitle =
+        workingGame.metadata?.title || workingGame.title || "Game";
+      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(
+        `${gameTitle} ${searchTerms}`,
+      )}&tbm=isch`;
+
+      try {
+        if (isTauri) {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("open_external_url", { url: searchUrl });
+          return;
+        }
+
+        window.open(searchUrl, "_blank", "noopener,noreferrer");
+      } catch (error) {
+        console.error("Failed to open image search:", error);
+        await showAlert({
+          title: "Unable to open image search",
+          description: error instanceof Error ? error.message : String(error),
+          affirmativeText: "OK",
+        });
+      }
+    },
+    [isTauri, showAlert, workingGame.metadata?.title, workingGame.title],
+  );
+
   const findInstalledGame = useCallback(async (): Promise<InstalledGameInfo | null> => {
     if (!isTauri) return null;
     const rootPaths = getRootPaths();
@@ -1774,14 +1802,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                       <Button
                         type="button"
                         color="zinc"
-                        onClick={() => {
-                          const gameTitle =
-                            workingGame.metadata?.title ||
-                            workingGame.title ||
-                            "";
-                          const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(gameTitle)} Game Box Art&tbm=isch`;
-                          window.open(searchUrl, "_blank");
-                        }}
+                        onClick={() => void openImageSearch("Game Box Art")}
                         className="w-full"
                       >
                         <MagnifyingGlassIcon className="w-4 h-4" />
@@ -1880,14 +1901,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                       <Button
                         type="button"
                         color="zinc"
-                        onClick={() => {
-                          const gameTitle =
-                            workingGame.metadata?.title ||
-                            workingGame.title ||
-                            "";
-                          const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(gameTitle)} Game Background Art&tbm=isch`;
-                          window.open(searchUrl, "_blank");
-                        }}
+                        onClick={() =>
+                          void openImageSearch("Game Background Art")
+                        }
                         className="w-full"
                       >
                         <MagnifyingGlassIcon className="w-4 h-4" />

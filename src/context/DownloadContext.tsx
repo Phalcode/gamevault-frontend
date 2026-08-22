@@ -621,14 +621,61 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
           const gameFolderName =
             sanitizeFolderName(gameTitle) || `Game-${gameId}`;
-          const versionFolderName =
-            `(${versionId}) ${versionName ?? ""}`.trimEnd();
+          const resolvedVersionName =
+            sanitizeFolderName(versionName ?? "") || "Unknown Version";
+          const legacyVersionFolderName =
+            `(${versionId}) ${resolvedVersionName}`;
 
           const gameVaultRoot = await join(downloadPath, "GameVault");
           const gameFolderPath = await join(gameVaultRoot, gameFolderName);
+          const versionsFolder = await join(gameFolderPath, "Versions");
+          const folderMatchesVersion = async (folderName: string) => {
+            const folderPath = await join(versionsFolder, folderName);
+            const configPath = await join(
+              folderPath,
+              ".gamevault.game.config.json",
+            );
+            if (
+              !(await invoke<boolean>("fs_path_exists", {
+                path: configPath,
+              }))
+            ) {
+              return false;
+            }
+
+            try {
+              const raw = await invoke<string>("fs_read_text_file", {
+                path: configPath,
+              });
+              return Number(JSON.parse(raw).versionid) === versionId;
+            } catch {
+              return false;
+            }
+          };
+          const versionFolderExists = async (folderName: string) =>
+            invoke<boolean>("fs_path_exists", {
+              path: await join(versionsFolder, folderName),
+            });
+
+          let versionFolderName = resolvedVersionName;
+          if (await folderMatchesVersion(resolvedVersionName)) {
+            versionFolderName = resolvedVersionName;
+          } else if (await folderMatchesVersion(legacyVersionFolderName)) {
+            versionFolderName = legacyVersionFolderName;
+          } else if (await versionFolderExists(resolvedVersionName)) {
+            const collisionFolderName = `${resolvedVersionName} (${versionId})`;
+            if (
+              (await versionFolderExists(collisionFolderName)) &&
+              !(await folderMatchesVersion(collisionFolderName))
+            ) {
+              throw new Error(
+                `Version folder collision for ${resolvedVersionName}.`,
+              );
+            }
+            versionFolderName = collisionFolderName;
+          }
           const versionBaseFolder = await join(
-            gameFolderPath,
-            "Versions",
+            versionsFolder,
             versionFolderName,
           );
           const downloadsVersionFolder = await join(

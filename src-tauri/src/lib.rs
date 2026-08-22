@@ -366,6 +366,7 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       games::open_in_file_explorer,
+      games::open_external_url,
       extraction::extract_archive,
       installation::list_install_executables,
       installation::copy_installation_files,

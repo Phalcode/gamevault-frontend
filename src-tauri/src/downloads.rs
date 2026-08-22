@@ -1,5 +1,5 @@
 use crate::events::RecoveredDownloadCard;
-use crate::util::{parse_version_folder, stable_id_from_path, parse_i64_json, resolve_version_subdir};
+use crate::util::{parse_version_folder, stable_id_from_path, parse_i64_json, resolve_version_id, resolve_version_subdir};
 use std::fs;
 use std::path::PathBuf;
 
@@ -52,7 +52,7 @@ pub(crate) fn recover_download_cards(selected_root: String) -> Result<Vec<Recove
       }
 
       let version_folder_name = version_entry.file_name().to_string_lossy().to_string();
-      let (version_id, version_name) = parse_version_folder(&version_folder_name);
+      let (folder_version_id, version_name) = parse_version_folder(&version_folder_name);
 
       let config_path = version_path.join(".gamevault.game.config.json");
       if !config_path.exists() {
@@ -63,6 +63,7 @@ pub(crate) fn recover_download_cards(selected_root: String) -> Result<Vec<Recove
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .unwrap_or_else(|| serde_json::json!({}));
+      let version_id = resolve_version_id(&cfg_value, folder_version_id);
 
       let download_finished = cfg_value
         .get("downloadfinished")

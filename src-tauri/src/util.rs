@@ -29,6 +29,12 @@ pub(crate) fn parse_i64_json(value: Option<&serde_json::Value>) -> Option<i64> {
   }
 }
 
+pub(crate) fn resolve_version_id(config: &serde_json::Value, folder_version_id: i64) -> i64 {
+  parse_i64_json(config.get("versionid"))
+    .filter(|id| *id > 0)
+    .unwrap_or(folder_version_id)
+}
+
 pub(crate) fn resolve_version_subdir(version_path: &Path, preferred: &str, legacy: &str) -> PathBuf {
   let preferred_path = version_path.join(preferred);
   if preferred_path.exists() {
@@ -41,6 +47,30 @@ pub(crate) fn resolve_version_subdir(version_path: &Path, preferred: &str, legac
   }
 
   preferred_path
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{parse_version_folder, resolve_version_id};
+  use serde_json::json;
+
+  #[test]
+  fn parses_legacy_version_folder() {
+    assert_eq!(
+      parse_version_folder("(775) v1.0.61"),
+      (775, "v1.0.61".to_string()),
+    );
+  }
+
+  #[test]
+  fn uses_config_version_id_for_name_only_folder() {
+    assert_eq!(resolve_version_id(&json!({ "versionid": 775 }), 0), 775);
+  }
+
+  #[test]
+  fn falls_back_to_legacy_folder_version_id() {
+    assert_eq!(resolve_version_id(&json!({}), 775), 775);
+  }
 }
 
 pub(crate) fn read_saved_game_metadata(start_path: &Path) -> Option<serde_json::Value> {

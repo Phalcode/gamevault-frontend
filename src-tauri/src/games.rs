@@ -1,6 +1,6 @@
 use crate::events::InstalledGameInfo;
 use crate::settings::load_settings;
-use crate::util::{is_ignored_executable, parse_version_folder, parse_i64_json, resolve_version_subdir, stable_id_from_path};
+use crate::util::{is_ignored_executable, parse_version_folder, parse_i64_json, resolve_version_id, resolve_version_subdir, stable_id_from_path};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -57,7 +57,7 @@ pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<Installe
       }
 
       let version_folder_name = version_entry.file_name().to_string_lossy().to_string();
-      let (version_id, version_name) = parse_version_folder(&version_folder_name);
+      let (folder_version_id, version_name) = parse_version_folder(&version_folder_name);
 
       let config_path = version_path.join(".gamevault.game.config.json");
       if !config_path.exists() {
@@ -68,6 +68,7 @@ pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<Installe
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .unwrap_or_else(|| serde_json::json!({}));
+      let version_id = resolve_version_id(&cfg_value, folder_version_id);
 
       let installation_finished = cfg_value
         .get("installationfinished")
@@ -132,6 +133,75 @@ pub(crate) fn open_in_file_explorer(path: String) -> Result<(), String> {
     .spawn()
     .map(|_| ())
     .map_err(|e| format!("Failed to open folder: {e}"))
+}
+
+fn validate_external_url(value: &str) -> Result<(), String> {
+  let url = url::Url::parse(value).map_err(|e| format!("Invalid URL: {e}"))?;
+  if matches!(url.scheme(), "http" | "https") {
+    Ok(())
+  } else {
+    Err("Only HTTP(S) URLs can be opened externally".to_string())
+  }
+}
+
+#[tauri::command]
+pub(crate) fn open_external_url(url: String) -> Result<(), String> {
+  validate_external_url(&url)?;
+
+  #[cfg(windows)]
+  {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+
+    let verb: Vec<u16> = OsStr::new("open")
+      .encode_wide()
+      .chain(std::iter::once(0))
+      .collect();
+    let target: Vec<u16> = OsStr::new(&url)
+      .encode_wide()
+      .chain(std::iter::once(0))
+      .collect();
+    let result = unsafe {
+      winapi::um::shellapi::ShellExecuteW(
+        std::ptr::null_mut(),
+        verb.as_ptr(),
+        target.as_ptr(),
+        std::ptr::null(),
+        std::ptr::null(),
+        winapi::um::winuser::SW_SHOWNORMAL,
+      )
+    };
+    if (result as isize) <= 32 {
+      return Err(format!(
+        "Failed to open URL (ShellExecute error code: {})",
+        result as isize,
+      ));
+    }
+    return Ok(());
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    Command::new("open")
+      .arg(&url)
+      .spawn()
+      .map(|_| ())
+      .map_err(|e| format!("Failed to open URL: {e}"))?;
+    return Ok(());
+  }
+
+  #[cfg(all(unix, not(target_os = "macos")))]
+  {
+    Command::new("xdg-open")
+      .arg(&url)
+      .spawn()
+      .map(|_| ())
+      .map_err(|e| format!("Failed to open URL: {e}"))?;
+    return Ok(());
+  }
+
+  #[cfg(not(any(windows, unix)))]
+  Err("Opening external URLs is unsupported on this platform".to_string())
 }
 
 pub(crate) fn collect_launch_candidates(root: &Path, current: &Path, results: &mut Vec<String>) -> Result<(), String> {
@@ -301,5 +371,22 @@ pub(crate) fn launch_game(
       Ok(())
     }
     Err(e) => Err(format!("Failed to launch game: {e}")),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::validate_external_url;
+
+  #[test]
+  fn accepts_http_and_https_urls() {
+    assert!(validate_external_url("https://www.google.com/search?q=Game").is_ok());
+    assert!(validate_external_url("http://example.test/").is_ok());
+  }
+
+  #[test]
+  fn rejects_non_web_urls() {
+    assert!(validate_external_url("file:///C:/games/image.png").is_err());
+    assert!(validate_external_url("javascript:alert(1)").is_err());
   }
 }
