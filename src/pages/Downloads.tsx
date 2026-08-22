@@ -765,7 +765,6 @@ export default function Downloads() {
                         </Button>
                       )}
                       <Button
-                        outline
                         color="red"
                         onClick={() => void handleDeleteCard(download.gameId)}
                       >
@@ -966,7 +965,8 @@ export default function Downloads() {
                                     ? "Install Again"
                                     : "Install"}
                                 </Button>
-                                {download.installationStatus === "completed" && (
+                                {download.installationStatus ===
+                                  "completed" && (
                                   <Button
                                     color="indigo"
                                     href={`/library/${download.gameId}`}

@@ -6,12 +6,18 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import globals from "globals";
 
 export default defineConfig([
-  globalIgnores(["dist"]),
+  globalIgnores([
+    "dist",
+    "src-tauri/target",
+    "src-tauri/gen",
+    "release-assets",
+    "updater-metadata",
+  ]),
   {
     files: ["**/*.{js,jsx}"],
     extends: [
       js.configs.recommended,
-      reactHooks.configs["recommended-latest"],
+      reactHooks.configs.flat["recommended-latest"],
       reactRefresh.configs.vite,
       eslintConfigPrettier,
     ],

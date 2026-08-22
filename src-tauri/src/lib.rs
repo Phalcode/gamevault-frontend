@@ -130,10 +130,23 @@ fn build_version_comparator(
       return true;
     }
 
+    let same_core = current.major == release.version.major
+      && current.minor == release.version.minor
+      && current.patch == release.version.patch;
+
     match channel {
+      // Switching back to stable stays allowed even when the stable release is
+      // not semver-newer (e.g. the app was previously installed from the
+      // unstable channel).
       UpdateChannel::Stable => matching_state
         .is_some_and(|value| value.channel == UpdateChannel::Unstable),
-      UpdateChannel::Unstable => false,
+      // Unstable builds are prereleases of the same base version, so semver
+      // alone never marks them newer than the plain stable release. When the
+      // app is currently running that stable release, offer the unstable
+      // build of the same core (i.e. switching stable -> unstable).
+      UpdateChannel::Unstable => {
+        current.pre.is_empty() && !release.version.pre.is_empty() && same_core
+      }
     }
   }
 }

@@ -27,6 +27,9 @@ import {
   ComputerDesktopIcon,
   ChartBarIcon,
   ArrowPathIcon,
+  ArrowRightIcon,
+  SparklesIcon,
+  ExclamationTriangleIcon,
   PlusIcon,
   XMarkIcon,
   TagIcon,
@@ -716,83 +719,109 @@ export default function Settings() {
           </section>
         )}
 
-        <section className="rounded-2xl border border-gv-line bg-gv-panel-soft p-4 lg:col-span-2">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs text-gv-muted">
-                GameVault Web UI&nbsp;&nbsp;
-                <a
-                  href={`https://github.com/Phalcode/gamevault-frontend/releases/tag/${__APP_VERSION__}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:text-gv-text underline underline-offset-2 transition-colors"
-                >
-                  v{__APP_VERSION__}
-                </a>
-              </p>
-
-              {isTauri && (
-                <>
-                  <Text className="mt-2 text-xs">
-                    {updaterStatusText
-                      ? updaterStatusText
-                      : updaterReady
-                        ? updaterEnabled
-                          ? `Desktop auto-updates are enabled for the ${updateChannel} channel.`
-                          : "Desktop auto-updates are not configured for this build yet."
-                        : "Checking desktop updater availability..."}
-                  </Text>
-
-                  {availableVersion && !isInstallingUpdate && (
-                    <Text className="mt-1 text-xs">
-                      Update available: v{availableVersion}
-                    </Text>
-                  )}
-
-                  {updaterErrorText && (
-                    <Text className="mt-1 text-xs text-red-400">
-                      {updaterErrorText}
-                    </Text>
-                  )}
-                </>
-              )}
+        <section className="rounded-2xl bg-gv-panel p-5 lg:col-span-2">
+          <div className="flex flex-col gap-4">
+            {/* Header */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gv-panel-soft text-gv-muted ring-1 ring-gv-line">
+                  <ArrowPathIcon className="size-4" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-gv-text">
+                    Desktop updates
+                  </p>
+                  <p className="text-xs text-gv-muted">
+                    Release channel and new build checks.
+                  </p>
+                </div>
+              </div>
             </div>
 
-            {isTauri && (
-              <div className="flex flex-col gap-3 sm:items-end">
-                <div className="w-full sm:w-48">
-                  <Text className="mb-1 text-xs text-gv-muted">
-                    Update channel
-                  </Text>
-                  <Select
-                    value={updateChannel}
-                    onChange={(event) =>
-                      setUpdateChannel(
-                        event.target.value as "stable" | "unstable",
-                      )
-                    }
-                  >
-                    <option value="stable">Stable</option>
-                    <option value="unstable">Unstable</option>
-                  </Select>
+            <Divider />
+
+            {/* Status */}
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="inline-flex items-center rounded-md bg-gv-panel-soft px-2 py-1 font-mono text-xs text-gv-text ring-1 ring-gv-line">
+                    v{__APP_VERSION__}
+                  </span>
+
+                  {isTauri && availableVersion && !isInstallingUpdate && (
+                    <>
+                      <ArrowRightIcon className="size-3.5 shrink-0 text-gv-muted" />
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-gv-accent/15 px-2 py-1 font-mono text-xs font-medium text-gv-accent-strong ring-1 ring-gv-accent/25">
+                        <SparklesIcon className="size-3.5" />v{availableVersion}
+                      </span>
+                    </>
+                  )}
                 </div>
-                <Button
-                  type="button"
-                  color="indigo"
-                  disabled={
-                    !updaterReady || isCheckingUpdates || isInstallingUpdate
-                  }
-                  onClick={() => void checkForUpdates({ manual: true })}
-                >
-                  <ArrowPathIcon className="h-4 w-4" />
-                  {isCheckingUpdates
-                    ? "Checking..."
-                    : isInstallingUpdate
-                      ? "Updating..."
-                      : "Check for updates"}
-                </Button>
+
+                {isTauri && (
+                  <>
+                    <p className="mt-2 text-xs text-gv-muted">
+                      {updaterStatusText
+                        ? updaterStatusText
+                        : updaterReady
+                          ? updaterEnabled
+                            ? `Desktop auto-updates are enabled for the ${updateChannel} channel.`
+                            : "Desktop auto-updates are not configured for this build yet."
+                          : "Checking desktop updater availability..."}
+                    </p>
+
+                    {updaterErrorText && (
+                      <p className="mt-1 flex items-center gap-1 text-xs text-red-400">
+                        <ExclamationTriangleIcon className="size-3.5 shrink-0" />
+                        {updaterErrorText}
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
-            )}
+
+              {isTauri && (
+                <div className="flex flex-col items-stretch gap-3 sm:w-56 sm:items-end">
+                  <div className="w-full">
+                    <Text className="mb-1 text-xs font-medium text-gv-muted">
+                      Update channel
+                    </Text>
+                    <Select
+                      value={updateChannel}
+                      onChange={(event) =>
+                        setUpdateChannel(
+                          event.target.value as "stable" | "unstable",
+                        )
+                      }
+                    >
+                      <option value="stable">Stable</option>
+                      <option value="unstable">Unstable</option>
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    color="indigo"
+                    disabled={
+                      !updaterReady || isCheckingUpdates || isInstallingUpdate
+                    }
+                    onClick={() => void checkForUpdates({ manual: true })}
+                  >
+                    <ArrowPathIcon
+                      className={
+                        isCheckingUpdates
+                          ? "size-4 animate-spin motion-reduce:animate-none"
+                          : "size-4"
+                      }
+                    />
+                    {isCheckingUpdates
+                      ? "Checking..."
+                      : isInstallingUpdate
+                        ? "Updating..."
+                        : "Check for updates"}
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </div>
