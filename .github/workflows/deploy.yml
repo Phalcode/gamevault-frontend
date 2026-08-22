@@ -38,6 +38,21 @@ jobs:
           GV_BUILD_CHANNEL: ${{ github.ref == 'refs/heads/master' && 'stable' || 'unstable' }}
         run: node scripts/compute-build-info.mjs package.json
 
+      - name: Resolve API spec hash
+        id: api-spec
+        shell: bash
+        run: |
+          SPEC_FILE="$RUNNER_TEMP/api-spec.yaml"
+          curl -fsSL "${{ vars.GV_API_SPEC_URL || 'https://gamevault.alfagun74.de/api/docs-yaml' }}" -o "$SPEC_FILE"
+          echo "hash=$(sha256sum "$SPEC_FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "file=$SPEC_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Cache generated API client
+        uses: actions/cache@v4
+        with:
+          path: src/api
+          key: api-${{ steps.api-spec.outputs.hash }}
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
@@ -48,6 +63,8 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
+        env:
+          GV_API_SPEC_PATH: ${{ steps.api-spec.outputs.file }}
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
 
       - name: Build
@@ -120,6 +137,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve API spec hash
+        id: api-spec
+        shell: bash
+        run: |
+          SPEC_FILE="$RUNNER_TEMP/api-spec.yaml"
+          curl -fsSL "${{ vars.GV_API_SPEC_URL || 'https://gamevault.alfagun74.de/api/docs-yaml' }}" -o "$SPEC_FILE"
+          echo "hash=$(sha256sum "$SPEC_FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "file=$SPEC_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Cache generated API client
+        uses: actions/cache@v4
+        with:
+          path: src/api
+          key: api-${{ steps.api-spec.outputs.hash }}
+
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -137,6 +169,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          cache-on-failure: true
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -148,6 +181,8 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
+        env:
+          GV_API_SPEC_PATH: ${{ steps.api-spec.outputs.file }}
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
 
       - name: Validate updater signing configuration
