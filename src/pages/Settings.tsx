@@ -9,6 +9,7 @@ import { useAlertDialog } from "@/context/AlertDialogContext";
 import { Switch } from "@tw/switch";
 import { Text } from "@/components/tailwind/text";
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
   isTauriApp,
   openExternalUrl,
@@ -592,14 +593,21 @@ export default function Settings() {
     "about",
   ];
 
-  const renderCategoryRow = (id: SettingsCategory) => {
+  const renderCategoryRow = (id: SettingsCategory, index: number) => {
     const meta = CATEGORY_META[id];
     const Icon = meta.icon;
     return (
-      <button
+      <motion.button
         key={id}
         type="button"
         onClick={() => setActiveCategory(id)}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{
+          delay: 0.05 + index * 0.04,
+          duration: 0.22,
+          ease: [0.23, 1, 0.32, 1],
+        }}
         className="group flex w-full min-h-12 cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-gv-panel-soft"
       >
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gv-panel-soft text-gv-accent ring-1 ring-gv-line transition-colors group-hover:bg-gv-accent/15">
@@ -607,7 +615,7 @@ export default function Settings() {
         </span>
         <SettingsLabel title={meta.label} description={meta.description} />
         <ChevronRightIcon className="size-4 shrink-0 text-gv-muted" />
-      </button>
+      </motion.button>
     );
   };
 
@@ -637,7 +645,7 @@ export default function Settings() {
   );
 
   return (
-    <>
+    <MotionConfig reducedMotion="user">
       <div className="flex min-h-full flex-col gap-6">
         <div className="space-y-2">
           <Heading>Settings</Heading>
@@ -648,495 +656,248 @@ export default function Settings() {
         <Divider className="border-gv-line/80" />
 
         <div className="w-full max-w-3xl">
-          {activeCategory === null ? (
-            <div className="space-y-6">
-              <SettingsGroup>
-                {navCategories.map(renderCategoryRow)}
-              </SettingsGroup>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {/* Back to the settings overview (iOS drill-down) */}
-              <button
-                type="button"
-                onClick={() => setActiveCategory(null)}
-                className="inline-flex cursor-pointer items-center gap-1 rounded-lg py-1 pr-2 text-sm font-medium text-gv-accent transition-colors hover:text-gv-accent-strong"
+          <AnimatePresence mode="wait" initial={false}>
+            {activeCategory === null ? (
+              <motion.div
+                key="overview"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+                className="space-y-6"
               >
-                <ChevronLeftIcon className="size-4" />
-                Settings
-              </button>
-              {activeCategory === "downloads" && (
-                <>
-                  <SettingsSectionHeader
-                    icon={FolderArrowDownIcon}
-                    title="Downloads"
-                    description="Everything about storing and downloading your games."
-                  />
-
-                  {isTauri && (
-                    <SettingsGroup
-                      caption="Download locations"
-                      description="A GameVault subfolder is created inside each location automatically."
-                    >
-                      {rootPaths.length === 0 && (
-                        <SettingsRow>
-                          <div className="flex items-center gap-2 text-sm text-gv-muted">
-                            <FolderIcon className="size-4 shrink-0" />
-                            No download locations yet. Add one below.
-                          </div>
-                        </SettingsRow>
-                      )}
-
-                      {rootPaths.map((root) => {
-                        const displayLabel =
-                          root.label.trim() ||
-                          root.path.split(/[\\/]/).filter(Boolean).pop() ||
-                          "Unnamed";
-                        const isRenaming = editingRootId === root.id;
-                        return (
-                          <SettingsRow key={root.id}>
-                            <div className="min-w-0 flex-1">
-                              {isRenaming ? (
-                                <Input
-                                  type="text"
-                                  value={editingLabel}
-                                  autoFocus
-                                  onChange={(e: any) =>
-                                    setEditingLabel(e.target.value)
-                                  }
-                                  onBlur={() => commitRenameRootPath(root.id)}
-                                  onKeyDown={(e: any) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      commitRenameRootPath(root.id);
-                                    } else if (e.key === "Escape") {
-                                      cancelRenameRootPath();
-                                    }
-                                  }}
-                                  placeholder="Folder label"
-                                  className="[&_input]:h-9 [&_input]:py-1 [&_input]:text-sm [&_input]:rounded-xl"
-                                  aria-label="Label for this download folder"
-                                />
-                              ) : (
-                                <div className="flex min-w-0 items-center gap-1.5">
-                                  <span className="min-w-0 truncate text-sm font-medium text-gv-text">
-                                    {displayLabel}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => startRenameRootPath(root)}
-                                    className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-gv-muted transition-colors hover:bg-gv-panel-soft hover:text-gv-text cursor-pointer"
-                                    aria-label={`Rename ${displayLabel}`}
-                                  >
-                                    <PencilSquareIcon className="size-3.5" />
-                                  </button>
-                                </div>
-                              )}
-                              <p
-                                className="mt-0.5 truncate text-xs text-gv-muted"
-                                title={root.path}
-                              >
-                                {root.path}
-                              </p>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-1">
-                              <Button
-                                type="button"
-                                color="zinc"
-                                className="text-xs"
-                                onClick={() => handleBrowseRootPath(root.id)}
-                              >
-                                <FolderArrowDownIcon className="size-3.5" />
-                                Choose
-                              </Button>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveRootPath(root.id)}
-                                className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                                aria-label="Remove download folder"
-                              >
-                                <XMarkIcon className="size-4" />
-                              </button>
-                            </div>
-                          </SettingsRow>
-                        );
-                      })}
-
-                      <button
-                        type="button"
-                        onClick={handleAddRootPath}
-                        className="flex min-h-12 w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-gv-accent transition-colors hover:bg-gv-panel-soft cursor-pointer"
-                      >
-                        <PlusIcon className="size-4" />
-                        Add Download Location
-                      </button>
-                    </SettingsGroup>
-                  )}
-
-                  <SettingsGroup caption="Download speed">
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Download speed limit"
-                        description="Set to 0 for no limit."
-                      />
-                      {speedLimitControl}
-                    </SettingsRow>
-                  </SettingsGroup>
-
-                  {isTauri && (
-                    <SettingsGroup caption="After downloading">
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Auto-Extract Downloads"
-                          description="Unpack archives right after downloading."
-                        />
-                        <Switch
-                          name="autoExtract"
-                          color="indigo"
-                          aria-label="Automatically extract downloaded archives"
-                          checked={autoExtract}
-                          onChange={(v: boolean) => setAutoExtract(v)}
-                        />
-                      </SettingsRow>
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Auto-Install Games"
-                          description="Start installers or copy portable files automatically."
-                        />
-                        <Switch
-                          name="autoInstall"
-                          color="indigo"
-                          aria-label="Automatically install games after extraction"
-                          checked={autoInstall}
-                          onChange={(v: boolean) => setAutoInstall(v)}
-                        />
-                      </SettingsRow>
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Auto-Delete Source Files"
-                          description="Clean up downloads after installation to free up space."
-                        />
-                        <Switch
-                          name="autoDeleteSource"
-                          color="indigo"
-                          aria-label="Delete downloaded and extracted files after portable game install"
-                          checked={autoDeleteSource}
-                          onChange={(v: boolean) => setAutoDeleteSource(v)}
-                        />
-                      </SettingsRow>
-                    </SettingsGroup>
-                  )}
-                </>
-              )}
-
-              {activeCategory === "library" && (
-                <>
-                  <SettingsSectionHeader
-                    icon={QueueListIcon}
-                    title="Library"
-                    description="Settings that shape your game library."
-                  />
-                  <SettingsGroup>
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Retain sorting and filter preferences"
-                        description="Keep your sort order and filters across sessions and restarts."
-                      />
-                      <Switch
-                        name="retainLibraryPrefs"
-                        color="indigo"
-                        aria-label="Retain Library sorting and filter preferences"
-                        checked={retainLibraryPrefs}
-                        onChange={(v: boolean) => setRetainLibraryPrefs(v)}
-                      />
-                    </SettingsRow>
-                  </SettingsGroup>
-                </>
-              )}
-
-              {activeCategory === "privacy" && (
-                <>
-                  <SettingsSectionHeader
-                    icon={ShieldCheckIcon}
-                    title="Privacy & Analytics"
-                    description="Decide what information GameVault shares."
-                  />
-                  <SettingsGroup>
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Send anonymous usage analytics"
-                        description={`We collect anonymous data about how you use GameVault, like which features you use and whether errors occur. This helps us understand what to improve. No personal information is ever collected. Changes take effect after ${isTauri ? "restarting the app" : "reloading"}.`}
-                      />
-                      <Switch
-                        name="analyticsConsent"
-                        color="indigo"
-                        aria-label="Enable anonymous usage analytics"
-                        checked={analyticsConsent}
-                        onChange={(v: boolean) => {
-                          setAnalyticsEnabled(v);
-                          setAnalyticsConsent(v);
-                        }}
-                      />
-                    </SettingsRow>
-                  </SettingsGroup>
-                </>
-              )}
-
-              {activeCategory === "appearance" && (
-                <>
-                  <SettingsSectionHeader
-                    icon={SwatchIcon}
-                    title="Appearance"
-                    description="Customize how GameVault looks on your device."
-                  />
-                  <SettingsGroup>
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Theme"
-                        description="Choose between light, dark, or follow your device settings."
-                      />
-                      <div className="w-40 shrink-0">
-                        <ThemeSelect />
-                      </div>
-                    </SettingsRow>
-                  </SettingsGroup>
-                </>
-              )}
-
-              {activeCategory === "desktop" && isTauri && (
-                <>
-                  <SettingsSectionHeader
-                    icon={ComputerDesktopIcon}
-                    title="Desktop"
-                    description="Startup and updates."
-                  />
-                  <SettingsGroup caption="Startup">
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Launch GameVault on Computer Startup"
-                        description="Automatically start GameVault when you log in to your computer."
-                      />
-                      <Switch
-                        name="autostart"
-                        color="indigo"
-                        aria-label="Launch GameVault on computer startup"
-                        checked={autostartEnabled ?? false}
-                        disabled={autostartEnabled === null}
-                        onChange={async (v: boolean) => {
-                          setAutostartEnabled(v);
-                          try {
-                            const { enable, disable } =
-                              await import("@tauri-apps/plugin-autostart");
-                            if (v) {
-                              await enable();
-                            } else {
-                              await disable();
-                              // Force start-minimized off when autostart is disabled
-                              setStartMinimized(false);
-                            }
-                          } catch (e) {
-                            console.error("Failed to update autostart:", e);
-                            setAutostartEnabled(!v); // Revert on failure
-                          }
-                        }}
-                      />
-                    </SettingsRow>
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Minimize GameVault to System Tray on Startup"
-                        description="When auto-start is enabled, GameVault will start silently in the system tray instead of opening the full window."
-                      />
-                      <Switch
-                        name="startMinimized"
-                        color="indigo"
-                        aria-label="Minimize GameVault to system tray on startup"
-                        checked={startMinimized}
-                        disabled={!autostartEnabled}
-                        onChange={(v: boolean) => setStartMinimized(v)}
-                      />
-                    </SettingsRow>
-                  </SettingsGroup>
-
-                  <SettingsGroup caption="Updates">
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Installed version"
-                        description="The build you are currently running."
-                      />
-                      <span className="inline-flex shrink-0 items-center rounded-md bg-gv-panel-soft px-2 py-1 font-mono text-xs text-gv-text ring-1 ring-gv-line">
-                        v{__APP_VERSION__}
-                      </span>
-                    </SettingsRow>
-
-                    {availableVersion && !isInstallingUpdate && (
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Available update"
-                          description="A newer version is available for this channel."
-                        />
-                        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-gv-accent/15 px-2 py-1 font-mono text-xs font-medium text-gv-accent-strong ring-1 ring-gv-accent/25">
-                          <SparklesIcon className="size-3.5" />v
-                          {availableVersion}
-                        </span>
-                      </SettingsRow>
-                    )}
-
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Update channel"
-                        description="Choose which kind of releases you receive."
-                      />
-                      <div className="w-36 shrink-0">
-                        <Listbox
-                          name="updateChannel"
-                          value={updateChannel}
-                          onChange={setUpdateChannel}
-                        >
-                          <ListboxOption value="stable">
-                            <ListboxLabel>Stable</ListboxLabel>
-                          </ListboxOption>
-                          <ListboxOption value="unstable">
-                            <ListboxLabel>Unstable</ListboxLabel>
-                          </ListboxOption>
-                        </Listbox>
-                      </div>
-                    </SettingsRow>
-
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Auto-update status"
-                        description={
-                          updaterErrorText
-                            ? updaterErrorText
-                            : updaterStatusText ||
-                              (updaterReady
-                                ? updaterEnabled
-                                  ? `Enabled for the ${updateChannel} channel.`
-                                  : "Not configured for this build yet."
-                                : "Checking availability...")
-                        }
-                      />
-                      {updaterErrorText ? (
-                        <ExclamationTriangleIcon className="size-4 shrink-0 text-red-400" />
-                      ) : (
-                        <span
-                          className={clsx(
-                            "size-2.5 shrink-0 rounded-full",
-                            updaterEnabled ? "bg-gv-success" : "bg-gv-muted/60",
-                          )}
-                        />
-                      )}
-                    </SettingsRow>
-                  </SettingsGroup>
-
-                  <Button
-                    type="button"
-                    color="indigo"
-                    disabled={
-                      !updaterReady || isCheckingUpdates || isInstallingUpdate
-                    }
-                    onClick={() => void checkForUpdates({ manual: true })}
-                  >
-                    <ArrowPathIcon
-                      className={
-                        isCheckingUpdates
-                          ? "size-4 animate-spin motion-reduce:animate-none"
-                          : "size-4"
-                      }
-                    />
-                    {isCheckingUpdates
-                      ? "Checking..."
-                      : isInstallingUpdate
-                        ? "Updating..."
-                        : "Check for updates"}
-                  </Button>
-                </>
-              )}
-
-              {activeCategory === "ignore" && isTauri && (
-                <>
-                  <SettingsSectionHeader
-                    icon={EyeSlashIcon}
-                    title="Ignore List"
-                    description="Manage the list of files GameVault ignores."
-                  />
-                  <SettingsGroup caption="Hidden executables">
-                    {ignoreList.length === 0 && (
-                      <SettingsRow>
-                        <div className="flex items-center gap-2 text-sm text-gv-muted">
-                          <EyeSlashIcon className="size-4 shrink-0" />
-                          No files hidden yet. Add one below.
-                        </div>
-                      </SettingsRow>
-                    )}
-                    {ignoreList.map((name) => (
-                      <SettingsRow key={name}>
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-gv-text">
-                          {name}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveIgnore(name)}
-                          className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                          aria-label={`Remove ${name} from ignore list`}
-                        >
-                          <XMarkIcon className="size-4" />
-                        </button>
-                      </SettingsRow>
-                    ))}
-                    <SettingsRow>
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
-                        <Input
-                          type="text"
-                          value={newIgnore}
-                          onChange={(e: any) => setNewIgnore(e.target.value)}
-                          onKeyDown={(e: any) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              handleAddIgnore();
-                            }
-                          }}
-                          placeholder="e.g. setup"
-                          className="min-w-0 flex-1"
-                          aria-label="Executable name to ignore"
-                        />
-                        <Button
-                          type="button"
-                          color="indigo"
-                          className="shrink-0 px-3"
-                          onClick={handleAddIgnore}
-                        >
-                          <PlusIcon className="size-4" />
-                          Add
-                        </Button>
-                      </div>
-                    </SettingsRow>
-                  </SettingsGroup>
-                </>
-              )}
-
-              {activeCategory === "developer" &&
-                (import.meta.env.DEV || devToolsUnlocked) && (
+                <SettingsGroup>
+                  {navCategories.map(renderCategoryRow)}
+                </SettingsGroup>
+              </motion.div>
+            ) : (
+              <motion.div
+                key={activeCategory}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+                className="space-y-6"
+              >
+                {/* Back to the settings overview (iOS drill-down) */}
+                <button
+                  type="button"
+                  onClick={() => setActiveCategory(null)}
+                  className="inline-flex cursor-pointer items-center gap-1 rounded-lg py-1 pr-2 text-sm font-medium text-gv-accent transition-colors hover:text-gv-accent-strong"
+                >
+                  <ChevronLeftIcon className="size-4" />
+                  Settings
+                </button>
+                {activeCategory === "downloads" && (
                   <>
                     <SettingsSectionHeader
-                      icon={ExclamationTriangleIcon}
-                      title="Developer Tools"
-                      description="Tools for development. Hidden in production builds."
+                      icon={FolderArrowDownIcon}
+                      title="Downloads"
+                      description="Everything about storing and downloading your games."
+                    />
+
+                    {isTauri && (
+                      <SettingsGroup
+                        caption="Download locations"
+                        description="A GameVault subfolder is created inside each location automatically."
+                      >
+                        {rootPaths.length === 0 && (
+                          <SettingsRow>
+                            <div className="flex items-center gap-2 text-sm text-gv-muted">
+                              <FolderIcon className="size-4 shrink-0" />
+                              No download locations yet. Add one below.
+                            </div>
+                          </SettingsRow>
+                        )}
+
+                        {rootPaths.map((root) => {
+                          const displayLabel =
+                            root.label.trim() ||
+                            root.path.split(/[\\/]/).filter(Boolean).pop() ||
+                            "Unnamed";
+                          const isRenaming = editingRootId === root.id;
+                          return (
+                            <SettingsRow key={root.id}>
+                              <div className="min-w-0 flex-1">
+                                {isRenaming ? (
+                                  <Input
+                                    type="text"
+                                    value={editingLabel}
+                                    autoFocus
+                                    onChange={(e: any) =>
+                                      setEditingLabel(e.target.value)
+                                    }
+                                    onBlur={() => commitRenameRootPath(root.id)}
+                                    onKeyDown={(e: any) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        commitRenameRootPath(root.id);
+                                      } else if (e.key === "Escape") {
+                                        cancelRenameRootPath();
+                                      }
+                                    }}
+                                    placeholder="Folder label"
+                                    className="[&_input]:h-9 [&_input]:py-1 [&_input]:text-sm [&_input]:rounded-xl"
+                                    aria-label="Label for this download folder"
+                                  />
+                                ) : (
+                                  <div className="flex min-w-0 items-center gap-1.5">
+                                    <span className="min-w-0 truncate text-sm font-medium text-gv-text">
+                                      {displayLabel}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => startRenameRootPath(root)}
+                                      className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-gv-muted transition-colors hover:bg-gv-panel-soft hover:text-gv-text cursor-pointer"
+                                      aria-label={`Rename ${displayLabel}`}
+                                    >
+                                      <PencilSquareIcon className="size-3.5" />
+                                    </button>
+                                  </div>
+                                )}
+                                <p
+                                  className="mt-0.5 truncate text-xs text-gv-muted"
+                                  title={root.path}
+                                >
+                                  {root.path}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <Button
+                                  type="button"
+                                  color="zinc"
+                                  className="text-xs"
+                                  onClick={() => handleBrowseRootPath(root.id)}
+                                >
+                                  <FolderArrowDownIcon className="size-3.5" />
+                                  Choose
+                                </Button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveRootPath(root.id)}
+                                  className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                                  aria-label="Remove download folder"
+                                >
+                                  <XMarkIcon className="size-4" />
+                                </button>
+                              </div>
+                            </SettingsRow>
+                          );
+                        })}
+
+                        <button
+                          type="button"
+                          onClick={handleAddRootPath}
+                          className="flex min-h-12 w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-gv-accent transition-colors hover:bg-gv-panel-soft cursor-pointer"
+                        >
+                          <PlusIcon className="size-4" />
+                          Add Download Location
+                        </button>
+                      </SettingsGroup>
+                    )}
+
+                    <SettingsGroup caption="Download speed">
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Download speed limit"
+                          description="Set to 0 for no limit."
+                        />
+                        {speedLimitControl}
+                      </SettingsRow>
+                    </SettingsGroup>
+
+                    {isTauri && (
+                      <SettingsGroup caption="After downloading">
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Auto-Extract Downloads"
+                            description="Unpack archives right after downloading."
+                          />
+                          <Switch
+                            name="autoExtract"
+                            color="indigo"
+                            aria-label="Automatically extract downloaded archives"
+                            checked={autoExtract}
+                            onChange={(v: boolean) => setAutoExtract(v)}
+                          />
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Auto-Install Games"
+                            description="Start installers or copy portable files automatically."
+                          />
+                          <Switch
+                            name="autoInstall"
+                            color="indigo"
+                            aria-label="Automatically install games after extraction"
+                            checked={autoInstall}
+                            onChange={(v: boolean) => setAutoInstall(v)}
+                          />
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Auto-Delete Source Files"
+                            description="Clean up downloads after installation to free up space."
+                          />
+                          <Switch
+                            name="autoDeleteSource"
+                            color="indigo"
+                            aria-label="Delete downloaded and extracted files after portable game install"
+                            checked={autoDeleteSource}
+                            onChange={(v: boolean) => setAutoDeleteSource(v)}
+                          />
+                        </SettingsRow>
+                      </SettingsGroup>
+                    )}
+                  </>
+                )}
+
+                {activeCategory === "library" && (
+                  <>
+                    <SettingsSectionHeader
+                      icon={QueueListIcon}
+                      title="Library"
+                      description="Settings that shape your game library."
                     />
                     <SettingsGroup>
                       <SettingsRow>
                         <SettingsLabel
-                          title="Simulate Desktop App"
-                          description="Preview how GameVault looks and behaves as a native desktop application."
+                          title="Retain sorting and filter preferences"
+                          description="Keep your sort order and filters across sessions and restarts."
                         />
                         <Switch
-                          name="simulateDesktop"
+                          name="retainLibraryPrefs"
                           color="indigo"
-                          aria-label="Simulate Tauri desktop app mode"
-                          checked={isDebugTauriOverride()}
+                          aria-label="Retain Library sorting and filter preferences"
+                          checked={retainLibraryPrefs}
+                          onChange={(v: boolean) => setRetainLibraryPrefs(v)}
+                        />
+                      </SettingsRow>
+                    </SettingsGroup>
+                  </>
+                )}
+
+                {activeCategory === "privacy" && (
+                  <>
+                    <SettingsSectionHeader
+                      icon={ShieldCheckIcon}
+                      title="Privacy & Analytics"
+                      description="Decide what information GameVault shares."
+                    />
+                    <SettingsGroup>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Send anonymous usage analytics"
+                          description={`We collect anonymous data about how you use GameVault, like which features you use and whether errors occur. This helps us understand what to improve. No personal information is ever collected. Changes take effect after ${isTauri ? "restarting the app" : "reloading"}.`}
+                        />
+                        <Switch
+                          name="analyticsConsent"
+                          color="indigo"
+                          aria-label="Enable anonymous usage analytics"
+                          checked={analyticsConsent}
                           onChange={(v: boolean) => {
-                            setDebugTauriOverride(v);
-                            window.location.reload();
+                            setAnalyticsEnabled(v);
+                            setAnalyticsConsent(v);
                           }}
                         />
                       </SettingsRow>
@@ -1144,94 +905,359 @@ export default function Settings() {
                   </>
                 )}
 
-              {activeCategory === "about" && (
-                <>
-                  <SettingsSectionHeader
-                    icon={InformationCircleIcon}
-                    title="About"
-                    description="Version, licenses and legal information."
-                  />
-                  <SettingsGroup>
-                    <SettingsRow>
-                      <SettingsLabel title="Application Version" />
-                      <button
-                        type="button"
-                        onClick={handleVersionClick}
-                        title="Application version"
-                        className="inline-flex shrink-0 cursor-pointer items-center rounded-md bg-gv-panel-soft px-2 py-1 font-mono text-xs text-gv-text ring-1 ring-gv-line transition-colors hover:ring-gv-line-strong"
-                      >
-                        v{__APP_VERSION__}
-                      </button>
-                    </SettingsRow>
-                    <AboutLinkRow
-                      title="Developed by"
-                      value="Phalcode"
-                      href="https://phalco.de"
+                {activeCategory === "appearance" && (
+                  <>
+                    <SettingsSectionHeader
+                      icon={SwatchIcon}
+                      title="Appearance"
+                      description="Customize how GameVault looks on your device."
                     />
-                    <div>
-                      <button
-                        type="button"
-                        onClick={() => void toggleGameVaultLicense()}
-                        aria-expanded={licenseExpanded}
-                        className="group flex min-h-12 w-full cursor-pointer items-center justify-between gap-x-4 px-4 py-2.5 text-left transition-colors hover:bg-gv-panel-soft"
-                      >
-                        <SettingsLabel title="License" />
-                        <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-sm font-medium text-gv-accent">
-                          <span className="truncate">CC BY-NC-SA 4.0</span>
-                          <ChevronRightIcon
+                    <SettingsGroup>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Theme"
+                          description="Choose between light, dark, or follow your device settings."
+                        />
+                        <div className="w-40 shrink-0">
+                          <ThemeSelect />
+                        </div>
+                      </SettingsRow>
+                    </SettingsGroup>
+                  </>
+                )}
+
+                {activeCategory === "desktop" && isTauri && (
+                  <>
+                    <SettingsSectionHeader
+                      icon={ComputerDesktopIcon}
+                      title="Desktop"
+                      description="Startup and updates."
+                    />
+                    <SettingsGroup caption="Startup">
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Launch GameVault on Computer Startup"
+                          description="Automatically start GameVault when you log in to your computer."
+                        />
+                        <Switch
+                          name="autostart"
+                          color="indigo"
+                          aria-label="Launch GameVault on computer startup"
+                          checked={autostartEnabled ?? false}
+                          disabled={autostartEnabled === null}
+                          onChange={async (v: boolean) => {
+                            setAutostartEnabled(v);
+                            try {
+                              const { enable, disable } =
+                                await import("@tauri-apps/plugin-autostart");
+                              if (v) {
+                                await enable();
+                              } else {
+                                await disable();
+                                // Force start-minimized off when autostart is disabled
+                                setStartMinimized(false);
+                              }
+                            } catch (e) {
+                              console.error("Failed to update autostart:", e);
+                              setAutostartEnabled(!v); // Revert on failure
+                            }
+                          }}
+                        />
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Minimize GameVault to System Tray on Startup"
+                          description="When auto-start is enabled, GameVault will start silently in the system tray instead of opening the full window."
+                        />
+                        <Switch
+                          name="startMinimized"
+                          color="indigo"
+                          aria-label="Minimize GameVault to system tray on startup"
+                          checked={startMinimized}
+                          disabled={!autostartEnabled}
+                          onChange={(v: boolean) => setStartMinimized(v)}
+                        />
+                      </SettingsRow>
+                    </SettingsGroup>
+
+                    <SettingsGroup caption="Updates">
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Installed version"
+                          description="The build you are currently running."
+                        />
+                        <span className="inline-flex shrink-0 items-center rounded-md bg-gv-panel-soft px-2 py-1 font-mono text-xs text-gv-text ring-1 ring-gv-line">
+                          v{__APP_VERSION__}
+                        </span>
+                      </SettingsRow>
+
+                      {availableVersion && !isInstallingUpdate && (
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Available update"
+                            description="A newer version is available for this channel."
+                          />
+                          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-gv-accent/15 px-2 py-1 font-mono text-xs font-medium text-gv-accent-strong ring-1 ring-gv-accent/25">
+                            <SparklesIcon className="size-3.5" />v
+                            {availableVersion}
+                          </span>
+                        </SettingsRow>
+                      )}
+
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Update channel"
+                          description="Choose which kind of releases you receive."
+                        />
+                        <div className="w-36 shrink-0">
+                          <Listbox
+                            name="updateChannel"
+                            value={updateChannel}
+                            onChange={setUpdateChannel}
+                          >
+                            <ListboxOption value="stable">
+                              <ListboxLabel>Stable</ListboxLabel>
+                            </ListboxOption>
+                            <ListboxOption value="unstable">
+                              <ListboxLabel>Unstable</ListboxLabel>
+                            </ListboxOption>
+                          </Listbox>
+                        </div>
+                      </SettingsRow>
+
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Auto-update status"
+                          description={
+                            updaterErrorText
+                              ? updaterErrorText
+                              : updaterStatusText ||
+                                (updaterReady
+                                  ? updaterEnabled
+                                    ? `Enabled for the ${updateChannel} channel.`
+                                    : "Not configured for this build yet."
+                                  : "Checking availability...")
+                          }
+                        />
+                        {updaterErrorText ? (
+                          <ExclamationTriangleIcon className="size-4 shrink-0 text-red-400" />
+                        ) : (
+                          <span
                             className={clsx(
-                              "size-3.5 shrink-0 text-gv-muted transition-transform",
-                              licenseExpanded && "rotate-90",
+                              "size-2.5 shrink-0 rounded-full",
+                              updaterEnabled
+                                ? "bg-gv-success"
+                                : "bg-gv-muted/60",
                             )}
                           />
+                        )}
+                      </SettingsRow>
+                    </SettingsGroup>
+
+                    <Button
+                      type="button"
+                      color="indigo"
+                      disabled={
+                        !updaterReady || isCheckingUpdates || isInstallingUpdate
+                      }
+                      onClick={() => void checkForUpdates({ manual: true })}
+                    >
+                      <ArrowPathIcon
+                        className={
+                          isCheckingUpdates
+                            ? "size-4 animate-spin motion-reduce:animate-none"
+                            : "size-4"
+                        }
+                      />
+                      {isCheckingUpdates
+                        ? "Checking..."
+                        : isInstallingUpdate
+                          ? "Updating..."
+                          : "Check for updates"}
+                    </Button>
+                  </>
+                )}
+
+                {activeCategory === "ignore" && isTauri && (
+                  <>
+                    <SettingsSectionHeader
+                      icon={EyeSlashIcon}
+                      title="Ignore List"
+                      description="Manage the list of files GameVault ignores."
+                    />
+                    <SettingsGroup caption="Hidden executables">
+                      {ignoreList.length === 0 && (
+                        <SettingsRow>
+                          <div className="flex items-center gap-2 text-sm text-gv-muted">
+                            <EyeSlashIcon className="size-4 shrink-0" />
+                            No files hidden yet. Add one below.
+                          </div>
+                        </SettingsRow>
+                      )}
+                      {ignoreList.map((name) => (
+                        <SettingsRow key={name}>
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-gv-text">
+                            {name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveIgnore(name)}
+                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                            aria-label={`Remove ${name} from ignore list`}
+                          >
+                            <XMarkIcon className="size-4" />
+                          </button>
+                        </SettingsRow>
+                      ))}
+                      <SettingsRow>
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <Input
+                            type="text"
+                            value={newIgnore}
+                            onChange={(e: any) => setNewIgnore(e.target.value)}
+                            onKeyDown={(e: any) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleAddIgnore();
+                              }
+                            }}
+                            placeholder="e.g. setup"
+                            className="min-w-0 flex-1"
+                            aria-label="Executable name to ignore"
+                          />
+                          <Button
+                            type="button"
+                            color="indigo"
+                            className="shrink-0 px-3"
+                            onClick={handleAddIgnore}
+                          >
+                            <PlusIcon className="size-4" />
+                            Add
+                          </Button>
+                        </div>
+                      </SettingsRow>
+                    </SettingsGroup>
+                  </>
+                )}
+
+                {activeCategory === "developer" &&
+                  (import.meta.env.DEV || devToolsUnlocked) && (
+                    <>
+                      <SettingsSectionHeader
+                        icon={ExclamationTriangleIcon}
+                        title="Developer Tools"
+                        description="Tools for development. Hidden in production builds."
+                      />
+                      <SettingsGroup>
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Simulate Desktop App"
+                            description="Preview how GameVault looks and behaves as a native desktop application."
+                          />
+                          <Switch
+                            name="simulateDesktop"
+                            color="indigo"
+                            aria-label="Simulate Tauri desktop app mode"
+                            checked={isDebugTauriOverride()}
+                            onChange={(v: boolean) => {
+                              setDebugTauriOverride(v);
+                              window.location.reload();
+                            }}
+                          />
+                        </SettingsRow>
+                      </SettingsGroup>
+                    </>
+                  )}
+
+                {activeCategory === "about" && (
+                  <>
+                    <SettingsSectionHeader
+                      icon={InformationCircleIcon}
+                      title="About"
+                      description="Version, licenses and legal information."
+                    />
+                    <SettingsGroup>
+                      <SettingsRow>
+                        <SettingsLabel title="Application Version" />
+                        <button
+                          type="button"
+                          onClick={handleVersionClick}
+                          title="Application version"
+                          className="inline-flex shrink-0 cursor-pointer items-center rounded-md bg-gv-panel-soft px-2 py-1 font-mono text-xs text-gv-text ring-1 ring-gv-line transition-colors hover:ring-gv-line-strong"
+                        >
+                          v{__APP_VERSION__}
+                        </button>
+                      </SettingsRow>
+                      <AboutLinkRow
+                        title="Developed by"
+                        value="Phalcode"
+                        href="https://phalco.de"
+                      />
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => void toggleGameVaultLicense()}
+                          aria-expanded={licenseExpanded}
+                          className="group flex min-h-12 w-full cursor-pointer items-center justify-between gap-x-4 px-4 py-2.5 text-left transition-colors hover:bg-gv-panel-soft"
+                        >
+                          <SettingsLabel title="License" />
+                          <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-sm font-medium text-gv-accent">
+                            <span className="truncate">CC BY-NC-SA 4.0</span>
+                            <ChevronRightIcon
+                              className={clsx(
+                                "size-3.5 shrink-0 text-gv-muted transition-transform",
+                                licenseExpanded && "rotate-90",
+                              )}
+                            />
+                          </span>
+                        </button>
+                        {licenseExpanded && gameVaultLicense && (
+                          <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap wrap-break-word border-t border-gv-line bg-gv-panel-soft/60 px-4 py-3 font-mono text-xs leading-5 text-gv-muted">
+                            {gameVaultLicense}
+                          </pre>
+                        )}
+                      </div>
+                      <AboutLinkRow
+                        title="Legal Notice"
+                        value="https://phalco.de/legal"
+                        href="https://phalco.de/legal"
+                      />
+                      <AboutLinkRow
+                        title="Privacy Policy"
+                        value="https://phalco.de/privacy"
+                        href="https://phalco.de/privacy"
+                      />
+                      <AboutLinkRow
+                        title="Terms of Service"
+                        value="https://phalco.de/tos"
+                        href="https://phalco.de/tos"
+                      />
+                      <AboutLinkRow
+                        title="Metadata Providers"
+                        value="IGDB"
+                        href="https://www.igdb.com"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void openLicenses()}
+                        className="group flex min-h-12 w-full cursor-pointer items-center justify-between gap-x-4 px-4 py-2.5 text-left transition-colors hover:bg-gv-panel-soft"
+                      >
+                        <SettingsLabel title="Open Source Licenses" />
+                        <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-sm font-medium text-gv-accent">
+                          <span className="truncate">
+                            {licenseData
+                              ? `${licenseData.packages.length} libraries`
+                              : "View"}
+                          </span>
+                          <ChevronRightIcon className="size-3.5 shrink-0 text-gv-muted" />
                         </span>
                       </button>
-                      {licenseExpanded && gameVaultLicense && (
-                        <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap wrap-break-word border-t border-gv-line bg-gv-panel-soft/60 px-4 py-3 font-mono text-xs leading-5 text-gv-muted">
-                          {gameVaultLicense}
-                        </pre>
-                      )}
-                    </div>
-                    <AboutLinkRow
-                      title="Legal Notice"
-                      value="https://phalco.de/legal"
-                      href="https://phalco.de/legal"
-                    />
-                    <AboutLinkRow
-                      title="Privacy Policy"
-                      value="https://phalco.de/privacy"
-                      href="https://phalco.de/privacy"
-                    />
-                    <AboutLinkRow
-                      title="Terms of Service"
-                      value="https://phalco.de/tos"
-                      href="https://phalco.de/tos"
-                    />
-                    <AboutLinkRow
-                      title="Metadata Providers"
-                      value="IGDB"
-                      href="https://www.igdb.com"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void openLicenses()}
-                      className="group flex min-h-12 w-full cursor-pointer items-center justify-between gap-x-4 px-4 py-2.5 text-left transition-colors hover:bg-gv-panel-soft"
-                    >
-                      <SettingsLabel title="Open Source Licenses" />
-                      <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-sm font-medium text-gv-accent">
-                        <span className="truncate">
-                          {licenseData
-                            ? `${licenseData.packages.length} libraries`
-                            : "View"}
-                        </span>
-                        <ChevronRightIcon className="size-3.5 shrink-0 text-gv-muted" />
-                      </span>
-                    </button>
-                  </SettingsGroup>
-                </>
-              )}
-            </div>
-          )}
+                    </SettingsGroup>
+                  </>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -1304,6 +1330,6 @@ export default function Settings() {
           )}
         </DialogBody>
       </Dialog>
-    </>
+    </MotionConfig>
   );
 }
