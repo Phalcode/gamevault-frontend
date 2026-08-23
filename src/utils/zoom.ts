@@ -2,6 +2,9 @@ import { isTauriApp } from "./tauri";
 
 const STORAGE_KEY = "gv_zoom_level";
 
+/** Fired on window whenever the zoom level changes (buttons or hotkeys). */
+export const ZOOM_CHANGE_EVENT = "gv:zoom-change";
+
 export const MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 2;
 export const ZOOM_STEP = 0.1;
@@ -39,6 +42,16 @@ export async function applyZoom(level: number): Promise<void> {
     localStorage.setItem(STORAGE_KEY, String(zoom));
   } catch {
     // localStorage unavailable
+  }
+
+  // Notify listeners (e.g. the Zoom setting control) so the UI stays in sync
+  // even when zoom changes originate outside the control, like the hotkeys.
+  try {
+    window.dispatchEvent(
+      new CustomEvent(ZOOM_CHANGE_EVENT, { detail: { zoom } }),
+    );
+  } catch {
+    // events unavailable
   }
 
   if (isTauriApp()) {

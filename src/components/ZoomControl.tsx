@@ -1,10 +1,11 @@
 import clsx from "clsx";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/tailwind/button";
 import { MinusIcon, PlusIcon } from "@heroicons/react/16/solid";
 import {
   MAX_ZOOM,
   MIN_ZOOM,
+  ZOOM_CHANGE_EVENT,
   ZOOM_STEP,
   adjustZoom,
   getStoredZoom,
@@ -14,6 +15,17 @@ import {
 
 export default function ZoomControl({ className }: { className?: string }) {
   const [zoom, setZoom] = useState(getStoredZoom);
+
+  // Keep the displayed percentage in sync when zoom changes come from outside
+  // this control (e.g. the Ctrl/Cmd + +/- hotkeys).
+  useEffect(() => {
+    const handleZoomChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ zoom: number }>).detail;
+      if (detail && Number.isFinite(detail.zoom)) setZoom(detail.zoom);
+    };
+    window.addEventListener(ZOOM_CHANGE_EVENT, handleZoomChange);
+    return () => window.removeEventListener(ZOOM_CHANGE_EVENT, handleZoomChange);
+  }, []);
 
   const handleStep = useCallback((delta: number) => {
     setZoom(adjustZoom(delta));
