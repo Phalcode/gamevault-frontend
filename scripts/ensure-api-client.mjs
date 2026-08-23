@@ -61,34 +61,45 @@ async function generateApiClient() {
     stdio: "inherit",
   });
 
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+  return result.status === 0;
+}
+
+async function main() {
+  const spec = await readSpec();
+  const hash = hashContent(spec);
+
+  // Close undici's connection pool once we're done fetching. Without this the
+  // keep-alive socket keeps the event loop alive for ~4s (keepAliveTimeout)
+  // before the process can exit naturally.
+  const dispatcher = globalThis[Symbol.for("undici.globalDispatcher.1")];
+  if (dispatcher?.close) {
+    await dispatcher.close();
   }
+
+  const markerExists = existsSync(MARKER);
+  const markerMatches =
+    markerExists && (await readFile(MARKER, "utf8")).trim() === hash;
+  const apiExists = existsSync(path.join(API_DIR, "runtime.ts"));
+
+  if (markerMatches && apiExists) {
+    console.log("API client is up to date, skipping generation.");
+    return;
+  }
+
+  const generated = await generateApiClient();
+  if (!generated) {
+    process.exitCode = 1;
+    return;
+  }
+
+  await writeFile(MARKER, `${hash}\n`, "utf8");
+  console.log("API client generated.");
 }
 
-const spec = await readSpec();
-const hash = hashContent(spec);
-
-// Undici (used by fetch) keeps the connection pooled for a short window after
-// the response resolves. If we call process.exit() while that handle is still
-// closing, libuv on Windows can abort the script with
+// NOTE: do not use process.exit() here. On Windows, exiting while libuv still
+// has a pending worker-thread async completion (e.g. the threadpool DNS lookup
+// triggered by fetch) aborts the process with:
 //   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94
-// (exit code 3221226505). Closing the global dispatcher drains the pool first.
-const dispatcher = globalThis[Symbol.for("undici.globalDispatcher.1")];
-if (dispatcher?.close) {
-  await dispatcher.close();
-}
-
-const markerExists = existsSync(MARKER);
-const markerMatches =
-  markerExists && (await readFile(MARKER, "utf8")).trim() === hash;
-const apiExists = existsSync(path.join(API_DIR, "runtime.ts"));
-
-if (markerMatches && apiExists) {
-  console.log("API client is up to date, skipping generation.");
-  process.exit(0);
-}
-
-await generateApiClient();
-await writeFile(MARKER, `${hash}\n`, "utf8");
-console.log("API client generated.");
+// (exit code 3221226505). Letting the process end naturally drains the loop
+// first and avoids the crash.
+await main();
