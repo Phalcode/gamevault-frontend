@@ -1,6 +1,8 @@
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+
+#[cfg(windows)]
 use std::process::Command;
 
 pub(crate) fn parse_version_folder(folder_name: &str) -> (i64, String) {

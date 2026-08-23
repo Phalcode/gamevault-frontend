@@ -195,10 +195,10 @@ export default function Administration() {
                   setRestarting(false);
                 }
               }}
-              title="Restart Web UI"
+              title="Update & Restart Web UI"
               className="items-center"
             >
-              {restarting ? "Restarting..." : "Restart Web UI"}
+              {restarting ? "Restarting..." : "Update & Restart Web UI"}
             </Button>
             {restartError && (
               <div className="col-span-full text-xs text-red-500 bg-red-500/10 rounded-md px-3 py-2">

@@ -273,6 +273,7 @@ pub(crate) fn list_launch_executables(
 }
 
 #[tauri::command]
+#[cfg_attr(not(windows), allow(unused_variables))]
 pub(crate) fn launch_game(
   installation_path: String,
   executable_relative_path: String,

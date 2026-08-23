@@ -281,7 +281,7 @@ pub(crate) fn launch_installation_executable(
     let resolved_parameters = installer_parameters
       .map(|value| value.replace("%INSTALLDIR%", &installation_path_resolved))
       .filter(|value| !value.trim().is_empty());
-    let fallback_argument_list = if is_msi {
+    let _fallback_argument_list = if is_msi {
       let base = format!("/i \"{}\"", installer_path.display());
       match resolved_parameters.as_deref() {
         Some(parameters) => format!("{base} {parameters}"),
@@ -322,10 +322,10 @@ pub(crate) fn launch_installation_executable(
 
             match run_elevated_installer_and_wait(
               command.get_program().to_string_lossy().as_ref(),
-              if fallback_argument_list.trim().is_empty() {
+              if _fallback_argument_list.trim().is_empty() {
                 None
               } else {
-                Some(fallback_argument_list.as_str())
+                Some(_fallback_argument_list.as_str())
               },
               installer_path.parent().and_then(|value| value.to_str()),
             ) {
@@ -449,7 +449,7 @@ pub(crate) fn launch_uninstall_executable(
     .map(str::trim)
     .filter(|value| !value.is_empty())
     .map(str::to_string);
-  let fallback_argument_list = if is_msi {
+  let _fallback_argument_list = if is_msi {
     let base = format!("/x \"{}\"", executable.display());
     match resolved_arguments.as_deref() {
       Some(arguments) => format!("{base} {arguments}"),
@@ -481,10 +481,10 @@ pub(crate) fn launch_uninstall_executable(
         if error.raw_os_error() == Some(740) {
           return run_elevated_installer_and_wait(
             command.get_program().to_string_lossy().as_ref(),
-            if fallback_argument_list.trim().is_empty() {
+            if _fallback_argument_list.trim().is_empty() {
               None
             } else {
-              Some(fallback_argument_list.as_str())
+              Some(_fallback_argument_list.as_str())
             },
             working_directory.as_deref(),
           );
