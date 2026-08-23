@@ -4,6 +4,7 @@
 
 ### Changes
 
+- Implemented Gamepad support for UI
 - Support for multiple game versions and version selection in the library. (Legacy Client always downloads the latest version)
 - New installed games section in the library for tauri builds
 - Game time tracker

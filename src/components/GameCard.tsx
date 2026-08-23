@@ -41,11 +41,15 @@ export function GameCard({
   const { showAlert } = useAlertDialog();
   // Detect if this is a locally installed game (set by Library for installed games)
   const installedInfo = (game as any)?._installedInfo as
-    | { installationDirectory: string; versionDirectory: string; versionId: number; versionName: string }
+    | {
+        installationDirectory: string;
+        versionDirectory: string;
+        versionId: number;
+        versionName: string;
+      }
     | undefined;
   const onUninstalledCallback = (game as any)?._onUninstalled as
-    | (() => void)
-    | undefined;
+    (() => void) | undefined;
   const isInstalled = !!installedInfo;
   // Derive initial bookmarked state from raw API shape (bookmarked_users or bookmarkedUsers)
   const currentUserId = (user as any)?.id ?? (user as any)?.ID;
@@ -60,7 +64,9 @@ export function GameCard({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [localGame, setLocalGame] = useState<GamevaultGame>(game);
   const [versionDialogOpen, setVersionDialogOpen] = useState(false);
-  const [selectableVersions, setSelectableVersions] = useState<GameVersion[]>([]);
+  const [selectableVersions, setSelectableVersions] = useState<GameVersion[]>(
+    [],
+  );
   const [pendingDownloadAction, setPendingDownloadAction] = useState<
     "direct" | "tauri" | "client" | null
   >(null);
@@ -169,7 +175,9 @@ export function GameCard({
     });
     if (!res.ok) return [];
     const fullGame = (await res.json()) as GamevaultGame;
-    const fullVersions = Array.isArray(fullGame.versions) ? fullGame.versions : [];
+    const fullVersions = Array.isArray(fullGame.versions)
+      ? fullGame.versions
+      : [];
     if (fullVersions.length > 0) {
       setLocalGame((prev) => ({ ...prev, versions: fullVersions }));
     }
@@ -177,7 +185,11 @@ export function GameCard({
   }, [localGame.versions, serverUrl, authFetch, game.id]);
 
   const executeDownloadAction = useCallback(
-    (action: "direct" | "tauri" | "client", selectedVersion: GameVersion, rootPath?: string) => {
+    (
+      action: "direct" | "tauri" | "client",
+      selectedVersion: GameVersion,
+      rootPath?: string,
+    ) => {
       const resolvedTitle = localGame.metadata?.title || localGame.title;
       const filePathFallback = selectedVersion.file_path
         ? selectedVersion.file_path.split(/[/\\]/).pop()
@@ -218,7 +230,8 @@ export function GameCard({
       if (!versions.length) {
         showAlert({
           title: "No downloadable version found",
-          description: "This game currently has no available version to download.",
+          description:
+            "This game currently has no available version to download.",
         });
         return;
       }
@@ -236,13 +249,10 @@ export function GameCard({
     [resolveVersions, showAlert, executeDownloadAction],
   );
 
-  const handleDirectDownload = useCallback(
-    async () => {
-      if (!serverUrl) return;
-      await selectVersionAndRun("direct");
-    },
-    [serverUrl, selectVersionAndRun],
-  );
+  const handleDirectDownload = useCallback(async () => {
+    if (!serverUrl) return;
+    await selectVersionAndRun("direct");
+  }, [serverUrl, selectVersionAndRun]);
 
   const handleTauriDownload = useCallback(
     async (e: React.MouseEvent) => {
@@ -310,7 +320,9 @@ export function GameCard({
 
         if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
           try {
-            const raw = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath }));
+            const raw = JSON.parse(
+              await invoke<string>("fs_read_text_file", { path: configPath }),
+            );
             launchExe = raw.launchexecutable;
             launchParams = raw.launchparameters;
             launchAsAdmin = !!raw.launchasadmin;
@@ -344,17 +356,18 @@ export function GameCard({
     [installedInfo, showAlert],
   );
 
-  const handleClientDownload = useCallback(
-    async () => {
-      await selectVersionAndRun("client");
-    },
-    [selectVersionAndRun],
-  );
+  const handleClientDownload = useCallback(async () => {
+    await selectVersionAndRun("client");
+  }, [selectVersionAndRun]);
 
   const handleVersionSelect = useCallback(
     (selectedVersion: GameVersion) => {
       if (!pendingDownloadAction) return;
-      executeDownloadAction(pendingDownloadAction, selectedVersion, pendingRootPath ?? undefined);
+      executeDownloadAction(
+        pendingDownloadAction,
+        selectedVersion,
+        pendingRootPath ?? undefined,
+      );
       setVersionDialogOpen(false);
       setPendingDownloadAction(null);
       setPendingRootPath(null);
@@ -426,7 +439,7 @@ export function GameCard({
 
           {/* Animated glare overlay */}
           <div
-            className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 ease-out group-hover/card:opacity-100"
+            className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 ease-out group-hover/card:opacity-100 group-focus-within/card:opacity-100"
             aria-hidden="true"
           >
             <div
@@ -436,7 +449,7 @@ export function GameCard({
           </div>
 
           {/* Gradient fade at bottom for button contrast */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 transition-opacity duration-200 group-hover/card:opacity-100" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 transition-opacity duration-200 group-hover/card:opacity-100 group-focus-within/card:opacity-100" />
 
           {/* Corner action buttons - hidden until hover */}
           {/* Bookmark */}
@@ -448,7 +461,7 @@ export function GameCard({
             disabled={!currentUserId || bookmarkBusy}
             className={clsx(
               "absolute top-2 right-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border backdrop-blur-xl transition-all duration-200",
-              "opacity-0 translate-y-1 group-hover/card:opacity-100 group-hover/card:translate-y-0",
+              "opacity-0 translate-y-1 group-hover/card:opacity-100 group-hover/card:translate-y-0 group-focus-within/card:opacity-100 group-focus-within/card:translate-y-0",
               "disabled:cursor-not-allowed disabled:opacity-50",
               bookmarked
                 ? "border-gv-warning/40 bg-gv-warning/15"
@@ -469,7 +482,7 @@ export function GameCard({
             aria-label="Settings"
             className={clsx(
               "absolute top-2 left-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border border-gv-line bg-gv-panel-soft/80 text-gv-muted backdrop-blur-xl transition-all duration-200",
-              "opacity-0 translate-y-1 group-hover/card:opacity-100 group-hover/card:translate-y-0",
+              "opacity-0 translate-y-1 group-hover/card:opacity-100 group-hover/card:translate-y-0 group-focus-within/card:opacity-100 group-focus-within/card:translate-y-0",
               "hover:border-gv-line-strong hover:bg-gv-panel hover:text-gv-text",
             )}
             title="Settings"
@@ -485,12 +498,16 @@ export function GameCard({
               onClick={handlePlayGame}
               className={clsx(
                 "absolute bottom-3 left-1/2 -translate-x-1/2 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-indigo-400/40 bg-indigo-500/90 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/30 backdrop-blur-sm transition-all duration-200",
-                "opacity-0 translate-y-2 group-hover/card:opacity-100 group-hover/card:translate-y-0",
+                "opacity-0 translate-y-2 group-hover/card:opacity-100 group-hover/card:translate-y-0 group-focus-within/card:opacity-100 group-focus-within/card:translate-y-0",
                 "hover:bg-indigo-400 active:scale-[0.97]",
               )}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4 fill-current">
-                <path d="M8 17.175V6.825q0-.425.3-.713t.7-.287q.125 0 .263.037t.262.113l8.15 5.175q.225.15.338.375t.112.475t-.112.475t-.338.375l-8.15 5.175q-.125.075-.262.113T9 18.175q-.4 0-.7-.288t-.3-.712"/>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                className="h-4 w-4 fill-current"
+              >
+                <path d="M8 17.175V6.825q0-.425.3-.713t.7-.287q.125 0 .263.037t.262.113l8.15 5.175q.225.15.338.375t.112.475t-.112.475t-.338.375l-8.15 5.175q-.125.075-.262.113T9 18.175q-.4 0-.7-.288t-.3-.712" />
               </svg>
               Play
             </button>
@@ -498,7 +515,7 @@ export function GameCard({
             <div
               className={clsx(
                 "absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center transition-all duration-200",
-                "opacity-0 translate-y-2 group-hover/card:opacity-100 group-hover/card:translate-y-0",
+                "opacity-0 translate-y-2 group-hover/card:opacity-100 group-hover/card:translate-y-0 group-focus-within/card:opacity-100 group-focus-within/card:translate-y-0",
               )}
             >
               {isTauri ? (
@@ -511,9 +528,13 @@ export function GameCard({
                 >
                   <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
                   {formattedSize ? (
-                    <span className="text-xs font-medium whitespace-nowrap">{formattedSize}</span>
+                    <span className="text-xs font-medium whitespace-nowrap">
+                      {formattedSize}
+                    </span>
                   ) : (
-                    <span className="text-xs font-medium whitespace-nowrap">Download</span>
+                    <span className="text-xs font-medium whitespace-nowrap">
+                      Download
+                    </span>
                   )}
                 </Button>
               ) : (
@@ -530,9 +551,13 @@ export function GameCard({
                   >
                     <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
                     {formattedSize ? (
-                      <span className="text-xs font-medium whitespace-nowrap">{formattedSize}</span>
+                      <span className="text-xs font-medium whitespace-nowrap">
+                        {formattedSize}
+                      </span>
                     ) : (
-                      <span className="text-xs font-medium whitespace-nowrap">Download</span>
+                      <span className="text-xs font-medium whitespace-nowrap">
+                        Download
+                      </span>
                     )}
                   </DropdownButton>
                   <DropdownMenu className="min-w-48" anchor="top end">
@@ -552,7 +577,9 @@ export function GameCard({
                         void handleClientDownload();
                       }}
                     >
-                      <DropdownLabel>Download via GameVault Client</DropdownLabel>
+                      <DropdownLabel>
+                        Download via GameVault Client
+                      </DropdownLabel>
                     </DropdownItem>
                   </DropdownMenu>
                 </Dropdown>

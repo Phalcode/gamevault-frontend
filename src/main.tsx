@@ -11,6 +11,7 @@ import {
 import { AppUpdaterProvider } from "./context/AppUpdaterContext";
 import { AuthProvider } from "./context/AuthContext";
 import { DownloadProvider } from "./context/DownloadContext";
+import { GamepadProvider } from "./context/GamepadContext";
 import { IgnoreListProvider } from "./context/IgnoreListContext";
 import { OfflineProvider } from "./context/OfflineContext";
 import "./index.css";
@@ -63,34 +64,39 @@ createRoot(document.getElementById("root")!).render(
                 <AppUpdaterProvider>
                   <GlobalAlertDialogBridge />
                   <BrowserRouter>
-                    <Routes>
-                      <Route element={<FullscreenLayout />}>
-                        <Route index element={<Login />} />
-                        <Route path="register" element={<Register />} />
-                      </Route>
+                    <GamepadProvider>
+                      <Routes>
+                        <Route element={<FullscreenLayout />}>
+                          <Route index element={<Login />} />
+                          <Route path="register" element={<Register />} />
+                        </Route>
 
-                      <Route element={<DashboardLayout />}>
-                        <Route index path="library" element={<Library />} />
-                        <Route path="library/:id" element={<GameView />} />
-                        <Route path="downloads" element={<Downloads />} />
-                        <Route path="community" element={<Community />} />
-                        <Route path="community/:id" element={<UserProfile />} />
-                        <Route path="settings" element={<Settings />} />
-                        <Route
-                          path="admin"
-                          element={
-                            <ProtectedRoute
-                              guarded
-                              requiredRole={GamevaultUserRoleEnum._3}
-                            >
-                              <Administration />
-                            </ProtectedRoute>
-                          }
-                        />
-                      </Route>
+                        <Route element={<DashboardLayout />}>
+                          <Route index path="library" element={<Library />} />
+                          <Route path="library/:id" element={<GameView />} />
+                          <Route path="downloads" element={<Downloads />} />
+                          <Route path="community" element={<Community />} />
+                          <Route
+                            path="community/:id"
+                            element={<UserProfile />}
+                          />
+                          <Route path="settings" element={<Settings />} />
+                          <Route
+                            path="admin"
+                            element={
+                              <ProtectedRoute
+                                guarded
+                                requiredRole={GamevaultUserRoleEnum._3}
+                              >
+                                <Administration />
+                              </ProtectedRoute>
+                            }
+                          />
+                        </Route>
 
-                      <Route path="*" element={<NotFound />} />
-                    </Routes>
+                        <Route path="*" element={<NotFound />} />
+                      </Routes>
+                    </GamepadProvider>
                   </BrowserRouter>
                 </AppUpdaterProvider>
               </AlertDialogProvider>

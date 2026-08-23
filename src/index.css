@@ -108,8 +108,10 @@
     --color-gv-success: #188f5c;
     --color-gv-warning: #b17d19;
     --color-gv-danger: #d24747;
-    --shadow-shell: 0 18px 40px rgba(43, 38, 86, 0.14), 0 4px 12px rgba(43, 38, 86, 0.06);
-    --shadow-card: 0 12px 24px rgba(43, 38, 86, 0.12), 0 3px 8px rgba(43, 38, 86, 0.06);
+    --shadow-shell:
+      0 18px 40px rgba(43, 38, 86, 0.14), 0 4px 12px rgba(43, 38, 86, 0.06);
+    --shadow-card:
+      0 12px 24px rgba(43, 38, 86, 0.12), 0 3px 8px rgba(43, 38, 86, 0.06);
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
     --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   }
@@ -131,8 +133,10 @@
     --color-gv-success: #56d692;
     --color-gv-warning: #f1c56c;
     --color-gv-danger: #ef7373;
-    --shadow-shell: 0 22px 48px rgba(4, 4, 12, 0.36), 0 6px 14px rgba(4, 4, 12, 0.24);
-    --shadow-card: 0 14px 28px rgba(4, 4, 12, 0.28), 0 4px 10px rgba(4, 4, 12, 0.2);
+    --shadow-shell:
+      0 22px 48px rgba(4, 4, 12, 0.36), 0 6px 14px rgba(4, 4, 12, 0.24);
+    --shadow-card:
+      0 14px 28px rgba(4, 4, 12, 0.28), 0 4px 10px rgba(4, 4, 12, 0.2);
   }
 
   html {
@@ -150,9 +154,21 @@
     height: 100%;
     overflow: hidden;
     background:
-      radial-gradient(circle at top left, rgba(84, 73, 198, 0.12) 0, transparent 28%),
-      radial-gradient(circle at top right, rgba(116, 104, 235, 0.14) 0, transparent 24%),
-      linear-gradient(180deg, var(--color-gv-bg) 0%, color-mix(in srgb, var(--color-gv-bg) 88%, black) 100%);
+      radial-gradient(
+        circle at top left,
+        rgba(84, 73, 198, 0.12) 0,
+        transparent 28%
+      ),
+      radial-gradient(
+        circle at top right,
+        rgba(116, 104, 235, 0.14) 0,
+        transparent 24%
+      ),
+      linear-gradient(
+        180deg,
+        var(--color-gv-bg) 0%,
+        color-mix(in srgb, var(--color-gv-bg) 88%, black) 100%
+      );
     color: var(--color-gv-text);
   }
 
@@ -163,7 +179,11 @@
     pointer-events: none;
     background-image:
       linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+      linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0.018) 1px,
+        transparent 1px
+      );
     background-size: 72px 72px;
     mask-image: radial-gradient(circle at center, black 18%, transparent 78%);
   }
@@ -201,7 +221,11 @@
 
   .card {
     @apply rounded-[1.5rem] p-8 mb-4;
-    background: linear-gradient(180deg, var(--color-gv-panel-strong) 0%, var(--color-gv-panel) 100%);
+    background: linear-gradient(
+      180deg,
+      var(--color-gv-panel-strong) 0%,
+      var(--color-gv-panel) 100%
+    );
     border: 1px solid var(--color-gv-line);
     box-shadow: var(--shadow-card);
   }
@@ -220,13 +244,21 @@
   input,
   select,
   textarea {
-    transition-property: transform, color, background-color, border-color, box-shadow, opacity;
+    transition-property:
+      transform, color, background-color, border-color, box-shadow, opacity;
     transition-duration: 180ms;
     transition-timing-function: var(--ease-out);
   }
 
   :focus-visible {
     outline: 2px solid var(--color-gv-accent-cool);
+    outline-offset: 2px;
+  }
+
+  /* Gamepad-driven focus ring. Unlayered so it wins over component utility
+     classes like focus:outline-none. Applied by GamepadNavigator. */
+  .gv-gamepad-focus {
+    outline: 2px solid var(--color-gv-accent);
     outline-offset: 2px;
   }
 
@@ -245,21 +277,33 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--color-gv-accent) 26%, var(--color-gv-line));
+    background: color-mix(
+      in srgb,
+      var(--color-gv-accent) 26%,
+      var(--color-gv-line)
+    );
     border: 2px solid transparent;
     border-radius: 999px;
     background-clip: padding-box;
   }
 
   .surface-shell {
-    background: linear-gradient(180deg, color-mix(in srgb, var(--color-gv-shell) 94%, white) 0%, var(--color-gv-shell) 100%);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-gv-shell) 94%, white) 0%,
+      var(--color-gv-shell) 100%
+    );
     border: 1px solid var(--color-gv-line);
     box-shadow: var(--shadow-shell);
     backdrop-filter: blur(20px);
   }
 
   .surface-panel {
-    background: linear-gradient(180deg, var(--color-gv-panel-strong) 0%, var(--color-gv-panel) 100%);
+    background: linear-gradient(
+      180deg,
+      var(--color-gv-panel-strong) 0%,
+      var(--color-gv-panel) 100%
+    );
     border: 1px solid var(--color-gv-line);
     box-shadow: var(--shadow-card);
     backdrop-filter: blur(18px);
@@ -286,7 +330,11 @@
     content: "";
     width: 2.25rem;
     height: 1px;
-    background: linear-gradient(90deg, transparent 0%, var(--color-gv-accent-cool) 100%);
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--color-gv-accent-cool) 100%
+    );
   }
 
   .data-chip {
