@@ -69,6 +69,16 @@ async function generateApiClient() {
 const spec = await readSpec();
 const hash = hashContent(spec);
 
+// Undici (used by fetch) keeps the connection pooled for a short window after
+// the response resolves. If we call process.exit() while that handle is still
+// closing, libuv on Windows can abort the script with
+//   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94
+// (exit code 3221226505). Closing the global dispatcher drains the pool first.
+const dispatcher = globalThis[Symbol.for("undici.globalDispatcher.1")];
+if (dispatcher?.close) {
+  await dispatcher.close();
+}
+
 const markerExists = existsSync(MARKER);
 const markerMatches =
   markerExists && (await readFile(MARKER, "utf8")).trim() === hash;
