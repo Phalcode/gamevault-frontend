@@ -4,3 +4,4 @@ allowBuilds:
 onlyBuiltDependencies:
   - "@nestjs/core"
   - "@openapitools/openapi-generator-cli"
+optimisticRepeatInstall: false
