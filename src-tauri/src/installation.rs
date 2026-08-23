@@ -244,6 +244,7 @@ pub(crate) fn launch_installation_executable(
   extraction_path: String,
   installer_relative_path: String,
   installation_path: String,
+  installer_parameters: Option<String>,
 ) -> Result<(), String> {
   let extraction_root = PathBuf::from(extraction_path);
   let installer_path = extraction_root.join(installer_relative_path.replace('/', "\\"));
@@ -253,7 +254,11 @@ pub(crate) fn launch_installation_executable(
 
   let installation_path_resolved = installation_path.clone();
   let installer_relative = installer_relative_path.clone();
-  let (_, installer_parameters) = read_saved_installer_preferences(&extraction_root);
+  let (_, saved_installer_parameters) = read_saved_installer_preferences(&extraction_root);
+  let installer_parameters = installer_parameters
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty())
+    .or(saved_installer_parameters);
   let is_msi = installer_path
     .extension()
     .and_then(|v| v.to_str())

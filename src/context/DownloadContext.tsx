@@ -553,7 +553,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   );
 
   const writeGameMetadata = useCallback(
-    async (gameFolderPath: string, gameId: number) => {
+    async (
+      gameFolderPath: string,
+      gameId: number,
+      gameMetadata?: GameMetadata,
+    ) => {
       if (!isTauriApp() || !gameFolderPath) return;
       const { join } = await import("@tauri-apps/api/path");
       const { invoke } = await import("@tauri-apps/api/core");
@@ -579,6 +583,24 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       }
 
       current[serverIdentifier] = String(gameId);
+
+      // Persist installer/uninstaller preferences so the backend can read them
+      // from .gamevault.metadata.json (see read_saved_installer_preferences).
+      const installerPreferences = {
+        installer_executable: gameMetadata?.installer_executable,
+        installer_parameters: gameMetadata?.installer_parameters,
+        uninstaller_executable: gameMetadata?.uninstaller_executable,
+        uninstaller_parameters: gameMetadata?.uninstaller_parameters,
+      } as const;
+      for (const [key, value] of Object.entries(installerPreferences)) {
+        const trimmed = value?.trim();
+        if (trimmed) {
+          current[key] = trimmed;
+        } else {
+          delete current[key];
+        }
+      }
+
       await invoke("fs_write_text_file", {
         path: metadataPath,
         content: JSON.stringify(current, null, 2),
@@ -808,7 +830,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           await invoke("fs_create_dir_all", {
             path: installationsVersionFolder,
           });
-          await writeGameMetadata(gameFolderPath, gameId);
+          await writeGameMetadata(gameFolderPath, gameId, gameMetadata);
           await writeVersionConfig(versionBaseFolder, {
             versionid: versionId,
             gametype: gameType,
@@ -1873,6 +1895,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           extractionPath: d.extractionDirectory,
           installerRelativePath,
           installationPath: d.installationDirectory,
+          installerParameters: d.gameMetadata?.installer_parameters ?? null,
         });
       } catch (err) {
         const stop = tauriInstallerUnlistenRef.current[gameId];

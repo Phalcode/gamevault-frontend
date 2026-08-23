@@ -53,6 +53,7 @@ import {
 import { Alert, AlertTitle } from "@tw/alert";
 import { GameSettings } from "@/components/admin/GameSettings";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
+import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { isTauriApp } from "@/utils/tauri";
 import { LayoutGroup, motion } from "motion/react";
 import { EASE_OUT } from "@/lib/motion";
@@ -86,6 +87,11 @@ export default function GameView() {
   const [pendingRootPath, setPendingRootPath] = useState<string | null>(null);
   const isTauri = isTauriApp();
   const { isOnline } = useOnlineStatus();
+  const { installedGames } = useInstalledGames();
+  const installedInfo = useMemo(
+    () => installedGames.find((ig) => ig.gameId === numericId),
+    [installedGames, numericId],
+  );
   const backgroundMediaId = game?.metadata?.background?.id;
   const { url: backgroundUrl } = useAuthMediaUrl(
     backgroundMediaId,
@@ -431,6 +437,63 @@ export default function GameView() {
     void selectVersionAndRun("client");
   }, [game, selectVersionAndRun]);
 
+  const handlePlayGame = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!installedInfo) return;
+
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const { join } = await import("@tauri-apps/api/path");
+
+        const configPath = await join(
+          installedInfo.versionDirectory,
+          ".gamevault.game.config.json",
+        );
+
+        let launchExe: string | undefined;
+        let launchParams: string | undefined;
+        let launchAsAdmin = false;
+
+        if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
+          try {
+            const raw = JSON.parse(
+              await invoke<string>("fs_read_text_file", { path: configPath }),
+            );
+            launchExe = raw.launchexecutable;
+            launchParams = raw.launchparameters;
+            launchAsAdmin = !!raw.launchasadmin;
+          } catch {
+            console.warn("Failed to parse game config:", configPath);
+          }
+        }
+
+        if (!launchExe) {
+          showAlert({
+            title: "No launch executable configured",
+            description:
+              "Open Game Settings → Launch Options to select an executable first.",
+          });
+          return;
+        }
+
+        await invoke("launch_game", {
+          installationPath: installedInfo.installationDirectory,
+          executableRelativePath: launchExe,
+          launchParameters: launchParams || null,
+          runAsAdmin: launchAsAdmin,
+        });
+      } catch (err: any) {
+        showAlert({
+          title: "Failed to launch game",
+          description: err?.message || String(err),
+        });
+      }
+    },
+    [installedInfo, showAlert],
+  );
+
   const handleVersionSelect = useCallback(
     (selectedVersion: GameVersion) => {
       if (!pendingDownloadAction) return;
@@ -671,6 +734,24 @@ export default function GameView() {
                 </div>
                 {/* Added flex-wrap to allow buttons to wrap on extremely narrow viewports, preventing horizontal overflow that could push the media slider and cause cutoff */}
                 <div className="flex flex-row flex-wrap gap-2">
+                  {isTauri && installedInfo && (
+                    <Button
+                      color="indigo"
+                      aria-label="Play"
+                      title="Play"
+                      className="h-9 px-3 gap-2 flex items-center justify-center"
+                      onClick={handlePlayGame}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4 fill-current"
+                      >
+                        <path d="M8 17.175V6.825q0-.425.3-.713t.7-.287q.125 0 .263.037t.262.113l8.15 5.175q.225.15.338.375t.112.475t-.112.475t-.338.375l-8.15 5.175q-.125.075-.262.113T9 18.175q-.4 0-.7-.288t-.3-.712" />
+                      </svg>
+                      Play
+                    </Button>
+                  )}
                   {isTauri ? (
                     <Button
                       color="indigo"

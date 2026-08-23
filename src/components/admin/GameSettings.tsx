@@ -564,59 +564,98 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     }
 
     if (isSetupInstallType(installedGame.gameType)) {
-      const confirmed = await showAlert({
-        title: `Are you sure you want to uninstall '${resolvedTitle}' ?`,
-        description:
-          "As this is a Windows Setup Game, you will need to select an uninstall executable manually",
-        affirmativeText: "Yes",
-        negativeText: "No",
-      });
+      const configuredUninstaller =
+        workingGame.metadata?.uninstaller_executable?.trim();
+
+      const confirmed = await showAlert(
+        configuredUninstaller
+          ? {
+              title: `Are you sure you want to uninstall '${resolvedTitle}' ?`,
+              affirmativeText: "Yes",
+              negativeText: "No",
+            }
+          : {
+              title: `Are you sure you want to uninstall '${resolvedTitle}' ?`,
+              description:
+                "As this is a Windows Setup Game, you will need to select an uninstall executable manually",
+              affirmativeText: "Yes",
+              negativeText: "No",
+            },
+      );
 
       if (!confirmed) return;
 
-      try {
-        const { open } = await import("@tauri-apps/plugin-dialog");
-        const selected = await open({
-          directory: false,
-          multiple: false,
-          defaultPath: installedGame.installationDirectory,
-          title: "Select Uninstall Executable",
-          filters: [
-            {
-              name: "Executables",
-              extensions: ["exe", "msi", "bat", "cmd", "com"],
-            },
-          ],
-        });
-
-        if (typeof selected !== "string" || !selected) return;
-
+      const runUninstaller = async (executablePath: string) => {
         setUninstalling(true);
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("launch_uninstall_executable", {
-          executablePath: selected,
-          workingDirectory: installedGame.installationDirectory,
-          argumentList: workingGame.metadata?.uninstaller_parameters || null,
-        });
-        await updateInstallationFinishedFlag(
-          installedGame.versionDirectory,
-          false,
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("launch_uninstall_executable", {
+            executablePath,
+            workingDirectory: installedGame.installationDirectory,
+            argumentList: workingGame.metadata?.uninstaller_parameters || null,
+          });
+          await updateInstallationFinishedFlag(
+            installedGame.versionDirectory,
+            false,
+          );
+          setInstalledGame(await findInstalledGame());
+          onUninstalled?.();
+          await showAlert({
+            title: "Game uninstalled",
+            affirmativeText: "OK",
+          });
+        } catch (error: any) {
+          await showAlert({
+            title: "Error",
+            description:
+              error?.message || "Failed to run uninstall executable",
+            affirmativeText: "OK",
+          });
+        } finally {
+          setUninstalling(false);
+        }
+      };
+
+      if (configuredUninstaller) {
+        const isAbsolutePath = /^([a-zA-Z]:[\\/]|\/|\\)/.test(
+          configuredUninstaller,
         );
-        setInstalledGame(await findInstalledGame());
-        onUninstalled?.();
-        await showAlert({
-          title: "Game uninstalled",
-          affirmativeText: "OK",
-        });
-      } catch (error: any) {
-        await showAlert({
-          title: "Error",
-          description: error?.message || "Failed to run uninstall executable",
-          affirmativeText: "OK",
-        });
-      } finally {
-        setUninstalling(false);
+        const { join } = await import("@tauri-apps/api/path");
+        const { invoke } = await import("@tauri-apps/api/core");
+        const resolvedUninstaller = isAbsolutePath
+          ? configuredUninstaller
+          : await join(
+              installedGame.installationDirectory,
+              configuredUninstaller.replace(/\\/g, "/"),
+            );
+
+        if (
+          await invoke<boolean>("fs_path_exists", {
+            path: resolvedUninstaller,
+          })
+        ) {
+          await runUninstaller(resolvedUninstaller);
+          return;
+        }
       }
+
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        directory: false,
+        multiple: false,
+        defaultPath: installedGame.installationDirectory,
+        title: "Select Uninstall Executable",
+        filters: [
+          {
+            name: "Executables",
+            extensions: ["exe", "msi", "bat", "cmd", "com"],
+          },
+        ],
+      });
+
+      if (typeof selected !== "string" || !selected) return;
+
+      await runUninstaller(selected);
       return;
     }
 
@@ -628,9 +667,11 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   }, [
     findInstalledGame,
     installedGame,
+    onUninstalled,
     showAlert,
     updateInstallationFinishedFlag,
     workingGame.metadata?.title,
+    workingGame.metadata?.uninstaller_executable,
     workingGame.metadata?.uninstaller_parameters,
     workingGame.title,
   ]);
