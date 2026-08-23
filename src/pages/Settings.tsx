@@ -5,6 +5,7 @@ import { Input } from "@tw/input";
 import { useDownloads } from "@/context/DownloadContext";
 import { useIgnoreList } from "@/context/IgnoreListContext";
 import { useAppUpdater } from "@/context/AppUpdaterContext";
+import { useAlertDialog } from "@/context/AlertDialogContext";
 import { Switch } from "@tw/switch";
 import { Text } from "@/components/tailwind/text";
 import { useEffect, useRef, useState } from "react";
@@ -78,6 +79,7 @@ type SettingsCategory =
   | "privacy"
   | "appearance"
   | "desktop"
+  | "ignore"
   | "developer"
   | "about";
 
@@ -111,8 +113,13 @@ const CATEGORY_META: Record<
   },
   desktop: {
     label: "Desktop",
-    description: "Startup, ignored executables and updates",
+    description: "Startup and updates",
     icon: ComputerDesktopIcon,
+  },
+  ignore: {
+    label: "Ignore List",
+    description: "Files GameVault should skip completely",
+    icon: EyeSlashIcon,
   },
   developer: {
     label: "Developer Tools",
@@ -304,6 +311,7 @@ export default function Settings() {
   });
   const isTauri = isTauriApp();
   const { ignoreList, setIgnoreList } = useIgnoreList();
+  const { showAlert } = useAlertDialog();
   const {
     updateChannel,
     updaterEnabled,
@@ -556,7 +564,10 @@ export default function Settings() {
     }, 1500);
     if (versionClickCount.current >= 5) {
       versionClickCount.current = 0;
-      setDevToolsUnlocked(true);
+      if (!devToolsUnlocked) {
+        setDevToolsUnlocked(true);
+        void showAlert({ title: "Developer Tools unlocked" });
+      }
     }
   };
 
@@ -574,7 +585,7 @@ export default function Settings() {
     "library",
     "privacy",
     "appearance",
-    ...(isTauri ? (["desktop"] as SettingsCategory[]) : []),
+    ...(isTauri ? (["desktop", "ignore"] as SettingsCategory[]) : []),
     ...(import.meta.env.DEV || devToolsUnlocked
       ? (["developer"] as SettingsCategory[])
       : []),
@@ -897,7 +908,7 @@ export default function Settings() {
                   <SettingsSectionHeader
                     icon={ComputerDesktopIcon}
                     title="Desktop"
-                    description="Startup, ignored executables and updates."
+                    description="Startup and updates."
                   />
                   <SettingsGroup caption="Startup">
                     <SettingsRow>
@@ -943,59 +954,6 @@ export default function Settings() {
                         disabled={!autostartEnabled}
                         onChange={(v: boolean) => setStartMinimized(v)}
                       />
-                    </SettingsRow>
-                  </SettingsGroup>
-
-                  <SettingsGroup caption="Ignore List">
-                    {ignoreList.length === 0 && (
-                      <SettingsRow>
-                        <div className="flex items-center gap-2 text-sm text-gv-muted">
-                          <EyeSlashIcon className="size-4 shrink-0" />
-                          No files hidden yet. Add one below.
-                        </div>
-                      </SettingsRow>
-                    )}
-                    {ignoreList.map((name) => (
-                      <SettingsRow key={name}>
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-gv-text">
-                          {name}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveIgnore(name)}
-                          className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                          aria-label={`Remove ${name} from ignore list`}
-                        >
-                          <XMarkIcon className="size-4" />
-                        </button>
-                      </SettingsRow>
-                    ))}
-                    <SettingsRow>
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
-                        <Input
-                          type="text"
-                          value={newIgnore}
-                          onChange={(e: any) => setNewIgnore(e.target.value)}
-                          onKeyDown={(e: any) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              handleAddIgnore();
-                            }
-                          }}
-                          placeholder="e.g. setup"
-                          className="min-w-0 flex-1"
-                          aria-label="Executable name to ignore"
-                        />
-                        <Button
-                          type="button"
-                          color="indigo"
-                          className="shrink-0 px-3"
-                          onClick={handleAddIgnore}
-                        >
-                          <PlusIcon className="size-4" />
-                          Add
-                        </Button>
-                      </div>
                     </SettingsRow>
                   </SettingsGroup>
 
@@ -1095,33 +1053,96 @@ export default function Settings() {
                 </>
               )}
 
-              {activeCategory === "developer" && import.meta.env.DEV && (
+              {activeCategory === "ignore" && isTauri && (
                 <>
                   <SettingsSectionHeader
-                    icon={ExclamationTriangleIcon}
-                    title="Developer Tools"
-                    description="Tools for development. Hidden in production builds."
+                    icon={EyeSlashIcon}
+                    title="Ignore List"
+                    description="Manage the list of files GameVault ignores."
                   />
-                  <SettingsGroup>
+                  <SettingsGroup caption="Hidden executables">
+                    {ignoreList.length === 0 && (
+                      <SettingsRow>
+                        <div className="flex items-center gap-2 text-sm text-gv-muted">
+                          <EyeSlashIcon className="size-4 shrink-0" />
+                          No files hidden yet. Add one below.
+                        </div>
+                      </SettingsRow>
+                    )}
+                    {ignoreList.map((name) => (
+                      <SettingsRow key={name}>
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-gv-text">
+                          {name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveIgnore(name)}
+                          className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                          aria-label={`Remove ${name} from ignore list`}
+                        >
+                          <XMarkIcon className="size-4" />
+                        </button>
+                      </SettingsRow>
+                    ))}
                     <SettingsRow>
-                      <SettingsLabel
-                        title="Simulate Desktop App"
-                        description="Preview how GameVault looks and behaves as a native desktop application."
-                      />
-                      <Switch
-                        name="simulateDesktop"
-                        color="indigo"
-                        aria-label="Simulate Tauri desktop app mode"
-                        checked={isDebugTauriOverride()}
-                        onChange={(v: boolean) => {
-                          setDebugTauriOverride(v);
-                          window.location.reload();
-                        }}
-                      />
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <Input
+                          type="text"
+                          value={newIgnore}
+                          onChange={(e: any) => setNewIgnore(e.target.value)}
+                          onKeyDown={(e: any) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddIgnore();
+                            }
+                          }}
+                          placeholder="e.g. setup"
+                          className="min-w-0 flex-1"
+                          aria-label="Executable name to ignore"
+                        />
+                        <Button
+                          type="button"
+                          color="indigo"
+                          className="shrink-0 px-3"
+                          onClick={handleAddIgnore}
+                        >
+                          <PlusIcon className="size-4" />
+                          Add
+                        </Button>
+                      </div>
                     </SettingsRow>
                   </SettingsGroup>
                 </>
               )}
+
+              {activeCategory === "developer" &&
+                (import.meta.env.DEV || devToolsUnlocked) && (
+                  <>
+                    <SettingsSectionHeader
+                      icon={ExclamationTriangleIcon}
+                      title="Developer Tools"
+                      description="Tools for development. Hidden in production builds."
+                    />
+                    <SettingsGroup>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Simulate Desktop App"
+                          description="Preview how GameVault looks and behaves as a native desktop application."
+                        />
+                        <Switch
+                          name="simulateDesktop"
+                          color="indigo"
+                          aria-label="Simulate Tauri desktop app mode"
+                          checked={isDebugTauriOverride()}
+                          onChange={(v: boolean) => {
+                            setDebugTauriOverride(v);
+                            window.location.reload();
+                          }}
+                        />
+                      </SettingsRow>
+                    </SettingsGroup>
+                  </>
+                )}
 
               {activeCategory === "about" && (
                 <>
