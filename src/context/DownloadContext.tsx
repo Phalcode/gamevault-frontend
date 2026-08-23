@@ -12,10 +12,7 @@ import { useOnlineStatus } from "./OfflineContext";
 import { useServerStatus } from "@/hooks/useServerStatus";
 import { isTauriApp } from "@/utils/tauri";
 import { onGameUpdated } from "@/utils/gameUpdates";
-import {
-  getServerNamespace,
-  resolveApiMediaBlob,
-} from "@/utils/mediaCache";
+import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import type { GameMetadata } from "@/api/models/GameMetadata";
 import type {
@@ -24,12 +21,7 @@ import type {
 } from "@/api/models/GamevaultGame";
 
 type InstallationStatus =
-  | "idle"
-  | "copying"
-  | "launching"
-  | "running"
-  | "completed"
-  | "error";
+  "idle" | "copying" | "launching" | "running" | "completed" | "error";
 
 export interface ActiveDownload {
   gameId: number;
@@ -55,11 +47,7 @@ export interface ActiveDownload {
   error?: string;
   cachedMetadata?: Record<string, any> | null;
   extractionStatus?:
-    | "idle"
-    | "extracting"
-    | "completed"
-    | "error"
-    | "needs-password";
+    "idle" | "extracting" | "completed" | "error" | "needs-password";
   extractionProgress?: number | null;
   extractionCurrentFile?: string;
   extractionError?: string;
@@ -71,6 +59,9 @@ export interface ActiveDownload {
   installationExitCode?: number | null;
   fileWriter?: { close(): Promise<void>; abort(): Promise<void> };
 }
+
+export type SimulatedDownloadKind =
+  "downloading" | "paused" | "error" | "aborted" | "completed" | "installing";
 
 interface DownloadContextValue {
   downloads: Record<number, ActiveDownload>;
@@ -100,6 +91,8 @@ interface DownloadContextValue {
   resetInstallationState: (gameId: number) => void;
   speedLimitKB: number;
   setSpeedLimitKB: (v: number) => void;
+  /** Dev-only: inject a fake download card to preview UI states */
+  simulateDownload: (kind: SimulatedDownloadKind) => void;
   formatBytes: (bytes: number) => string;
   formatSpeed: (bps?: number) => string;
   formatKBps: (bps?: number) => string;
@@ -198,6 +191,117 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // ── Simulated (debug) downloads ────────────────────────────────────────────
+  // Fake cards are keyed by negative game IDs so they are excluded from
+  // real backend polling (downloadGameIdsKey filters gameId > 0).
+  const simulatedTimersRef = useRef<
+    Record<number, ReturnType<typeof setInterval>>
+  >({});
+
+  const clearSimulatedTimer = useCallback((gameId: number) => {
+    const timer = simulatedTimersRef.current[gameId];
+    if (timer) {
+      clearInterval(timer);
+      delete simulatedTimersRef.current[gameId];
+    }
+  }, []);
+
+  const startSimulatedProgress = useCallback(
+    (gameId: number, total: number) => {
+      clearSimulatedTimer(gameId);
+      const timer = setInterval(() => {
+        setDownloads((prev) => {
+          const d = prev[gameId];
+          if (!d || d.status !== "downloading") return prev;
+          const received = Math.min(total, (d.received ?? 0) + 5 * 1024 * 1024);
+          const progress = total > 0 ? (received / total) * 100 : 0;
+          if (received >= total) {
+            clearSimulatedTimer(gameId);
+            return {
+              ...prev,
+              [gameId]: {
+                ...d,
+                received,
+                progress,
+                status: "completed",
+                speedBps: undefined,
+                extractionStatus: "idle",
+                installationStatus: "idle",
+              },
+            };
+          }
+          return {
+            ...prev,
+            [gameId]: {
+              ...d,
+              received,
+              progress,
+              speedBps: 8_000_000 + Math.random() * 6_000_000,
+            },
+          };
+        });
+      }, 500);
+      simulatedTimersRef.current[gameId] = timer;
+    },
+    [clearSimulatedTimer],
+  );
+
+  const simulateDownload = useCallback(
+    (kind: SimulatedDownloadKind) => {
+      const gameId = -Math.floor(performance.now());
+      const total = 100 * 1024 * 1024;
+      const base: ActiveDownload = {
+        gameId,
+        versionId: 1,
+        gameTitle: "Simulated Game",
+        filename: `simulated-${kind}-${-gameId}.zip`,
+        total,
+        received:
+          kind === "completed" || kind === "installing"
+            ? total
+            : kind === "paused"
+              ? 52_428_800
+              : kind === "error" || kind === "aborted"
+                ? 20_000_000
+                : 0,
+        progress:
+          kind === "completed" || kind === "installing"
+            ? 100
+            : kind === "paused"
+              ? 50
+              : kind === "error" || kind === "aborted"
+                ? 19.1
+                : 0,
+        abortController: new AbortController(),
+        startedAt: Date.now(),
+        status:
+          kind === "installing"
+            ? "completed"
+            : (kind as ActiveDownload["status"]),
+        speedBps: kind === "downloading" ? 12_582_912 : undefined,
+        extractionStatus:
+          kind === "completed" || kind === "installing" ? "completed" : "idle",
+        installationStatus:
+          kind === "installing"
+            ? "copying"
+            : kind === "completed"
+              ? "completed"
+              : "idle",
+        ...(kind === "installing"
+          ? { installationProgress: 0, installationCurrentFile: "setup.exe" }
+          : {}),
+        ...(kind === "error"
+          ? { error: "Simulated network error — no bytes received (debug)." }
+          : {}),
+      };
+      setDownloads((prev) => ({ ...prev, [gameId]: base }));
+      if (kind === "downloading") {
+        startSimulatedProgress(gameId, total);
+      }
+    },
+    [startSimulatedProgress],
+  );
+
   const applyDefaultLaunchConfig = useCallback(async (d: ActiveDownload) => {
     if (!d.versionDirectory || !d.installationDirectory) return;
     const { join } = await import("@tauri-apps/api/path");
@@ -223,11 +327,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     if (current.launchexecutable) return;
 
     const metaExe = (d.gameMetadata as any)?.launch_executable as
-      | string
-      | undefined;
+      string | undefined;
     const metaParams = (d.gameMetadata as any)?.launch_parameters as
-      | string
-      | undefined;
+      string | undefined;
 
     let resolvedExe: string | undefined;
     if (metaExe && metaExe.trim()) {
@@ -359,8 +461,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           if (!existing) continue;
           next[game.id] = {
             ...existing,
-            gameTitle:
-              game.metadata?.title || game.title || existing.gameTitle,
+            gameTitle: game.metadata?.title || game.title || existing.gameTitle,
             gameMetadata: game.metadata,
           };
         }
@@ -486,37 +587,41 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [serverInfo, serverUrl],
   );
 
-  const cancelDownload = useCallback((gameId: number) => {
-    if (isTauriApp()) {
-      import("@tauri-apps/api/core")
-        .then(({ invoke }) => invoke("cancel_download_task", { gameId }))
-        .catch(() => {});
-    }
-    setDownloads((prev) => {
-      const d = prev[gameId];
-      if (!d) return prev;
-      d.abortController.abort();
-      if (d.fileWriter) {
-        d.fileWriter.abort().catch(() => {});
+  const cancelDownload = useCallback(
+    (gameId: number) => {
+      clearSimulatedTimer(gameId);
+      if (isTauriApp()) {
+        import("@tauri-apps/api/core")
+          .then(({ invoke }) => invoke("cancel_download_task", { gameId }))
+          .catch(() => {});
       }
-      return {
-        ...prev,
-        [gameId]: {
-          ...d,
-          status: "aborted",
-          received: 0,
-          total: null,
-          progress: 0,
-          speedBps: undefined,
-        },
-      };
-    });
-    const stop = tauriUnlistenRef.current[gameId];
-    if (stop) {
-      stop();
-      delete tauriUnlistenRef.current[gameId];
-    }
-  }, []);
+      setDownloads((prev) => {
+        const d = prev[gameId];
+        if (!d) return prev;
+        d.abortController.abort();
+        if (d.fileWriter) {
+          d.fileWriter.abort().catch(() => {});
+        }
+        return {
+          ...prev,
+          [gameId]: {
+            ...d,
+            status: "aborted",
+            received: 0,
+            total: null,
+            progress: 0,
+            speedBps: undefined,
+          },
+        };
+      });
+      const stop = tauriUnlistenRef.current[gameId];
+      if (stop) {
+        stop();
+        delete tauriUnlistenRef.current[gameId];
+      }
+    },
+    [clearSimulatedTimer],
+  );
 
   const lastUpdateRef = useRef<Record<number, number>>({});
   const lastConfigWriteRef = useRef<Record<number, number>>({});
@@ -524,10 +629,18 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const tauriExtractUnlistenRef = useRef<Record<number, () => void>>({});
   const tauriInstallCopyUnlistenRef = useRef<Record<number, () => void>>({});
   const tauriInstallerUnlistenRef = useRef<Record<number, () => void>>({});
-  const extractArchiveRef = useRef<((gameId: number, password?: string) => Promise<void>) | null>(null);
-  const copyInstallationFilesRef = useRef<((gameId: number) => Promise<void>) | null>(null);
-  const listInstallExecutablesRef = useRef<((gameId: number) => Promise<string[]>) | null>(null);
-  const launchInstallationExecutableRef = useRef<((gameId: number, installerRelativePath: string) => Promise<void>) | null>(null);
+  const extractArchiveRef = useRef<
+    ((gameId: number, password?: string) => Promise<void>) | null
+  >(null);
+  const copyInstallationFilesRef = useRef<
+    ((gameId: number) => Promise<void>) | null
+  >(null);
+  const listInstallExecutablesRef = useRef<
+    ((gameId: number) => Promise<string[]>) | null
+  >(null);
+  const launchInstallationExecutableRef = useRef<
+    ((gameId: number, installerRelativePath: string) => Promise<void>) | null
+  >(null);
 
   const startDownload = useCallback(
     async ({
@@ -623,8 +736,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             sanitizeFolderName(gameTitle) || `Game-${gameId}`;
           const resolvedVersionName =
             sanitizeFolderName(versionName ?? "") || "Unknown Version";
-          const legacyVersionFolderName =
-            `(${versionId}) ${resolvedVersionName}`;
+          const legacyVersionFolderName = `(${versionId}) ${resolvedVersionName}`;
 
           const gameVaultRoot = await join(downloadPath, "GameVault");
           const gameFolderPath = await join(gameVaultRoot, gameFolderName);
@@ -839,9 +951,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                   localStorage.getItem("tauri_auto_extract") === "1"
                 ) {
                   setTimeout(() => {
-                    extractArchiveRef.current?.(gameId).catch((e: any) =>
-                      console.error("Auto-extract failed:", e),
-                    );
+                    extractArchiveRef
+                      .current?.(gameId)
+                      .catch((e: any) =>
+                        console.error("Auto-extract failed:", e),
+                      );
                   }, 50);
                 }
               } catch {
@@ -1082,6 +1196,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     (gameId: number) => {
       const d = downloads[gameId];
       if (!d || d.status !== "downloading") return;
+      if (gameId < 0) {
+        clearSimulatedTimer(gameId);
+        updateDownload(gameId, { status: "paused", speedBps: undefined });
+        return;
+      }
       if (isTauriApp()) {
         import("@tauri-apps/api/core")
           .then(({ invoke }) => invoke("pause_download_task", { gameId }))
@@ -1095,13 +1214,23 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         speedBps: undefined,
       });
     },
-    [downloads, updateDownload],
+    [downloads, updateDownload, clearSimulatedTimer],
   );
 
   const resumeDownload = useCallback(
     (gameId: number) => {
       const d = downloads[gameId];
       if (!d || (d.status !== "paused" && d.status !== "aborted")) return;
+      if (gameId < 0) {
+        const total = d.total ?? 100 * 1024 * 1024;
+        updateDownload(gameId, {
+          status: "downloading",
+          received: d.received ?? 0,
+          total,
+        });
+        startSimulatedProgress(gameId, total);
+        return;
+      }
       void startDownload({
         gameId: d.gameId,
         versionId: d.versionId,
@@ -1113,13 +1242,15 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         resumePosition: d.received > 0 ? d.received : 0,
       });
     },
-    [downloads, startDownload],
+    [downloads, startDownload, startSimulatedProgress, updateDownload],
   );
 
   const deleteDownloadCard = useCallback(
     async (gameId: number) => {
       const d = downloads[gameId];
       if (!d) return;
+
+      clearSimulatedTimer(gameId);
 
       if (d.versionDirectory) {
         try {
@@ -1219,13 +1350,27 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         return next;
       });
     },
-    [downloads, writeVersionConfig],
+    [downloads, writeVersionConfig, clearSimulatedTimer],
   );
 
   const retryDownload = useCallback(
     (gameId: number) => {
       const d = downloads[gameId];
       if (!d) return;
+      if (gameId < 0) {
+        const total = d.total ?? 100 * 1024 * 1024;
+        clearSimulatedTimer(gameId);
+        updateDownload(gameId, {
+          status: "downloading",
+          received: 0,
+          progress: 0,
+          error: undefined,
+          total,
+          speedBps: 12_582_912,
+        });
+        startSimulatedProgress(gameId, total);
+        return;
+      }
       void startDownload({
         gameId: d.gameId,
         versionId: d.versionId,
@@ -1237,7 +1382,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         downloadRootPath: d.downloadRootPath,
       });
     },
-    [downloads, startDownload],
+    [
+      downloads,
+      startDownload,
+      clearSimulatedTimer,
+      updateDownload,
+      startSimulatedProgress,
+    ],
   );
 
   const openDownloadFolder = useCallback(
@@ -1317,14 +1468,18 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
                 if (isPortable) {
                   setTimeout(() => {
-                    copyInstallationFilesRef.current?.(gameId).catch((e: any) =>
-                      console.error("Auto-install (portable) failed:", e),
-                    );
+                    copyInstallationFilesRef
+                      .current?.(gameId)
+                      .catch((e: any) =>
+                        console.error("Auto-install (portable) failed:", e),
+                      );
                   }, 50);
                 } else if (isSetup) {
                   setTimeout(async () => {
                     try {
-                      const candidates = await listInstallExecutablesRef.current?.(gameId) ?? [];
+                      const candidates =
+                        (await listInstallExecutablesRef.current?.(gameId)) ??
+                        [];
                       if (candidates.length > 0) {
                         await launchInstallationExecutableRef.current?.(
                           gameId,
@@ -1818,13 +1973,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                   ? "completed"
                   : card.status === "paused"
                     ? "paused"
-                  : card.status === "error"
-                    ? "error"
-                    : "aborted",
+                    : card.status === "error"
+                      ? "error"
+                      : "aborted",
               extractionStatus:
-                card.extractionStatus === "completed"
-                  ? "completed"
-                  : "idle",
+                card.extractionStatus === "completed" ? "completed" : "idle",
               extractionProgress:
                 card.extractionProgress !== undefined &&
                 card.extractionProgress !== null
@@ -1897,7 +2050,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         const rootPaths = getRootPaths();
         const knownIds = new Set<number>();
         for (const root of rootPaths) {
-          const installed = await invoke<any[]>("list_installed_games", { selectedRoot: root.path }).catch(() => [] as any[]);
+          const installed = await invoke<any[]>("list_installed_games", {
+            selectedRoot: root.path,
+          }).catch(() => [] as any[]);
           for (const g of installed) {
             const id = g.gameId ?? g.game_id ?? 0;
             if (id > 0) knownIds.add(id);
@@ -1988,6 +2143,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     resetInstallationState,
     speedLimitKB,
     setSpeedLimitKB,
+    simulateDownload,
     formatBytes,
     formatSpeed,
     formatKBps,

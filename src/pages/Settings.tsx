@@ -2,8 +2,12 @@ import clsx from "clsx";
 import { Divider } from "@tw/divider";
 import { Heading } from "@tw/heading";
 import { Input, InputGroup } from "@tw/input";
-import { useDownloads } from "@/context/DownloadContext";
+import {
+  useDownloads,
+  type SimulatedDownloadKind,
+} from "@/context/DownloadContext";
 import { useIgnoreList } from "@/context/IgnoreListContext";
+import { useOnlineStatus } from "@/context/OfflineContext";
 import { useAppUpdater } from "@/context/AppUpdaterContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { Switch } from "@tw/switch";
@@ -48,6 +52,7 @@ import {
   InformationCircleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ClipboardDocumentIcon,
   PlusIcon,
   PencilSquareIcon,
   MagnifyingGlassIcon,
@@ -60,6 +65,20 @@ const AUTOSTART_MINIMIZED_KEY = "tauri_start_minimized";
 const AUTO_EXTRACT_KEY = "tauri_auto_extract";
 const AUTO_INSTALL_KEY = "tauri_auto_install";
 const AUTO_DELETE_SOURCE_KEY = "tauri_auto_delete_source";
+
+const SENSITIVE_KEY_PATTERN = /token|password|secret|auth|refresh|credential/i;
+
+const SIMULATED_DOWNLOAD_KINDS: {
+  kind: SimulatedDownloadKind;
+  label: string;
+}[] = [
+  { kind: "downloading", label: "Downloading" },
+  { kind: "paused", label: "Paused" },
+  { kind: "error", label: "Error" },
+  { kind: "aborted", label: "Aborted" },
+  { kind: "completed", label: "Completed" },
+  { kind: "installing", label: "Installing" },
+];
 
 interface ThirdPartyLicense {
   name: string;
@@ -114,8 +133,8 @@ const CATEGORY_META: Record<
     icon: SwatchIcon,
   },
   desktop: {
-    label: "Desktop",
-    description: "Startup and updates",
+    label: "Startup",
+    description: "How GameVault starts and behaves at launch.",
     icon: ComputerDesktopIcon,
   },
   ignore: {
@@ -125,7 +144,7 @@ const CATEGORY_META: Record<
   },
   developer: {
     label: "Developer Tools",
-    description: "Tools for development. Hidden in production builds.",
+    description: "Tools for development.",
     icon: WrenchIcon,
   },
   about: {
@@ -264,8 +283,13 @@ function AboutLinkRow({
 }
 
 export default function Settings() {
-  const { speedLimitKB, setSpeedLimitKB, formatSpeed, formatLimit } =
-    useDownloads() as any;
+  const {
+    speedLimitKB,
+    setSpeedLimitKB,
+    formatSpeed,
+    formatLimit,
+    simulateDownload,
+  } = useDownloads() as any;
   const kbValue = speedLimitKB;
   const [retainLibraryPrefs, setRetainLibraryPrefs] = useState<boolean>(() => {
     try {
@@ -313,6 +337,7 @@ export default function Settings() {
   });
   const isTauri = isTauriApp();
   const { ignoreList, setIgnoreList } = useIgnoreList();
+  const { forceOffline, setForceOffline } = useOnlineStatus();
   const { showAlert } = useAlertDialog();
   const {
     updateChannel,
@@ -527,6 +552,52 @@ export default function Settings() {
 
   const handleRemoveIgnore = async (name: string) => {
     await setIgnoreList(ignoreList.filter((existing) => existing !== name));
+  };
+
+  const handleCopySettingsDump = async () => {
+    const settings: Record<string, string | null> = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        settings[key] = SENSITIVE_KEY_PATTERN.test(key)
+          ? "[redacted]"
+          : localStorage.getItem(key);
+      }
+    } catch {
+      // localStorage unavailable
+    }
+    const dump = JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        platform: isTauri ? "desktop" : "web",
+        version: __APP_VERSION__,
+        settings,
+      },
+      null,
+      2,
+    );
+    try {
+      await navigator.clipboard.writeText(dump);
+      await showAlert({ title: "Settings dump copied to clipboard" });
+    } catch {
+      try {
+        const blob = new Blob([dump], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `gamevault-settings-${new Date()
+          .toISOString()
+          .slice(0, 10)}.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        await showAlert({ title: "Settings dump downloaded as JSON" });
+      } catch {
+        await showAlert({ title: "Couldn't export settings dump" });
+      }
+    }
   };
 
   const ignoreQuery = ignoreSearch.trim().toLowerCase();
@@ -937,10 +1008,10 @@ export default function Settings() {
                   <>
                     <SettingsSectionHeader
                       icon={ComputerDesktopIcon}
-                      title="Desktop"
-                      description="Startup and updates."
+                      title="Startup"
+                      description="How GameVault starts and behaves at launch."
                     />
-                    <SettingsGroup caption="Startup">
+                    <SettingsGroup caption="On startup">
                       <SettingsRow>
                         <SettingsLabel
                           title="Launch GameVault on Computer Startup"
@@ -986,102 +1057,6 @@ export default function Settings() {
                         />
                       </SettingsRow>
                     </SettingsGroup>
-
-                    <SettingsGroup caption="Updates">
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Installed version"
-                          description="The build you are currently running."
-                        />
-                        <span className="inline-flex shrink-0 items-center rounded-md bg-gv-panel-soft px-2 py-1 font-mono text-xs text-gv-text ring-1 ring-gv-line">
-                          v{__APP_VERSION__}
-                        </span>
-                      </SettingsRow>
-
-                      {availableVersion && !isInstallingUpdate && (
-                        <SettingsRow>
-                          <SettingsLabel
-                            title="Available update"
-                            description="A newer version is available for this channel."
-                          />
-                          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-gv-accent/15 px-2 py-1 font-mono text-xs font-medium text-gv-accent-strong ring-1 ring-gv-accent/25">
-                            <SparklesIcon className="size-3.5" />v
-                            {availableVersion}
-                          </span>
-                        </SettingsRow>
-                      )}
-
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Update channel"
-                          description="Choose which kind of releases you receive."
-                        />
-                        <div className="w-36 shrink-0">
-                          <Listbox
-                            name="updateChannel"
-                            value={updateChannel}
-                            onChange={setUpdateChannel}
-                          >
-                            <ListboxOption value="stable">
-                              <ListboxLabel>Stable</ListboxLabel>
-                            </ListboxOption>
-                            <ListboxOption value="unstable">
-                              <ListboxLabel>Unstable</ListboxLabel>
-                            </ListboxOption>
-                          </Listbox>
-                        </div>
-                      </SettingsRow>
-
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Auto-update status"
-                          description={
-                            updaterErrorText
-                              ? updaterErrorText
-                              : updaterStatusText ||
-                                (updaterReady
-                                  ? updaterEnabled
-                                    ? `Enabled for the ${updateChannel} channel.`
-                                    : "Not configured for this build yet."
-                                  : "Checking availability...")
-                          }
-                        />
-                        {updaterErrorText ? (
-                          <ExclamationTriangleIcon className="size-4 shrink-0 text-red-400" />
-                        ) : (
-                          <span
-                            className={clsx(
-                              "size-2.5 shrink-0 rounded-full",
-                              updaterEnabled
-                                ? "bg-gv-success"
-                                : "bg-gv-muted/60",
-                            )}
-                          />
-                        )}
-                      </SettingsRow>
-                    </SettingsGroup>
-
-                    <Button
-                      type="button"
-                      color="indigo"
-                      disabled={
-                        !updaterReady || isCheckingUpdates || isInstallingUpdate
-                      }
-                      onClick={() => void checkForUpdates({ manual: true })}
-                    >
-                      <ArrowPathIcon
-                        className={
-                          isCheckingUpdates
-                            ? "size-4 animate-spin motion-reduce:animate-none"
-                            : "size-4"
-                        }
-                      />
-                      {isCheckingUpdates
-                        ? "Checking..."
-                        : isInstallingUpdate
-                          ? "Updating..."
-                          : "Check for updates"}
-                    </Button>
                   </>
                 )}
 
@@ -1189,7 +1164,7 @@ export default function Settings() {
                       <SettingsSectionHeader
                         icon={ExclamationTriangleIcon}
                         title="Developer Tools"
-                        description="Tools for development. Hidden in production builds."
+                        description="Tools for development."
                       />
                       <SettingsGroup>
                         <SettingsRow>
@@ -1207,6 +1182,95 @@ export default function Settings() {
                               window.location.reload();
                             }}
                           />
+                        </SettingsRow>
+                      </SettingsGroup>
+
+                      <SettingsGroup caption="Network">
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Simulate Network Outage"
+                            description="Force an offline state to test error banners, retries and reconnection. Persists until you disable it."
+                          />
+                          <Switch
+                            name="simulateOutage"
+                            color="indigo"
+                            aria-label="Simulate network outage"
+                            checked={forceOffline}
+                            onChange={(v: boolean) => setForceOffline(v)}
+                          />
+                        </SettingsRow>
+                      </SettingsGroup>
+
+                      <SettingsGroup caption="Downloads">
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Simulate Download Status"
+                            description="Adds a fake card to the Downloads page so you can preview each state without a real download."
+                          />
+                        </SettingsRow>
+                        <SettingsRow>
+                          <div className="flex flex-wrap gap-2">
+                            {SIMULATED_DOWNLOAD_KINDS.map(({ kind, label }) => (
+                              <Button
+                                key={kind}
+                                type="button"
+                                color="zinc"
+                                className="px-3"
+                                onClick={() => simulateDownload(kind)}
+                              >
+                                {label}
+                              </Button>
+                            ))}
+                          </div>
+                        </SettingsRow>
+                      </SettingsGroup>
+
+                      <SettingsGroup caption="Build Info">
+                        <SettingsRow>
+                          <SettingsLabel title="Version" />
+                          <span className="shrink-0 font-mono text-xs text-gv-text">
+                            {__APP_VERSION__}
+                          </span>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel title="Commit" />
+                          <span className="shrink-0 font-mono text-xs text-gv-muted">
+                            {__BUILD_COMMIT__}
+                          </span>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel title="Channel" />
+                          <span className="shrink-0 font-mono text-xs text-gv-muted">
+                            {__BUILD_CHANNEL__}
+                          </span>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel title="Environment" />
+                          <span className="shrink-0 font-mono text-xs text-gv-muted">
+                            {import.meta.env.MODE} ·{" "}
+                            {import.meta.env.PROD
+                              ? "production"
+                              : "development"}{" "}
+                            · {isTauri ? "desktop" : "web"}
+                          </span>
+                        </SettingsRow>
+                      </SettingsGroup>
+
+                      <SettingsGroup caption="Diagnostics">
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Copy Settings Dump"
+                            description="Copies all local preferences (sensitive values redacted) to the clipboard as JSON for bug reports."
+                          />
+                          <Button
+                            type="button"
+                            color="indigo"
+                            className="shrink-0"
+                            onClick={() => void handleCopySettingsDump()}
+                          >
+                            <ClipboardDocumentIcon className="size-4" />
+                            Copy
+                          </Button>
                         </SettingsRow>
                       </SettingsGroup>
                     </>
@@ -1296,6 +1360,98 @@ export default function Settings() {
                         </span>
                       </button>
                     </SettingsGroup>
+
+                    {isTauri && (
+                      <>
+                        <SettingsGroup caption="Updates">
+                          {availableVersion && !isInstallingUpdate && (
+                            <SettingsRow>
+                              <SettingsLabel
+                                title="Available update"
+                                description="A newer version is available for this channel."
+                              />
+                              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-gv-accent/15 px-2 py-1 font-mono text-xs font-medium text-gv-accent-strong ring-1 ring-gv-accent/25">
+                                <SparklesIcon className="size-3.5" />v
+                                {availableVersion}
+                              </span>
+                            </SettingsRow>
+                          )}
+
+                          <SettingsRow>
+                            <SettingsLabel
+                              title="Update channel"
+                              description="Choose which kind of releases you receive."
+                            />
+                            <div className="w-36 shrink-0">
+                              <Listbox
+                                name="updateChannel"
+                                value={updateChannel}
+                                onChange={setUpdateChannel}
+                              >
+                                <ListboxOption value="stable">
+                                  <ListboxLabel>Stable</ListboxLabel>
+                                </ListboxOption>
+                                <ListboxOption value="unstable">
+                                  <ListboxLabel>Unstable</ListboxLabel>
+                                </ListboxOption>
+                              </Listbox>
+                            </div>
+                          </SettingsRow>
+
+                          <SettingsRow>
+                            <SettingsLabel
+                              title="Auto-update status"
+                              description={
+                                updaterErrorText
+                                  ? updaterErrorText
+                                  : updaterStatusText ||
+                                    (updaterReady
+                                      ? updaterEnabled
+                                        ? `Enabled for the ${updateChannel} channel.`
+                                        : "Not configured for this build yet."
+                                      : "Checking availability...")
+                              }
+                            />
+                            {updaterErrorText ? (
+                              <ExclamationTriangleIcon className="size-4 shrink-0 text-red-400" />
+                            ) : (
+                              <span
+                                className={clsx(
+                                  "size-2.5 shrink-0 rounded-full",
+                                  updaterEnabled
+                                    ? "bg-gv-success"
+                                    : "bg-gv-muted/60",
+                                )}
+                              />
+                            )}
+                          </SettingsRow>
+                        </SettingsGroup>
+
+                        <Button
+                          type="button"
+                          color="indigo"
+                          disabled={
+                            !updaterReady ||
+                            isCheckingUpdates ||
+                            isInstallingUpdate
+                          }
+                          onClick={() => void checkForUpdates({ manual: true })}
+                        >
+                          <ArrowPathIcon
+                            className={
+                              isCheckingUpdates
+                                ? "size-4 animate-spin motion-reduce:animate-none"
+                                : "size-4"
+                            }
+                          />
+                          {isCheckingUpdates
+                            ? "Checking..."
+                            : isInstallingUpdate
+                              ? "Updating..."
+                              : "Check for updates"}
+                        </Button>
+                      </>
+                    )}
                   </>
                 )}
               </motion.div>

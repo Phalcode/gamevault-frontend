@@ -22,6 +22,9 @@ interface OfflineContextValue {
   checkNow: () => void;
   /** Registered callbacks invoked when transitioning offline → online */
   onReconnect: (cb: () => void) => () => void;
+  /** Dev-only: simulate a network outage (forces offline state on/off) */
+  forceOffline: boolean;
+  setForceOffline: (enabled: boolean) => void;
 }
 
 const OfflineCtx = createContext<OfflineContextValue>({
@@ -30,6 +33,8 @@ const OfflineCtx = createContext<OfflineContextValue>({
   lastOnlineAt: null,
   checkNow: () => {},
   onReconnect: () => () => {},
+  forceOffline: false,
+  setForceOffline: () => {},
 });
 
 // ── Provider ─────────────────────────────────────────────────────────────────
@@ -40,6 +45,31 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const [isChecking, setIsChecking] = useState(false);
   const [lastOnlineAt, setLastOnlineAt] = useState<number | null>(null);
   const [serverUrl, setServerUrl] = useState<string | null>(null);
+  const [forceOffline, setForceOfflineState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("gv_force_offline") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  const setForceOffline = useCallback((enabled: boolean) => {
+    try {
+      if (enabled) {
+        localStorage.setItem("gv_force_offline", "1");
+      } else {
+        localStorage.removeItem("gv_force_offline");
+      }
+    } catch {
+      // localStorage unavailable
+    }
+    setForceOfflineState(enabled);
+    // When restoring connectivity in web mode there is no poller to
+    // re-check, so optimistically assume we are back online.
+    if (!enabled && !isTauriApp()) {
+      setIsOnline(true);
+    }
+  }, []);
 
   const reconnectCallbacksRef = useRef<Set<() => void>>(new Set());
   const wasOfflineRef = useRef(false);
@@ -48,6 +78,13 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
   // Keep ref in sync with state so polling closure always sees latest
   isOnlineRef.current = isOnline;
+
+  // Force offline state while the outage simulation is active
+  useEffect(() => {
+    if (forceOffline) {
+      setIsOnline(false);
+    }
+  }, [forceOffline]);
 
   // Read server URL from localStorage (same key as AuthContext)
   useEffect(() => {
@@ -62,6 +99,11 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
     const checkStatus = async () => {
       setIsChecking(true);
+      if (forceOffline) {
+        setIsOnline(false);
+        setIsChecking(false);
+        return;
+      }
       try {
         const res = await fetch(`${serverUrl}/api/status`, {
           signal: AbortSignal.timeout(8000),
@@ -71,7 +113,9 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         }
         if (!isOnlineRef.current) {
           // Transition: offline → online
-          console.log("[offline] transition: OFFLINE → ONLINE, firing reconnect callbacks");
+          console.log(
+            "[offline] transition: OFFLINE → ONLINE, firing reconnect callbacks",
+          );
           wasOfflineRef.current = true;
         }
         setIsOnline(true);
@@ -99,12 +143,15 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         intervalRef.current = null;
       }
     };
-  }, [isTauri, serverUrl]);
+  }, [isTauri, serverUrl, forceOffline]);
 
   // Fire reconnect callbacks when transitioning offline → online
   useEffect(() => {
     if (isOnline && wasOfflineRef.current) {
-      console.log("[offline] reconnect effect firing, callbacks:", reconnectCallbacksRef.current.size);
+      console.log(
+        "[offline] reconnect effect firing, callbacks:",
+        reconnectCallbacksRef.current.size,
+      );
       wasOfflineRef.current = false;
       reconnectCallbacksRef.current.forEach((cb) => {
         try {
@@ -117,7 +164,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   }, [isOnline]);
 
   const checkNow = useCallback(() => {
-    if (!serverUrl) return;
+    if (!serverUrl || forceOffline) return;
     setIsChecking(true);
     fetch(`${serverUrl}/api/status`, {
       signal: AbortSignal.timeout(8000),
@@ -130,7 +177,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         setIsOnline(false);
       })
       .finally(() => setIsChecking(false));
-  }, [serverUrl]);
+  }, [serverUrl, forceOffline]);
 
   const onReconnect = useCallback((cb: () => void) => {
     reconnectCallbacksRef.current.add(cb);
@@ -141,7 +188,15 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
   return (
     <OfflineCtx.Provider
-      value={{ isOnline, isChecking, lastOnlineAt, checkNow, onReconnect }}
+      value={{
+        isOnline,
+        isChecking,
+        lastOnlineAt,
+        checkNow,
+        onReconnect,
+        forceOffline,
+        setForceOffline,
+      }}
     >
       {children}
     </OfflineCtx.Provider>
