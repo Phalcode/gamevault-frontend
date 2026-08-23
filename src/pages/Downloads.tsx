@@ -394,7 +394,7 @@ export default function Downloads() {
                 </div>
                 <div className="relative w-full h-2 bg-gv-line rounded-full overflow-hidden">
                   <div
-                    className="absolute left-0 top-0 h-full bg-gv-accent transition-all duration-300"
+                    className="absolute left-0 top-0 h-full bg-gv-accent transition-[width] duration-300"
                     style={{ width: `${download.installationProgress ?? 0}%` }}
                   />
                 </div>
@@ -585,7 +585,7 @@ export default function Downloads() {
 
       {downloadArray.length > 0 && (
         <div className="space-y-4">
-          {downloadArray.map((download) => {
+          {downloadArray.map((download, index) => {
             const installView = installStateByGame[download.gameId];
             const installViewOpen = Boolean(installView);
             const downloadStep = getDownloadStepState(download.status);
@@ -605,7 +605,8 @@ export default function Downloads() {
             return (
               <div
                 key={download.gameId}
-                className="surface-panel relative rounded-2xl p-4 sm:p-5"
+                className="surface-panel relative rounded-2xl p-4 sm:p-5 animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none"
+                style={{ animationDelay: `${Math.min(index * 0.05, 0.3)}s` }}
               >
                 <div className="flex flex-col items-start gap-4 sm:flex-row">
                   <div className="shrink-0">
@@ -708,7 +709,7 @@ export default function Downloads() {
                       download.status === "paused") && (
                       <div className="relative w-full h-2 bg-gv-line rounded-full overflow-hidden">
                         <div
-                          className="absolute left-0 top-0 h-full bg-gv-accent transition-all duration-300"
+                          className="absolute left-0 top-0 h-full bg-gv-accent transition-[width] duration-300"
                           style={{ width: `${download.progress ?? 0}%` }}
                         />
                       </div>
@@ -747,7 +748,7 @@ export default function Downloads() {
                       )}
                       {download.status === "downloading" && (
                         <Button
-                          color="red"
+                          color="rose"
                           onClick={() => cancelDownload(download.gameId)}
                         >
                           <XMarkIcon className="h-4 w-4" />
@@ -765,7 +766,7 @@ export default function Downloads() {
                         </Button>
                       )}
                       <Button
-                        color="red"
+                        color="rose"
                         onClick={() => void handleDeleteCard(download.gameId)}
                       >
                         <TrashIcon className="h-4 w-4" />
@@ -855,7 +856,7 @@ export default function Downloads() {
                               </div>
                               <div className="relative w-full h-2 bg-gv-line rounded-full overflow-hidden">
                                 <div
-                                  className="absolute left-0 top-0 h-full bg-gv-accent transition-all duration-300"
+                                  className="absolute left-0 top-0 h-full bg-gv-accent transition-[width] duration-300"
                                   style={{
                                     width: `${download.extractionProgress ?? 0}%`,
                                   }}
@@ -928,7 +929,7 @@ export default function Downloads() {
                                     "copying" && (
                                     <div className="relative w-full h-2 bg-gv-line rounded-full overflow-hidden">
                                       <div
-                                        className="absolute left-0 top-0 h-full bg-gv-accent transition-all duration-300"
+                                        className="absolute left-0 top-0 h-full bg-gv-accent transition-[width] duration-300"
                                         style={{
                                           width: `${download.installationProgress ?? 0}%`,
                                         }}

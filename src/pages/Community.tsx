@@ -41,7 +41,11 @@ const PROGRESS_STATE_META: Record<
   INFINITE: { label: "Ongoing", tone: "text-sky-400", chip: "blue" },
   PLAYING: { label: "Playing", tone: "text-emerald-400", chip: "green" },
   COMPLETED: { label: "Finished", tone: "text-violet-300", chip: "indigo" },
-  ABORTED_TEMPORARY: { label: "On hold", tone: "text-amber-400", chip: "amber" },
+  ABORTED_TEMPORARY: {
+    label: "On hold",
+    tone: "text-amber-400",
+    chip: "amber",
+  },
   ABORTED_PERMANENT: { label: "Dropped", tone: "text-rose-400", chip: "rose" },
 };
 
@@ -160,7 +164,10 @@ function getProgresses(user: GamevaultUser | null | undefined) {
   return Array.isArray(user?.progresses) ? user.progresses : [];
 }
 
-function getRecentProgresses(user: GamevaultUser | null | undefined, limit = 6) {
+function getRecentProgresses(
+  user: GamevaultUser | null | undefined,
+  limit = 6,
+) {
   return [...getProgresses(user)]
     .sort(
       (left, right) =>
@@ -217,8 +224,7 @@ function getUserStats(user: GamevaultUser | null | undefined) {
     (progress) => progress.state === "COMPLETED",
   ).length;
   const playing = progresses.filter(
-    (progress) =>
-      progress.state === "PLAYING" || progress.state === "INFINITE",
+    (progress) => progress.state === "PLAYING" || progress.state === "INFINITE",
   ).length;
 
   return {
@@ -239,7 +245,9 @@ function getRoleBadgeColor(role?: string) {
 }
 
 function getProgressMeta(state?: string) {
-  return PROGRESS_STATE_META[state || "UNPLAYED"] || PROGRESS_STATE_META.UNPLAYED;
+  return (
+    PROGRESS_STATE_META[state || "UNPLAYED"] || PROGRESS_STATE_META.UNPLAYED
+  );
 }
 
 function GamePoster({
@@ -341,7 +349,11 @@ function NetworkUserCard({
                   @{getUserHandle(user)}
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gv-muted">
-                  <span title={formatFullDateTime(stats.lastPlayed) ?? undefined}>Last seen {formatDate(stats.lastPlayed)}</span>
+                  <span
+                    title={formatFullDateTime(stats.lastPlayed) ?? undefined}
+                  >
+                    Last seen {formatDate(stats.lastPlayed)}
+                  </span>
                   <span>{formatPlaytime(stats.totalMinutes)} logged</span>
                 </div>
               </div>
@@ -364,7 +376,10 @@ function NetworkUserCard({
                 <div className="truncate text-[0.64rem] font-semibold uppercase tracking-[0.14em] text-gv-muted">
                   {item.label}
                 </div>
-                <div className="mt-2 text-lg font-semibold text-gv-text" data-numeric>
+                <div
+                  className="mt-2 text-lg font-semibold text-gv-text"
+                  data-numeric
+                >
                   {item.value}
                 </div>
               </div>
@@ -435,11 +450,19 @@ function ProfileProgressCard({ progress }: { progress: Progress }) {
             <div className="mt-3 space-y-2 text-sm text-gv-muted">
               <div className="flex items-center gap-2">
                 <ClockIcon className="size-4 text-gv-accent-cool" />
-                <span>{formatPlaytime(Number(progress.minutes_played ?? 0) || 0)}</span>
+                <span>
+                  {formatPlaytime(Number(progress.minutes_played ?? 0) || 0)}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <SparklesIcon className="size-4 text-gv-accent-cool" />
-                <span title={formatFullDateTime(progress.last_played_at) ?? undefined}>Last played {formatDate(progress.last_played_at)}</span>
+                <span
+                  title={
+                    formatFullDateTime(progress.last_played_at) ?? undefined
+                  }
+                >
+                  Last played {formatDate(progress.last_played_at)}
+                </span>
               </div>
             </div>
             <div className="mt-4 text-xs uppercase tracking-[0.16em] text-gv-muted/80">
@@ -621,7 +644,8 @@ export default function Community() {
         <div className="space-y-2">
           <Heading>Community</Heading>
           <Text className="max-w-2xl">
-            Discover who's playing in your vault and explore their game libraries.
+            Discover who's playing in your vault and explore their game
+            libraries.
           </Text>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -672,25 +696,49 @@ export default function Community() {
         </div>
       ) : filteredMembers.length > 0 ? (
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {filteredMembers.map((member) => (
-            <NetworkUserCard
+          {filteredMembers.map((member, i) => (
+            <div
               key={member.id}
-              user={member}
-              isCurrentUser={member.id === currentUserId}
-            />
+              className="animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none"
+              style={{ animationDelay: `${Math.min(i * 0.04, 0.3)}s` }}
+            >
+              <NetworkUserCard
+                user={member}
+                isCurrentUser={member.id === currentUserId}
+              />
+            </div>
           ))}
         </div>
       ) : (
         <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
-          {userSearch.trim() ? "No members match your search." : "No community members found yet."}
+          {userSearch.trim()
+            ? "No members match your search."
+            : "No community members found yet."}
         </div>
       )}
 
       {loadingDetails && filteredMembers.length > 0 && (
         <div className="flex items-center gap-2 text-sm text-gv-muted">
-          <svg className="h-4 w-4 motion-safe:animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          <svg
+            className="h-4 w-4 motion-safe:animate-spin"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            />
           </svg>
           Refreshing player activity…
         </div>

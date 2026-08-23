@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import { Divider } from "@tw/divider";
 import { Heading } from "@tw/heading";
-import { Input } from "@tw/input";
+import { Input, InputGroup } from "@tw/input";
 import { useDownloads } from "@/context/DownloadContext";
 import { useIgnoreList } from "@/context/IgnoreListContext";
 import { useAppUpdater } from "@/context/AppUpdaterContext";
@@ -50,6 +50,7 @@ import {
   ChevronRightIcon,
   PlusIcon,
   PencilSquareIcon,
+  MagnifyingGlassIcon,
   XMarkIcon,
   FolderIcon,
 } from "@heroicons/react/24/outline";
@@ -326,6 +327,7 @@ export default function Settings() {
     checkForUpdates,
   } = useAppUpdater();
   const [newIgnore, setNewIgnore] = useState("");
+  const [ignoreSearch, setIgnoreSearch] = useState("");
   // `null` shows the master list of settings areas; a value drills into it.
   const [activeCategory, setActiveCategory] = useState<SettingsCategory | null>(
     null,
@@ -526,6 +528,11 @@ export default function Settings() {
   const handleRemoveIgnore = async (name: string) => {
     await setIgnoreList(ignoreList.filter((existing) => existing !== name));
   };
+
+  const ignoreQuery = ignoreSearch.trim().toLowerCase();
+  const filteredIgnoreList = ignoreQuery
+    ? ignoreList.filter((name) => name.toLowerCase().includes(ignoreQuery))
+    : ignoreList;
 
   const openLicenses = async () => {
     if (!licenseData) {
@@ -1094,21 +1101,57 @@ export default function Settings() {
                           </div>
                         </SettingsRow>
                       )}
-                      {ignoreList.map((name) => (
-                        <SettingsRow key={name}>
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-gv-text">
-                            {name}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveIgnore(name)}
-                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                            aria-label={`Remove ${name} from ignore list`}
-                          >
-                            <XMarkIcon className="size-4" />
-                          </button>
+                      {ignoreList.length > 0 && (
+                        <SettingsRow>
+                          <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <div className="min-w-0 flex-1">
+                              <InputGroup>
+                                <MagnifyingGlassIcon data-slot="icon" />
+                                <Input
+                                  type="search"
+                                  value={ignoreSearch}
+                                  onChange={(e: any) =>
+                                    setIgnoreSearch(e.target.value)
+                                  }
+                                  placeholder="Search hidden files…"
+                                  aria-label="Search hidden executables"
+                                />
+                              </InputGroup>
+                            </div>
+                            <span className="shrink-0 whitespace-nowrap text-xs text-gv-muted">
+                              {filteredIgnoreList.length} of {ignoreList.length}
+                            </span>
+                          </div>
                         </SettingsRow>
-                      ))}
+                      )}
+                      {filteredIgnoreList.length === 0 &&
+                        ignoreList.length > 0 && (
+                          <SettingsRow>
+                            <div className="flex items-center gap-2 text-sm text-gv-muted">
+                              <MagnifyingGlassIcon className="size-4 shrink-0" />
+                              No matches for “{ignoreSearch.trim()}”.
+                            </div>
+                          </SettingsRow>
+                        )}
+                      {filteredIgnoreList.length > 0 && (
+                        <div className="max-h-80 divide-y divide-gv-line overflow-y-auto">
+                          {filteredIgnoreList.map((name) => (
+                            <SettingsRow key={name}>
+                              <span className="min-w-0 flex-1 truncate text-sm font-medium text-gv-text">
+                                {name}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveIgnore(name)}
+                                className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                                aria-label={`Remove ${name} from ignore list`}
+                              >
+                                <XMarkIcon className="size-4" />
+                              </button>
+                            </SettingsRow>
+                          ))}
+                        </div>
+                      )}
                       <SettingsRow>
                         <div className="flex min-w-0 flex-1 items-center gap-2">
                           <Input

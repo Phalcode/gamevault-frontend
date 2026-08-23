@@ -54,6 +54,8 @@ import { Alert, AlertTitle } from "@tw/alert";
 import { GameSettings } from "@/components/admin/GameSettings";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { isTauriApp } from "@/utils/tauri";
+import { LayoutGroup, motion } from "motion/react";
+import { EASE_OUT } from "@/lib/motion";
 
 export default function GameView() {
   const { id } = useParams<{ id: string }>();
@@ -77,7 +79,9 @@ export default function GameView() {
   const [pendingDownloadAction, setPendingDownloadAction] = useState<
     "direct" | "tauri" | "client" | null
   >(null);
-  const [selectableVersions, setSelectableVersions] = useState<GameVersion[]>([]);
+  const [selectableVersions, setSelectableVersions] = useState<GameVersion[]>(
+    [],
+  );
   const [rootSelectOpen, setRootSelectOpen] = useState(false);
   const [pendingRootPath, setPendingRootPath] = useState<string | null>(null);
   const isTauri = isTauriApp();
@@ -115,7 +119,9 @@ export default function GameView() {
               setGame(json as GamevaultGame);
               return;
             }
-          } catch { /* cache not available */ }
+          } catch {
+            /* cache not available */
+          }
         }
         if (!cancelled) setError(e?.message || "Failed to load game");
       } finally {
@@ -306,7 +312,9 @@ export default function GameView() {
     });
     if (!res.ok) return [];
     const fullGame = (await res.json()) as GamevaultGame;
-    const fullVersions = Array.isArray(fullGame.versions) ? fullGame.versions : [];
+    const fullVersions = Array.isArray(fullGame.versions)
+      ? fullGame.versions
+      : [];
     if (fullVersions.length > 0) {
       setGame((prev) => (prev ? { ...prev, versions: fullVersions } : prev));
     }
@@ -314,7 +322,11 @@ export default function GameView() {
   }, [game, serverUrl, numericId, authFetch]);
 
   const executeDownloadAction = useCallback(
-    (action: "direct" | "tauri" | "client", selectedVersion: GameVersion, rootPath?: string) => {
+    (
+      action: "direct" | "tauri" | "client",
+      selectedVersion: GameVersion,
+      rootPath?: string,
+    ) => {
       if (!game) return;
       const resolvedTitle = title || game.title;
       const filePathFallback = selectedVersion.file_path
@@ -355,7 +367,8 @@ export default function GameView() {
       if (!versions.length) {
         showAlert({
           title: "No downloadable version found",
-          description: "This game currently has no available version to download.",
+          description:
+            "This game currently has no available version to download.",
         });
         return;
       }
@@ -421,7 +434,11 @@ export default function GameView() {
   const handleVersionSelect = useCallback(
     (selectedVersion: GameVersion) => {
       if (!pendingDownloadAction) return;
-      executeDownloadAction(pendingDownloadAction, selectedVersion, pendingRootPath ?? undefined);
+      executeDownloadAction(
+        pendingDownloadAction,
+        selectedVersion,
+        pendingRootPath ?? undefined,
+      );
       setVersionDialogOpen(false);
       setPendingDownloadAction(null);
       setPendingRootPath(null);
@@ -554,10 +571,9 @@ export default function GameView() {
 
   // Removed h-full overflow-auto to prevent nested scroll area causing double vertical scrollbar; letting parent layout manage vertical scrolling.
 
-
   return (
     <div className="relative isolate flex min-h-full flex-col overflow-hidden px-4 pb-4 sm:px-6 lg:px-8">
-      <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 w-screen -translate-x-1/2">
+      <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 w-screen -translate-x-1/2 animate-[media-fade-in_0.25s_ease-out] motion-reduce:animate-none">
         <div className="absolute inset-0 bg-gv-bg" />
 
         {backgroundUrl ? (
@@ -621,69 +637,48 @@ export default function GameView() {
         )}
         {!loading && !error && game && (
           <div className="mx-auto grid w-full max-w-350 gap-10 px-2 pt-4 xl:grid-cols-[1fr_20rem]">
-          {/* Row 1: Cover/Title/Actions spans both columns on mobile but only left column on xl */}
-          <div className="flex flex-row gap-4 items-start xl:col-span-1 xl:row-span-1 min-w-0">
-            <div className="w-32 aspect-3/4 rounded-2xl overflow-hidden bg-gv-panel-strong flex items-center justify-center text-[10px] text-gv-muted">
-              {coverId ? (
-                <Media
-                  media={game.metadata?.cover}
-                  size={180}
-                  className="w-full h-full object-contain"
-                  square
-                  alt={title}
-                  gameId={game.id}
-                  mediaSlot="cover"
-                  fallback={
-                    <CoverPlaceholder
-                      title={title || game.title || "Game"}
-                      size="large"
-                      className="h-full w-full"
-                    />
-                  }
-                />
-              ) : (
-                <CoverPlaceholder
-                  title={title || game.title || "Game"}
-                  size="large"
-                  className="h-full w-full"
-                />
-              )}
-            </div>
-            <div className="flex-1 min-w-0 flex flex-col gap-3">
-              <div className="text-xl font-semibold leading-tight truncate pr-2">
-                {title}
-              </div>
-              {/* Added flex-wrap to allow buttons to wrap on extremely narrow viewports, preventing horizontal overflow that could push the media slider and cause cutoff */}
-              <div className="flex flex-row flex-wrap gap-2">
-                {isTauri ? (
-                  <Button
-                    color="indigo"
-                    aria-label={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
-                    className="h-9 px-3 gap-2 flex items-center justify-center"
-                    title={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
-                    onClick={handleTauriDownload}
-                    disabled={isTauri && !isOnline}
-                  >
-                    <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
-                    {formattedSize && (
-                      <span className="text-xs font-medium whitespace-nowrap">
-                        {formattedSize}
-                      </span>
-                    )}
-                  </Button>
+            {/* Row 1: Cover/Title/Actions spans both columns on mobile but only left column on xl */}
+            <div className="flex flex-row gap-4 items-start xl:col-span-1 xl:row-span-1 min-w-0">
+              <div className="w-32 aspect-3/4 rounded-2xl overflow-hidden bg-gv-panel-strong flex items-center justify-center text-[10px] text-gv-muted">
+                {coverId ? (
+                  <Media
+                    media={game.metadata?.cover}
+                    size={180}
+                    className="w-full h-full object-contain"
+                    square
+                    alt={title}
+                    gameId={game.id}
+                    mediaSlot="cover"
+                    fallback={
+                      <CoverPlaceholder
+                        title={title || game.title || "Game"}
+                        size="large"
+                        className="h-full w-full"
+                      />
+                    }
+                  />
                 ) : (
-                  <Dropdown>
-                    <DropdownButton
-                      as={Button}
+                  <CoverPlaceholder
+                    title={title || game.title || "Game"}
+                    size="large"
+                    className="h-full w-full"
+                  />
+                )}
+              </div>
+              <div className="flex-1 min-w-0 flex flex-col gap-3">
+                <div className="text-xl font-semibold leading-tight truncate pr-2">
+                  {title}
+                </div>
+                {/* Added flex-wrap to allow buttons to wrap on extremely narrow viewports, preventing horizontal overflow that could push the media slider and cause cutoff */}
+                <div className="flex flex-row flex-wrap gap-2">
+                  {isTauri ? (
+                    <Button
                       color="indigo"
                       aria-label={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
                       className="h-9 px-3 gap-2 flex items-center justify-center"
                       title={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
+                      onClick={handleTauriDownload}
                       disabled={isTauri && !isOnline}
-                      onClick={(e: React.MouseEvent) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }}
                     >
                       <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
                       {formattedSize && (
@@ -691,237 +686,289 @@ export default function GameView() {
                           {formattedSize}
                         </span>
                       )}
-                    </DropdownButton>
-                    <DropdownMenu className="min-w-48" anchor="bottom start">
-                      <DropdownItem onClick={handleDirectDownload}>
-                        <DropdownLabel>Direct Download</DropdownLabel>
-                      </DropdownItem>
-                      <DropdownItem onClick={handleClientDownload}>
-                        <DropdownLabel>Download via GameVault Client</DropdownLabel>
-                      </DropdownItem>
-                    </DropdownMenu>
-                  </Dropdown>
-                )}
-                <Button
-                  outline
-                  onClick={() => setSettingsOpen(true)}
-                  className={floatingIconButtonClassName}
-                  title="Settings"
-                >
-                  <Cog8ToothIcon className="w-5 h-5" />
-                </Button>
-                <Button
-                  outline
-                  onClick={toggleBookmark}
-                  disabled={!user || bookmarkBusy || (isTauri && !isOnline)}
-                  className={clsx(
-                    bookmarked
-                      ? "size-11 p-0 flex items-center justify-center bg-yellow-400/20! border-yellow-400! text-yellow-400! backdrop-blur-md shadow-sm dark:bg-yellow-400/20! dark:border-yellow-400! dark:text-yellow-400!"
-                      : floatingIconButtonClassName,
-                  )}
-                  title={bookmarked ? "Remove bookmark" : "Add bookmark"}
-                  aria-pressed={bookmarked}
-                >
-                  {bookmarked ? (
-                    <StarSolid className="w-5 h-5" />
+                    </Button>
                   ) : (
-                    <StarOutline className="w-5 h-5" />
+                    <Dropdown>
+                      <DropdownButton
+                        as={Button}
+                        color="indigo"
+                        aria-label={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
+                        className="h-9 px-3 gap-2 flex items-center justify-center"
+                        title={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
+                        disabled={isTauri && !isOnline}
+                        onClick={(e: React.MouseEvent) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                      >
+                        <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
+                        {formattedSize && (
+                          <span className="text-xs font-medium whitespace-nowrap">
+                            {formattedSize}
+                          </span>
+                        )}
+                      </DropdownButton>
+                      <DropdownMenu className="min-w-48" anchor="bottom start">
+                        <DropdownItem onClick={handleDirectDownload}>
+                          <DropdownLabel>Direct Download</DropdownLabel>
+                        </DropdownItem>
+                        <DropdownItem onClick={handleClientDownload}>
+                          <DropdownLabel>
+                            Download via GameVault Client
+                          </DropdownLabel>
+                        </DropdownItem>
+                      </DropdownMenu>
+                    </Dropdown>
                   )}
-                </Button>
-                <Button
-                  outline
-                  onClick={handleShare}
-                  className={floatingIconButtonClassName}
-                  title="Copy link"
-                >
-                  <ShareIcon className="w-5 h-5" />
-                </Button>
+                  <Button
+                    outline
+                    onClick={() => setSettingsOpen(true)}
+                    className={floatingIconButtonClassName}
+                    title="Settings"
+                  >
+                    <Cog8ToothIcon className="w-5 h-5" />
+                  </Button>
+                  <Button
+                    outline
+                    onClick={toggleBookmark}
+                    disabled={!user || bookmarkBusy || (isTauri && !isOnline)}
+                    className={clsx(
+                      bookmarked
+                        ? "size-11 p-0 flex items-center justify-center bg-yellow-400/20! border-yellow-400! text-yellow-400! backdrop-blur-md shadow-sm dark:bg-yellow-400/20! dark:border-yellow-400! dark:text-yellow-400!"
+                        : floatingIconButtonClassName,
+                    )}
+                    title={bookmarked ? "Remove bookmark" : "Add bookmark"}
+                    aria-pressed={bookmarked}
+                  >
+                    {bookmarked ? (
+                      <StarSolid className="w-5 h-5" />
+                    ) : (
+                      <StarOutline className="w-5 h-5" />
+                    )}
+                  </Button>
+                  <Button
+                    outline
+                    onClick={handleShare}
+                    className={floatingIconButtonClassName}
+                    title="Copy link"
+                  >
+                    <ShareIcon className="w-5 h-5" />
+                  </Button>
+                </div>
+                {(genres && genres.length > 0) ||
+                game?.type ||
+                game?.early_access ||
+                (game as any)?.metadata?.early_access ? (
+                  <div className="flex flex-wrap gap-1 pt-1 items-center">
+                    {game?.type && game.type !== "UNDETECTABLE" && (
+                      <span className="px-2 py-0.5 rounded-full bg-gv-accent/15 text-gv-accent-strong text-[10px] font-medium">
+                        {game.type
+                          .replace(/_/g, " ")
+                          .toLowerCase()
+                          .replace(/\b\w/g, (c) => c.toUpperCase())}
+                      </span>
+                    )}
+                    {(game as any)?.early_access ||
+                    (game as any)?.metadata?.early_access ? (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-300 text-[10px] font-medium">
+                        Early Access
+                      </span>
+                    ) : null}
+                    {genres.map((g: string) => (
+                      <span
+                        key={g}
+                        className="px-2 py-0.5 rounded-full bg-gv-panel-strong text-[10px] font-medium text-gv-muted"
+                      >
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-              {(genres && genres.length > 0) ||
-              game?.type ||
-              game?.early_access ||
-              (game as any)?.metadata?.early_access ? (
-                <div className="flex flex-wrap gap-1 pt-1 items-center">
-                  {game?.type && game.type !== "UNDETECTABLE" && (
-                    <span className="px-2 py-0.5 rounded-full bg-gv-accent/15 text-gv-accent-strong text-[10px] font-medium">
-                      {game.type
-                        .replace(/_/g, " ")
-                        .toLowerCase()
-                        .replace(/\b\w/g, (c) => c.toUpperCase())}
-                    </span>
-                  )}
-                  {(game as any)?.early_access ||
-                  (game as any)?.metadata?.early_access ? (
-                    <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-300 text-[10px] font-medium">
-                      Early Access
-                    </span>
-                  ) : null}
-                  {genres.map((g: string) => (
-                    <span
-                      key={g}
-                      className="px-2 py-0.5 rounded-full bg-gv-panel-strong text-[10px] font-medium text-gv-muted"
-                    >
-                      {g}
-                    </span>
+            </div>
+            {/* Spacer so grid second column first row stays empty - ensures metadata card aligns with media slider start */}
+            {/* Right Column Row 1: Stats + Progress State */}
+            <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-1 min-w-0">
+              <div className="grid grid-cols-3 gap-2 text-center text-xs animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none">
+                <div className="surface-panel rounded-2xl p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-gv-muted">
+                    Playtime
+                  </div>
+                  <div className="font-semibold text-sm mt-1 text-gv-text">
+                    {playtimeHours >= 1
+                      ? `${playtimeHours.toFixed(playtimeHours < 10 ? 1 : 0)} h`
+                      : `${playtimeMinutes} m`}
+                  </div>
+                </div>
+                <div className="surface-panel rounded-2xl p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-gv-muted">
+                    Last Played
+                  </div>
+                  <div
+                    className="font-semibold text-sm mt-1 text-gv-text truncate"
+                    title={lastPlayed}
+                  >
+                    {lastPlayed}
+                  </div>
+                </div>
+                <div className="surface-panel rounded-2xl p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-gv-muted">
+                    Avg Playtime
+                  </div>
+                  <div className="font-semibold text-sm mt-1 text-gv-text">
+                    {avgPlaytime
+                      ? `${(avgPlaytime / 60).toFixed(avgPlaytime / 60 < 10 ? 1 : 0)} h`
+                      : "—"}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs font-medium text-gv-muted mb-1">
+                  Progress State
+                </div>
+                <Listbox
+                  name="progressState"
+                  value={progressState || "UNPLAYED"}
+                  onChange={(v: any) => updateProgressState(v)}
+                  disabled={!user || progressUpdating || (isTauri && !isOnline)}
+                  className={progressSelectClassName}
+                >
+                  {progressStateOptions.map((o) => (
+                    <ListboxOption key={o.key} value={o.key}>
+                      <ListboxLabel>{o.label}</ListboxLabel>
+                    </ListboxOption>
                   ))}
-                </div>
-              ) : null}
-            </div>
-          </div>
-          {/* Spacer so grid second column first row stays empty - ensures metadata card aligns with media slider start */}
-          {/* Right Column Row 1: Stats + Progress State */}
-          <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-1 min-w-0">
-            <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="surface-panel rounded-2xl p-3">
-                <div className="text-[10px] uppercase tracking-wide text-gv-muted">
-                  Playtime
-                </div>
-                <div className="font-semibold text-sm mt-1 text-gv-text">
-                  {playtimeHours >= 1
-                    ? `${playtimeHours.toFixed(playtimeHours < 10 ? 1 : 0)} h`
-                    : `${playtimeMinutes} m`}
-                </div>
-              </div>
-              <div className="surface-panel rounded-2xl p-3">
-                <div className="text-[10px] uppercase tracking-wide text-gv-muted">
-                  Last Played
-                </div>
-                <div
-                  className="font-semibold text-sm mt-1 text-gv-text truncate"
-                  title={lastPlayed}
-                >
-                  {lastPlayed}
-                </div>
-              </div>
-              <div className="surface-panel rounded-2xl p-3">
-                <div className="text-[10px] uppercase tracking-wide text-gv-muted">
-                  Avg Playtime
-                </div>
-                <div className="font-semibold text-sm mt-1 text-gv-text">
-                  {avgPlaytime
-                    ? `${(avgPlaytime / 60).toFixed(avgPlaytime / 60 < 10 ? 1 : 0)} h`
-                    : "—"}
-                </div>
+                </Listbox>
               </div>
             </div>
-            <div>
-              <div className="text-xs font-medium text-gv-muted mb-1">
-                Progress State
-              </div>
-              <Listbox
-                name="progressState"
-                value={progressState || "UNPLAYED"}
-                onChange={(v: any) => updateProgressState(v)}
-                disabled={!user || progressUpdating || (isTauri && !isOnline)}
-                className={progressSelectClassName}
-              >
-                {progressStateOptions.map((o) => (
-                  <ListboxOption key={o.key} value={o.key}>
-                    <ListboxLabel>{o.label}</ListboxLabel>
-                  </ListboxOption>
-                ))}
-              </Listbox>
-            </div>
-          </div>
 
-          {/* Row 2 Left: Media Slider + Details */}
-          {/* min-w-0 ensures the slider can shrink below intrinsic content width inside CSS grid to avoid right-side cutoff on very small screens */}
-          <div className="flex flex-col gap-6 xl:col-start-1 xl:row-start-2 min-w-0">
-            {(trailers.length > 0 || screenshots.length > 0) && (
-              <div className="w-full min-w-0" ref={mediaSliderRef}>
-                <MediaSlider
-                  trailers={trailers}
-                  screenshots={screenshots}
-                  autoPlay={true}
-                  loop={false}
-                  className="w-full"
-                  aspect="aspect-[16/9]"
-                />
+            {/* Row 2 Left: Media Slider + Details */}
+            {/* min-w-0 ensures the slider can shrink below intrinsic content width inside CSS grid to avoid right-side cutoff on very small screens */}
+            <div className="flex flex-col gap-6 xl:col-start-1 xl:row-start-2 min-w-0">
+              {(trailers.length > 0 || screenshots.length > 0) && (
+                <div className="w-full min-w-0" ref={mediaSliderRef}>
+                  <MediaSlider
+                    trailers={trailers}
+                    screenshots={screenshots}
+                    autoPlay={true}
+                    loop={false}
+                    className="w-full"
+                    aspect="aspect-[16/9]"
+                  />
+                </div>
+              )}
+              <div ref={detailsCardRef} className="contents">
+                <Card
+                  title="Details"
+                  className="mb-0!"
+                  surfaceClassName="surface-panel"
+                >
+                  <LayoutGroup id="details-tabs">
+                    <div className="flex border-b border-gv-line mb-4 gap-6 text-sm">
+                      <button
+                        onClick={() => setDetailsTab("description")}
+                        className={clsx(
+                          "relative pb-2 -mb-px border-b-2 font-medium",
+                          detailsTab === "description"
+                            ? "border-transparent text-gv-accent-strong"
+                            : "border-transparent text-gv-muted hover:text-gv-text",
+                        )}
+                      >
+                        Description
+                        {detailsTab === "description" && (
+                          <motion.span
+                            layoutId="details-tab-underline"
+                            className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-gv-accent"
+                            transition={{ duration: 0.18, ease: EASE_OUT }}
+                          />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setDetailsTab("notes")}
+                        className={clsx(
+                          "relative pb-2 -mb-px border-b-2 font-medium",
+                          detailsTab === "notes"
+                            ? "border-transparent text-gv-accent-strong"
+                            : "border-transparent text-gv-muted hover:text-gv-text",
+                        )}
+                      >
+                        Notes
+                        {detailsTab === "notes" && (
+                          <motion.span
+                            layoutId="details-tab-underline"
+                            className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-gv-accent"
+                            transition={{ duration: 0.18, ease: EASE_OUT }}
+                          />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setDetailsTab("tags")}
+                        className={clsx(
+                          "relative pb-2 -mb-px border-b-2 font-medium",
+                          detailsTab === "tags"
+                            ? "border-transparent text-gv-accent-strong"
+                            : "border-transparent text-gv-muted hover:text-gv-text",
+                        )}
+                      >
+                        Tags
+                        {detailsTab === "tags" && (
+                          <motion.span
+                            layoutId="details-tab-underline"
+                            className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-gv-accent"
+                            transition={{ duration: 0.18, ease: EASE_OUT }}
+                          />
+                        )}
+                      </button>
+                    </div>
+                  </LayoutGroup>
+                  <motion.div
+                    key={detailsTab}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.12, ease: EASE_OUT }}
+                    className="text-sm leading-relaxed space-y-4 min-h-45 text-gv-text"
+                  >
+                    {detailsTab === "description" &&
+                      (description ? (
+                        <MarkdownContent content={description} />
+                      ) : (
+                        <p className="italic text-gv-muted">
+                          No description available.
+                        </p>
+                      ))}
+                    {detailsTab === "notes" &&
+                      (notes ? (
+                        <MarkdownContent content={notes} />
+                      ) : (
+                        <p className="italic text-gv-muted">No notes.</p>
+                      ))}
+                    {detailsTab === "tags" &&
+                      (tags && tags.length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {tags.map((t) => (
+                            <span
+                              key={t}
+                              className="px-2 py-1 rounded-md bg-gv-panel-strong text-xs font-medium text-gv-muted"
+                            >
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="italic text-gv-muted">No tags.</p>
+                      ))}
+                  </motion.div>
+                </Card>
               </div>
-            )}
-            <div ref={detailsCardRef} className="contents">
+            </div>
+
+            {/* Row 2 Right: Additional Metadata + Activity */}
+            <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-2 min-w-0">
               <Card
-                title="Details"
-                className="mb-0!"
+                title="Additional Metadata"
+                className="min-h-40"
                 surfaceClassName="surface-panel"
               >
-                <div className="flex border-b border-gv-line mb-4 gap-6 text-sm">
-                  <button
-                    onClick={() => setDetailsTab("description")}
-                    className={clsx(
-                      "pb-2 -mb-px border-b-2 font-medium",
-                      detailsTab === "description"
-                        ? "border-gv-accent text-gv-accent-strong"
-                        : "border-transparent text-gv-muted hover:text-gv-text",
-                    )}
-                  >
-                    Description
-                  </button>
-                  <button
-                    onClick={() => setDetailsTab("notes")}
-                    className={clsx(
-                      "pb-2 -mb-px border-b-2 font-medium",
-                      detailsTab === "notes"
-                        ? "border-gv-accent text-gv-accent-strong"
-                        : "border-transparent text-gv-muted hover:text-gv-text",
-                    )}
-                  >
-                    Notes
-                  </button>
-                  <button
-                    onClick={() => setDetailsTab("tags")}
-                    className={clsx(
-                      "pb-2 -mb-px border-b-2 font-medium",
-                      detailsTab === "tags"
-                        ? "border-gv-accent text-gv-accent-strong"
-                        : "border-transparent text-gv-muted hover:text-gv-text",
-                    )}
-                  >
-                    Tags
-                  </button>
-                </div>
-                <div className="text-sm leading-relaxed space-y-4 min-h-45 text-gv-text">
-                  {detailsTab === "description" &&
-                    (description ? (
-                      <MarkdownContent content={description} />
-                    ) : (
-                      <p className="italic text-gv-muted">
-                        No description available.
-                      </p>
-                    ))}
-                  {detailsTab === "notes" &&
-                    (notes ? (
-                      <MarkdownContent content={notes} />
-                    ) : (
-                      <p className="italic text-gv-muted">No notes.</p>
-                    ))}
-                  {detailsTab === "tags" &&
-                    (tags && tags.length ? (
-                      <div className="flex flex-wrap gap-2">
-                        {tags.map((t) => (
-                          <span
-                            key={t}
-                            className="px-2 py-1 rounded-md bg-gv-panel-strong text-xs font-medium text-gv-muted"
-                          >
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="italic text-gv-muted">No tags.</p>
-                    ))}
-                </div>
-              </Card>
-            </div>
-          </div>
-
-          {/* Row 2 Right: Additional Metadata + Activity */}
-          <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-2 min-w-0">
-            <Card
-              title="Additional Metadata"
-              className="min-h-40"
-              surfaceClassName="surface-panel"
-            >
                 <ul className="space-y-4 text-sm text-gv-text">
                   <li className="flex items-start gap-3">
                     <CalendarDaysIcon className="w-5 h-5 mt-0.5 text-gv-muted" />
@@ -1040,11 +1087,11 @@ export default function GameView() {
                   </li>
                 </ul>
               </Card>
-            <Card
-              title="Activity"
-              className="min-h-40"
-              surfaceClassName="surface-panel"
-            >
+              <Card
+                title="Activity"
+                className="min-h-40"
+                surfaceClassName="surface-panel"
+              >
                 {(() => {
                   const progresses: Progress[] =
                     (game as any)?.progresses || [];
@@ -1118,7 +1165,7 @@ export default function GameView() {
                   );
                 })()}
               </Card>
-          </div>
+            </div>
           </div>
         )}
 

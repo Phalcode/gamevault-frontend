@@ -244,7 +244,7 @@ export function Login() {
       </div>
 
       {!confirmedServer && (
-        <>
+        <div className="grid grid-cols-1 gap-6 animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none">
           <Field>
             <Label>Server</Label>
             <Input
@@ -264,11 +264,11 @@ export function Login() {
           <Button type="submit" className="w-full">
             Continue
           </Button>
-        </>
+        </div>
       )}
 
       {confirmedServer && (
-        <>
+        <div className="grid grid-cols-1 gap-6 animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none">
           <Field>
             <Label>Server</Label>
             <div data-slot="control" className="flex gap-2">
@@ -344,13 +344,19 @@ export function Login() {
                 </CheckboxField>
               )}
               {noAuthAvailable && (
-                <div className="rounded-2xl bg-rose-500/10 px-3 py-2 text-sm text-rose-500" role="alert">
+                <div
+                  className="rounded-2xl bg-rose-500/10 px-3 py-2 text-sm text-rose-500"
+                  role="alert"
+                >
                   No authentication methods are currently available on this
                   server.
                 </div>
               )}
               {error && (
-                <div className="-mt-2 rounded-2xl bg-red-500/10 px-3 py-2 text-sm text-red-500" role="alert">
+                <div
+                  className="-mt-2 rounded-2xl bg-red-500/10 px-3 py-2 text-sm text-red-500"
+                  role="alert"
+                >
                   {error}
                 </div>
               )}
@@ -373,7 +379,7 @@ export function Login() {
               )}
             </>
           )}
-        </>
+        </div>
       )}
 
       <Text tabIndex={-1} aria-hidden="true">

@@ -35,6 +35,8 @@ import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { SectionExpander } from "@/components/SectionExpander";
 import { RowCountControl } from "@/components/RowCountControl";
+import { motion } from "motion/react";
+import { DURATION_SLOW, EASE_OUT } from "@/lib/motion";
 
 const SORT_BY: { label: string; value: string }[] = [
   { label: "Title", value: "sort_title" },
@@ -113,9 +115,7 @@ export default function Library() {
         localStorage.getItem(RETAIN_KEY) === "1"
       ) {
         const saved = localStorage.getItem(LIB_ORDER_KEY) as
-          | "ASC"
-          | "DESC"
-          | null;
+          "ASC" | "DESC" | null;
         if (saved === "ASC" || saved === "DESC") return saved;
       }
     } catch {}
@@ -470,7 +470,8 @@ export default function Library() {
   useScrollRestoration("library_scroll_position", games.length > 0);
 
   // --- Installed games (Tauri only) ---
-  const { installedGames, refetch: refetchInstalledGames } = useInstalledGames();
+  const { installedGames, refetch: refetchInstalledGames } =
+    useInstalledGames();
 
   const INSTALLED_ROWS_KEY = "installed_games_rows";
   const [installedRows, setInstalledRows] = useState(() => {
@@ -715,14 +716,18 @@ export default function Library() {
                   outline
                   className={`${CONTROL_HEIGHT_CLASS} px-3 gap-1.5`}
                   aria-label="Toggle sorting direction"
-                  onClick={() => setOrder((o) => (o === "ASC" ? "DESC" : "ASC"))}
+                  onClick={() =>
+                    setOrder((o) => (o === "ASC" ? "DESC" : "ASC"))
+                  }
                 >
                   {order === "ASC" ? (
                     <ArrowUpIcon className="h-4 w-4" />
                   ) : (
                     <ArrowDownIcon className="h-4 w-4" />
                   )}
-                  <span className="hidden sm:inline">{order === "ASC" ? "Ascending" : "Descending"}</span>
+                  <span className="hidden sm:inline">
+                    {order === "ASC" ? "Ascending" : "Descending"}
+                  </span>
                 </Button>
               </div>
             </div>
@@ -742,7 +747,7 @@ export default function Library() {
         </div>
       </section>
       {showFilters && (
-        <div className="surface-panel mb-2 shrink-0 rounded-3xl">
+        <div className="surface-panel mb-2 shrink-0 rounded-3xl animate-[panel-in_0.18s_ease-out]">
           <div className="px-4 pt-4 pb-4 sm:px-6 sm:pt-5 sm:pb-5">
             {/* Header with Clear All Filters Button */}
             <div className="flex items-center justify-between mb-4">
@@ -1100,9 +1105,7 @@ export default function Library() {
                 No installed games found.
               </div>
             ) : (
-              <div
-                className="overflow-x-auto overflow-y-hidden pb-3"
-              >
+              <div className="overflow-x-auto overflow-y-hidden pb-3">
                 <div
                   className="grid gap-5 py-2"
                   style={{
@@ -1112,7 +1115,11 @@ export default function Library() {
                   }}
                 >
                   {filteredInstalledGames.map((g) => (
-                    <GameCard key={`installed-${g.id}`} game={g} sortBy={sortBy} />
+                    <GameCard
+                      key={`installed-${g.id}`}
+                      game={g}
+                      sortBy={sortBy}
+                    />
                   ))}
                 </div>
               </div>
@@ -1135,7 +1142,11 @@ export default function Library() {
             {serverUrl && loading && games.length === 0 && (
               <div className="grid gap-4 sm:gap-6 grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(12rem,1fr))]">
                 {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="aspect-3/4 rounded-3xl bg-gv-panel-strong motion-safe:animate-pulse" aria-hidden="true" />
+                  <div
+                    key={i}
+                    className="aspect-3/4 rounded-3xl bg-gv-panel-strong motion-safe:animate-pulse"
+                    aria-hidden="true"
+                  />
                 ))}
               </div>
             )}
@@ -1159,16 +1170,45 @@ export default function Library() {
               </div>
             )}
             <div className="min-w-0 grid gap-5 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] py-2 pb-8">
-              {games.map((g) => (
-                <GameCard key={g.id} game={g} sortBy={sortBy} />
+              {games.map((g, i) => (
+                <motion.div
+                  key={g.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    delay: Math.min(i * 0.03, 0.3),
+                    duration: DURATION_SLOW,
+                    ease: EASE_OUT,
+                  }}
+                  className="min-w-0"
+                >
+                  <GameCard game={g} sortBy={sortBy} />
+                </motion.div>
               ))}
             </div>
             {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
             {loading && games.length > 0 && (
               <div className="flex items-center justify-center gap-2 p-4 text-xs text-gv-muted">
-                <svg className="h-3.5 w-3.5 motion-safe:animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                <svg
+                  className="h-3.5 w-3.5 motion-safe:animate-spin"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
                 </svg>
                 Loading more…
               </div>
@@ -1179,7 +1219,11 @@ export default function Library() {
             {serverUrl && loading && games.length === 0 && (
               <div className="grid gap-4 sm:gap-6 grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(12rem,1fr))]">
                 {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="aspect-3/4 rounded-3xl bg-gv-panel-strong motion-safe:animate-pulse" aria-hidden="true" />
+                  <div
+                    key={i}
+                    className="aspect-3/4 rounded-3xl bg-gv-panel-strong motion-safe:animate-pulse"
+                    aria-hidden="true"
+                  />
                 ))}
               </div>
             )}
@@ -1203,16 +1247,45 @@ export default function Library() {
               </div>
             )}
             <div className="min-w-0 grid gap-5 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] py-2 pb-8">
-              {games.map((g) => (
-                <GameCard key={g.id} game={g} sortBy={sortBy} />
+              {games.map((g, i) => (
+                <motion.div
+                  key={g.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    delay: Math.min(i * 0.03, 0.3),
+                    duration: DURATION_SLOW,
+                    ease: EASE_OUT,
+                  }}
+                  className="min-w-0"
+                >
+                  <GameCard game={g} sortBy={sortBy} />
+                </motion.div>
               ))}
             </div>
             {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
             {loading && games.length > 0 && (
               <div className="flex items-center justify-center gap-2 p-4 text-xs text-gv-muted">
-                <svg className="h-3.5 w-3.5 motion-safe:animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                <svg
+                  className="h-3.5 w-3.5 motion-safe:animate-spin"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
                 </svg>
                 Loading more…
               </div>

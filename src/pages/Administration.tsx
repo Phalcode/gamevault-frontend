@@ -93,354 +93,373 @@ export default function Administration() {
         </Text>
         <Divider />
         <div className="flex flex-col gap-6">
-        <Card title="Server Information">
-          <DescriptionList>
-            <DescriptionTerm>Address</DescriptionTerm>
-            <DescriptionDetails>
-              {connected ? (
-                <Link href={serverUrl} target="_blank">
-                  {serverUrl}
-                </Link>
-              ) : (
-                <span className="text-gv-muted">Not connected</span>
-              )}
-            </DescriptionDetails>
-            <DescriptionTerm>Version</DescriptionTerm>
-            <DescriptionDetails>
-              {version ? (
-                <Link
-                  href={`https://github.com/Phalcode/gamevault-backend/releases/tag/${version}`}
-                  target="_blank"
-                >
-                  {version}
-                </Link>
-              ) : (
-                <span className="text-gv-muted">—</span>
-              )}
-            </DescriptionDetails>
-            <DescriptionTerm>Users</DescriptionTerm>
-            <DescriptionDetails>
-              {users.length}{" "}
-              {users.length > 0 && filteredUsers.length !== users.length && (
-                <span className="text-gv-muted">
-                  ({filteredUsers.length} shown)
-                </span>
-              )}
-            </DescriptionDetails>
-          </DescriptionList>
-        </Card>
-        {connected && (
-          <Card className="grid md:grid-cols-2 gap-4" title="Actions">
-            <Button
-              color="indigo"
-              onClick={() => setShowBackupRestoreDialog(true)}
-              title="Backup & Restore Database"
-              className="items-center"
-            >
-              Backup & Restore Database
-            </Button>
-            <Button
-              color="indigo"
-              disabled={reindexing}
-              onClick={async () => {
-                if (reindexing) return;
-                try {
-                  setReindexError(null);
-                  setReindexing(true);
-                  const base = serverUrl.replace(/\/+$/, "");
+          <Card title="Server Information">
+            <DescriptionList>
+              <DescriptionTerm>Address</DescriptionTerm>
+              <DescriptionDetails>
+                {connected ? (
+                  <Link href={serverUrl} target="_blank">
+                    {serverUrl}
+                  </Link>
+                ) : (
+                  <span className="text-gv-muted">Not connected</span>
+                )}
+              </DescriptionDetails>
+              <DescriptionTerm>Version</DescriptionTerm>
+              <DescriptionDetails>
+                {version ? (
+                  <Link
+                    href={`https://github.com/Phalcode/gamevault-backend/releases/tag/${version}`}
+                    target="_blank"
+                  >
+                    {version}
+                  </Link>
+                ) : (
+                  <span className="text-gv-muted">—</span>
+                )}
+              </DescriptionDetails>
+              <DescriptionTerm>Users</DescriptionTerm>
+              <DescriptionDetails>
+                {users.length}{" "}
+                {users.length > 0 && filteredUsers.length !== users.length && (
+                  <span className="text-gv-muted">
+                    ({filteredUsers.length} shown)
+                  </span>
+                )}
+              </DescriptionDetails>
+            </DescriptionList>
+          </Card>
+          {connected && (
+            <Card className="grid md:grid-cols-2 gap-4" title="Actions">
+              <Button
+                color="indigo"
+                onClick={() => setShowBackupRestoreDialog(true)}
+                title="Backup & Restore Database"
+                className="items-center"
+              >
+                Backup & Restore Database
+              </Button>
+              <Button
+                color="indigo"
+                disabled={reindexing}
+                onClick={async () => {
+                  if (reindexing) return;
+                  try {
+                    setReindexError(null);
+                    setReindexing(true);
+                    const base = serverUrl.replace(/\/+$/, "");
 
-                  const res = await authFetch(`${base}/api/games/reindex`, {
-                    method: "PUT",
-                  });
-                  if (!res.ok) {
-                    const txt = await res.text();
-                    throw new Error(txt || `Reindex failed (${res.status})`);
+                    const res = await authFetch(`${base}/api/games/reindex`, {
+                      method: "PUT",
+                    });
+                    if (!res.ok) {
+                      const txt = await res.text();
+                      throw new Error(txt || `Reindex failed (${res.status})`);
+                    }
+                  } catch (e: any) {
+                    setReindexError(e.message || String(e));
+                  } finally {
+                    setReindexing(false);
                   }
-                } catch (e: any) {
-                  setReindexError(e.message || String(e));
-                } finally {
-                  setReindexing(false);
-                }
-              }}
-              title="Reindex Games"
-              className="items-center"
-            >
-              {reindexing ? "Reindexing…" : "Reindex Games"}
-            </Button>
-            <Button
-              color="rose"
-              disabled={restarting}
-              onClick={async () => {
-                if (restarting) return;
-                try {
-                  setRestartError(null);
-                  setRestarting(true);
-                  const base = serverUrl.replace(/\/+$/, "");
+                }}
+                title="Reindex Games"
+                className="items-center"
+              >
+                {reindexing ? "Reindexing…" : "Reindex Games"}
+              </Button>
+              <Button
+                color="rose"
+                disabled={restarting}
+                onClick={async () => {
+                  if (restarting) return;
+                  try {
+                    setRestartError(null);
+                    setRestarting(true);
+                    const base = serverUrl.replace(/\/+$/, "");
 
-                  const res = await authFetch(
-                    `${base}/api/admin/web-ui/restart`,
-                    {
-                      method: "POST",
-                    },
-                  );
-                  if (!res.ok) {
-                    const txt = await res.text();
-                    throw new Error(txt || `Restart failed (${res.status})`);
-                  } else {
-                    window.location.reload();
+                    const res = await authFetch(
+                      `${base}/api/admin/web-ui/restart`,
+                      {
+                        method: "POST",
+                      },
+                    );
+                    if (!res.ok) {
+                      const txt = await res.text();
+                      throw new Error(txt || `Restart failed (${res.status})`);
+                    } else {
+                      window.location.reload();
+                    }
+                  } catch (e: any) {
+                    setRestartError(e.message || String(e));
+                  } finally {
+                    setRestarting(false);
                   }
-                } catch (e: any) {
-                  setRestartError(e.message || String(e));
-                } finally {
-                  setRestarting(false);
-                }
-              }}
-              title="Update & Restart Web UI"
-              className="items-center"
-            >
-              {restarting ? "Restarting..." : "Update & Restart Web UI"}
-            </Button>
-            {restartError && (
-              <div className="col-span-full text-xs text-red-500 bg-red-500/10 rounded-md px-3 py-2">
-                {restartError}
+                }}
+                title="Update & Restart Web UI"
+                className="items-center"
+              >
+                {restarting ? "Restarting..." : "Update & Restart Web UI"}
+              </Button>
+              {restartError && (
+                <div className="col-span-full text-xs text-red-500 bg-red-500/10 rounded-md px-3 py-2">
+                  {restartError}
+                </div>
+              )}
+            </Card>
+          )}
+          <Card title="Users">
+            {error && (
+              <div className="mb-4 rounded-md bg-red-500/10 p-3 text-sm text-red-500">
+                {error}
               </div>
             )}
-          </Card>
-        )}
-        <Card title="Users">
-          {error && (
-            <div className="mb-4 rounded-md bg-red-500/10 p-3 text-sm text-red-500">
-              {error}
-            </div>
-          )}
-          <div className="flex items-center justify-between gap-6 mb-4">
-            <SwitchField>
-              <Switch
-                name="showDeleted"
+            <div className="flex items-center justify-between gap-6 mb-4">
+              <SwitchField>
+                <Switch
+                  name="showDeleted"
+                  color="indigo"
+                  checked={showDeleted}
+                  onChange={() => setShowDeleted((v) => !v)}
+                />
+                <Label>Show Deleted Users</Label>
+              </SwitchField>
+              <Button
                 color="indigo"
-                checked={showDeleted}
-                onChange={() => setShowDeleted((v) => !v)}
-              />
-              <Label>Show Deleted Users</Label>
-            </SwitchField>
-            <Button
-              color="indigo"
-              onClick={() => setShowRegister(true)}
-              title="Register new user"
-              className="items-center"
-            >
-              <UserPlusIcon className="size-5" />
-              <span className="text-sm leading-none">Register User</span>
-            </Button>
-          </div>
-          <Table className="[--gutter:--spacing(6)] sm:[--gutter:--spacing(8)]">
-            <TableHead>
-              <TableRow>
-                <TableHeader>Name</TableHeader>
-                <TableHeader>Activated</TableHeader>
-                <TableHeader>Role</TableHeader>
-                <TableHeader>Actions</TableHeader>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {loading && (
+                onClick={() => setShowRegister(true)}
+                title="Register new user"
+                className="items-center"
+              >
+                <UserPlusIcon className="size-5" />
+                <span className="text-sm leading-none">Register User</span>
+              </Button>
+            </div>
+            <Table className="[--gutter:--spacing(6)] sm:[--gutter:--spacing(8)]">
+              <TableHead>
                 <TableRow>
-                  <TableCell colSpan={4}>
-                    <div className="flex items-center justify-center gap-2 py-6 text-sm text-gv-muted">
-                      <svg className="h-4 w-4 motion-safe:animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Loading users…
-                    </div>
-                  </TableCell>
+                  <TableHeader>Name</TableHeader>
+                  <TableHeader>Activated</TableHeader>
+                  <TableHeader>Role</TableHeader>
+                  <TableHeader>Actions</TableHeader>
                 </TableRow>
-              )}
-              {!loading && filteredUsers.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={4}>
-                    <div className="py-6 text-center text-sm text-gv-muted">
-                      No users found.
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )}
-              {filteredUsers.map((u: GamevaultUser) => {
-                const id = u.id;
-                const deleted = u.deleted_at;
-                const busy = opBusy[String(id)];
-                const name = u.username || "Unknown User";
-                const first_name = u.first_name;
-                const last_name = u.last_name;
-                const email = u.email;
-                const roleNumeric = u.role ?? GamevaultUserRoleEnum._0;
-                return (
-                  <TableRow key={id} className={deleted ? "opacity-60" : ""}>
-                    <TableCell>
-                      <div className="flex items-center gap-4">
-                        <Link
-                          href={`/community/${id}`}
-                          className="shrink-0 rounded-full outline-hidden focus:outline-2 focus:outline-offset-2 focus:outline-gv-accent-cool"
+              </TableHead>
+              <TableBody>
+                {loading && (
+                  <TableRow>
+                    <TableCell colSpan={4}>
+                      <div className="flex items-center justify-center gap-2 py-6 text-sm text-gv-muted">
+                        <svg
+                          className="h-4 w-4 motion-safe:animate-spin"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
                         >
-                          <UserAvatar
-                            media={u.avatar}
-                            size={48}
-                            alt={name}
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
                           />
-                        </Link>
-                        <div>
-                          <div className="font-medium flex items-center gap-2">
-                            <span>
-                              {name}{" "}
-                              {(first_name || last_name) && (
-                                <span className="font-normal">
-                                  (
-                                  {`${first_name ?? ""} ${last_name ?? ""}`.trim()}
-                                  )
-                                </span>
-                              )}
-                            </span>
-                            {deleted && (
-                              <span className="rounded bg-red-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-400">
-                                Deleted
-                              </span>
-                            )}
-                          </div>
-                          {email && (
-                            <div className="text-gv-muted">
-                              <a
-                                href={`mailto:${email}`}
-                                className="hover:text-gv-text"
-                              >
-                                {email}
-                              </a>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Switch
-                        name="activated"
-                        color="indigo"
-                        checked={!!u.activated}
-                        disabled={!!deleted || busy}
-                        onChange={() => toggleActivated(u)}
-                      />
-                    </TableCell>
-                    <TableCell className="text-gv-muted">
-                      <Listbox
-                        name="role"
-                        value={roleNumeric}
-                        onChange={async (val: any) => {
-                          const nextRole = String(val) as GamevaultUserRoleEnum;
-                          if (
-                            currentUser &&
-                            currentUser.id === u.id &&
-                            nextRole !== roleNumeric
-                          ) {
-                            const proceed = await showAlert({
-                              title: "Change your own role?",
-                              description:
-                                "You're about to change your own permission role. If you lower your permissions you may lose access to parts of the administration panel immediately.",
-                              affirmativeText: "Yes, change it",
-                              negativeText: "Cancel",
-                            });
-                            if (!proceed) return; // abort
-                          }
-                          updateUserRole(u, nextRole);
-                        }}
-                        disabled={!!deleted || busy}
-                      >
-                        {Object.values(GamevaultUserRoleEnum).map((r) => (
-                          <ListboxOption key={r} value={r}>
-                            <ListboxLabel>
-                              {ROLE_LABELS[Number(r)] ?? r}
-                            </ListboxLabel>
-                          </ListboxOption>
-                        ))}
-                      </Listbox>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2 justify-end">
-                        {!deleted && (
-                          <Button
-                            color="rose"
-                            disabled={busy}
-                            onClick={() => deleteUser(u)}
-                            title="Delete User"
-                          >
-                            <TrashIcon />{" "}
-                            <span className="sr-only">Delete</span>
-                          </Button>
-                        )}
-                        {deleted && (
-                          <Button
-                            color="green"
-                            disabled={busy}
-                            onClick={() => recoverUser(u)}
-                            title="Recover User"
-                          >
-                            <ArrowPathIcon />{" "}
-                            <span className="sr-only">Recover</span>
-                          </Button>
-                        )}
-                        <Button
-                          color="indigo"
-                          onClick={() => setEditingUserId(Number(id))}
-                          title="Edit User"
-                          className="bg-gv-accent!"
-                          disabled={busy}
-                        >
-                          <PencilSquareIcon />{" "}
-                          <span className="sr-only">Edit</span>
-                        </Button>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          />
+                        </svg>
+                        Loading users…
                       </div>
                     </TableCell>
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-
-          <div id="portal-modals" className="contents">
-            {currentEditingUser && (
-              <UserEditorModal
-                user={currentEditingUser}
-                onClose={() => setEditingUserId(null)}
-                onSave={async (payload) =>
-                  updateUser(currentEditingUser, {
-                    ...payload,
-                    // Convert birth_date string|null to Date if present, otherwise undefined to satisfy typing
-                    birth_date: payload.birth_date
-                      ? new Date(payload.birth_date)
-                      : undefined,
-                  })
-                }
-                onUserUpdated={(updated) => {
-                  setUsers((prev) =>
-                    prev.map((u) =>
-                      u.id === updated.id ? { ...u, ...updated } : u,
-                    ),
+                )}
+                {!loading && filteredUsers.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4}>
+                      <div className="py-6 text-center text-sm text-gv-muted">
+                        No users found.
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {filteredUsers.map((u: GamevaultUser, i: number) => {
+                  const id = u.id;
+                  const deleted = u.deleted_at;
+                  const busy = opBusy[String(id)];
+                  const name = u.username || "Unknown User";
+                  const first_name = u.first_name;
+                  const last_name = u.last_name;
+                  const email = u.email;
+                  const roleNumeric = u.role ?? GamevaultUserRoleEnum._0;
+                  return (
+                    <TableRow
+                      key={id}
+                      className={`${deleted ? "opacity-60 " : ""}animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none`}
+                      style={{ animationDelay: `${Math.min(i * 0.03, 0.3)}s` }}
+                    >
+                      <TableCell>
+                        <div className="flex items-center gap-4">
+                          <Link
+                            href={`/community/${id}`}
+                            className="shrink-0 rounded-full outline-hidden focus:outline-2 focus:outline-offset-2 focus:outline-gv-accent-cool"
+                          >
+                            <UserAvatar media={u.avatar} size={48} alt={name} />
+                          </Link>
+                          <div>
+                            <div className="font-medium flex items-center gap-2">
+                              <span>
+                                {name}{" "}
+                                {(first_name || last_name) && (
+                                  <span className="font-normal">
+                                    (
+                                    {`${first_name ?? ""} ${last_name ?? ""}`.trim()}
+                                    )
+                                  </span>
+                                )}
+                              </span>
+                              {deleted && (
+                                <span className="rounded bg-red-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-400">
+                                  Deleted
+                                </span>
+                              )}
+                            </div>
+                            {email && (
+                              <div className="text-gv-muted">
+                                <a
+                                  href={`mailto:${email}`}
+                                  className="hover:text-gv-text"
+                                >
+                                  {email}
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Switch
+                          name="activated"
+                          color="indigo"
+                          checked={!!u.activated}
+                          disabled={!!deleted || busy}
+                          onChange={() => toggleActivated(u)}
+                        />
+                      </TableCell>
+                      <TableCell className="text-gv-muted">
+                        <Listbox
+                          name="role"
+                          value={roleNumeric}
+                          onChange={async (val: any) => {
+                            const nextRole = String(
+                              val,
+                            ) as GamevaultUserRoleEnum;
+                            if (
+                              currentUser &&
+                              currentUser.id === u.id &&
+                              nextRole !== roleNumeric
+                            ) {
+                              const proceed = await showAlert({
+                                title: "Change your own role?",
+                                description:
+                                  "You're about to change your own permission role. If you lower your permissions you may lose access to parts of the administration panel immediately.",
+                                affirmativeText: "Yes, change it",
+                                negativeText: "Cancel",
+                              });
+                              if (!proceed) return; // abort
+                            }
+                            updateUserRole(u, nextRole);
+                          }}
+                          disabled={!!deleted || busy}
+                        >
+                          {Object.values(GamevaultUserRoleEnum).map((r) => (
+                            <ListboxOption key={r} value={r}>
+                              <ListboxLabel>
+                                {ROLE_LABELS[Number(r)] ?? r}
+                              </ListboxLabel>
+                            </ListboxOption>
+                          ))}
+                        </Listbox>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-2 justify-end">
+                          {!deleted && (
+                            <Button
+                              color="rose"
+                              disabled={busy}
+                              onClick={() => deleteUser(u)}
+                              title="Delete User"
+                            >
+                              <TrashIcon />{" "}
+                              <span className="sr-only">Delete</span>
+                            </Button>
+                          )}
+                          {deleted && (
+                            <Button
+                              color="green"
+                              disabled={busy}
+                              onClick={() => recoverUser(u)}
+                              title="Recover User"
+                            >
+                              <ArrowPathIcon />{" "}
+                              <span className="sr-only">Recover</span>
+                            </Button>
+                          )}
+                          <Button
+                            color="indigo"
+                            onClick={() => setEditingUserId(Number(id))}
+                            title="Edit User"
+                            className="bg-gv-accent!"
+                            disabled={busy}
+                          >
+                            <PencilSquareIcon />{" "}
+                            <span className="sr-only">Edit</span>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   );
-                }}
-              />
-            )}
-            {showRegister && (
-              <RegisterUserModal
-                onClose={() => setShowRegister(false)}
-                onRegistered={(u) => {
-                  setUsers((prev) => [...prev, u]);
-                }}
-              />
-            )}
-          </div>
-        </Card>
-        {showBackupRestoreDialog && (
-          <BackupRestoreDialog
-            onClose={() => setShowBackupRestoreDialog(false)}
-          />
-        )}
+                })}
+              </TableBody>
+            </Table>
+
+            <div id="portal-modals" className="contents">
+              {currentEditingUser && (
+                <UserEditorModal
+                  user={currentEditingUser}
+                  onClose={() => setEditingUserId(null)}
+                  onSave={async (payload) =>
+                    updateUser(currentEditingUser, {
+                      ...payload,
+                      // Convert birth_date string|null to Date if present, otherwise undefined to satisfy typing
+                      birth_date: payload.birth_date
+                        ? new Date(payload.birth_date)
+                        : undefined,
+                    })
+                  }
+                  onUserUpdated={(updated) => {
+                    setUsers((prev) =>
+                      prev.map((u) =>
+                        u.id === updated.id ? { ...u, ...updated } : u,
+                      ),
+                    );
+                  }}
+                />
+              )}
+              {showRegister && (
+                <RegisterUserModal
+                  onClose={() => setShowRegister(false)}
+                  onRegistered={(u) => {
+                    setUsers((prev) => [...prev, u]);
+                  }}
+                />
+              )}
+            </div>
+          </Card>
+          {showBackupRestoreDialog && (
+            <BackupRestoreDialog
+              onClose={() => setShowBackupRestoreDialog(false)}
+            />
+          )}
         </div>
       </div>
     );

@@ -43,7 +43,11 @@ const PROGRESS_STATE_META: Record<
   INFINITE: { label: "Ongoing", tone: "text-sky-400", chip: "blue" },
   PLAYING: { label: "Playing", tone: "text-emerald-400", chip: "green" },
   COMPLETED: { label: "Finished", tone: "text-violet-300", chip: "indigo" },
-  ABORTED_TEMPORARY: { label: "On hold", tone: "text-amber-400", chip: "amber" },
+  ABORTED_TEMPORARY: {
+    label: "On hold",
+    tone: "text-amber-400",
+    chip: "amber",
+  },
   ABORTED_PERMANENT: { label: "Dropped", tone: "text-rose-400", chip: "rose" },
 };
 
@@ -148,7 +152,10 @@ function getProgresses(user: GamevaultUser | null | undefined) {
   return Array.isArray(user?.progresses) ? user.progresses : [];
 }
 
-function getRecentProgresses(user: GamevaultUser | null | undefined, limit = 6) {
+function getRecentProgresses(
+  user: GamevaultUser | null | undefined,
+  limit = 6,
+) {
   return [...getProgresses(user)]
     .sort(
       (left, right) =>
@@ -202,8 +209,7 @@ function getUserStats(user: GamevaultUser | null | undefined) {
     (progress) => progress.state === "COMPLETED",
   ).length;
   const playing = progresses.filter(
-    (progress) =>
-      progress.state === "PLAYING" || progress.state === "INFINITE",
+    (progress) => progress.state === "PLAYING" || progress.state === "INFINITE",
   ).length;
   return {
     tracked: progresses.length,
@@ -223,7 +229,9 @@ function getRoleBadgeColor(role?: string) {
 }
 
 function getProgressMeta(state?: string) {
-  return PROGRESS_STATE_META[state || "UNPLAYED"] || PROGRESS_STATE_META.UNPLAYED;
+  return (
+    PROGRESS_STATE_META[state || "UNPLAYED"] || PROGRESS_STATE_META.UNPLAYED
+  );
 }
 
 function GamePoster({
@@ -327,11 +335,20 @@ function ProfileProgressCard({
             <div className="mt-3 min-w-0 space-y-2 text-sm text-gv-muted">
               <div className="flex min-w-0 items-center gap-2">
                 <ClockIcon className="size-4 shrink-0 text-gv-accent-cool" />
-                <span className="truncate">{formatPlaytime(Number(progress.minutes_played ?? 0) || 0)}</span>
+                <span className="truncate">
+                  {formatPlaytime(Number(progress.minutes_played ?? 0) || 0)}
+                </span>
               </div>
               <div className="flex min-w-0 items-center gap-2">
                 <SparklesIcon className="size-4 shrink-0 text-gv-accent-cool" />
-                <span className="truncate" title={formatFullDateTime(progress.last_played_at) ?? undefined}>Last played {formatDate(progress.last_played_at)}</span>
+                <span
+                  className="truncate"
+                  title={
+                    formatFullDateTime(progress.last_played_at) ?? undefined
+                  }
+                >
+                  Last played {formatDate(progress.last_played_at)}
+                </span>
               </div>
             </div>
           </div>
@@ -400,7 +417,9 @@ export default function UserProfile() {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [serverUrl, authFetch, userId]);
 
   const stats = useMemo(() => getUserStats(user), [user]);
@@ -408,16 +427,15 @@ export default function UserProfile() {
     () => getRecentWindowProgresses(user, recentCutoff).slice(0, 8),
     [user, recentCutoff],
   );
-  const bookmarks = useMemo(
-    () => getBookmarkedGames(user).slice(0, 8),
-    [user],
-  );
+  const bookmarks = useMemo(() => getBookmarkedGames(user).slice(0, 8), [user]);
   const allProgresses = useMemo(() => {
     const query = progressSearch.trim().toLowerCase();
     return getProgresses(user)
       .filter((progress) => {
         const title =
-          progress.game?.metadata?.title || progress.game?.title || "Unknown Game";
+          progress.game?.metadata?.title ||
+          progress.game?.title ||
+          "Unknown Game";
         const matchesQuery = !query || title.toLowerCase().includes(query);
         const matchesState =
           progressFilter === "all" || progress.state === progressFilter;
@@ -425,7 +443,9 @@ export default function UserProfile() {
       })
       .sort((left, right) => {
         if (progressSort === "time") {
-          return Number(right.minutes_played ?? 0) - Number(left.minutes_played ?? 0);
+          return (
+            Number(right.minutes_played ?? 0) - Number(left.minutes_played ?? 0)
+          );
         }
         if (progressSort === "title") {
           const leftTitle =
@@ -439,13 +459,13 @@ export default function UserProfile() {
             getProgressMeta(right.state).label,
           );
         }
-        return toTimestamp(right.last_played_at) - toTimestamp(left.last_played_at);
+        return (
+          toTimestamp(right.last_played_at) - toTimestamp(left.last_played_at)
+        );
       });
   }, [user, progressSearch, progressFilter, progressSort]);
 
-  const { url: backdropUrl } = useAuthMediaUrl(
-    getPrimaryBackdropMediaId(user),
-  );
+  const { url: backdropUrl } = useAuthMediaUrl(getPrimaryBackdropMediaId(user));
 
   useEffect(() => {
     setProgressSearch("");
@@ -481,9 +501,7 @@ export default function UserProfile() {
           prev
             ? {
                 ...prev,
-                progresses: prev.progresses?.filter(
-                  (p) => p.id !== progressId,
-                ),
+                progresses: prev.progresses?.filter((p) => p.id !== progressId),
               }
             : prev,
         );
@@ -558,7 +576,9 @@ export default function UserProfile() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <Heading>Community</Heading>
-          <Text>Browse player profiles, stats, and shared library history.</Text>
+          <Text>
+            Browse player profiles, stats, and shared library history.
+          </Text>
         </div>
         <div className="flex items-center gap-2">
           {canEdit && (
@@ -609,9 +629,7 @@ export default function UserProfile() {
                   <Badge color={getRoleBadgeColor(user.role)}>
                     {getRoleLabel(Number(user.role))}
                   </Badge>
-                  {isOwnProfile && (
-                    <Badge color="indigo">Your profile</Badge>
-                  )}
+                  {isOwnProfile && <Badge color="indigo">Your profile</Badge>}
                   {!user.activated && <Badge color="rose">Inactive</Badge>}
                 </div>
                 <div>
@@ -623,8 +641,16 @@ export default function UserProfile() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3 text-sm text-white/80">
-                  <span title={formatFullDateTime(user.created_at) ?? undefined}>Joined {formatDate(user.created_at, "Unknown")}</span>
-                  <span title={formatFullDateTime(stats.lastPlayed) ?? undefined}>Last seen {formatDate(stats.lastPlayed, "Never")}</span>
+                  <span
+                    title={formatFullDateTime(user.created_at) ?? undefined}
+                  >
+                    Joined {formatDate(user.created_at, "Unknown")}
+                  </span>
+                  <span
+                    title={formatFullDateTime(stats.lastPlayed) ?? undefined}
+                  >
+                    Last seen {formatDate(stats.lastPlayed, "Never")}
+                  </span>
                   <span>{formatPlaytime(stats.totalMinutes)} logged</span>
                 </div>
               </div>
@@ -633,9 +659,21 @@ export default function UserProfile() {
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {[
                 { icon: UserGroupIcon, label: "Tracked", value: stats.tracked },
-                { icon: PlayCircleIcon, label: "Playing", value: stats.playing },
-                { icon: CheckCircleIcon, label: "Finished", value: stats.completed },
-                { icon: BookmarkIcon, label: "Bookmarks", value: stats.bookmarks },
+                {
+                  icon: PlayCircleIcon,
+                  label: "Playing",
+                  value: stats.playing,
+                },
+                {
+                  icon: CheckCircleIcon,
+                  label: "Finished",
+                  value: stats.completed,
+                },
+                {
+                  icon: BookmarkIcon,
+                  label: "Bookmarks",
+                  value: stats.bookmarks,
+                },
               ].map((item) => (
                 <div
                   key={item.label}
@@ -662,7 +700,9 @@ export default function UserProfile() {
               <Subheading>Recent activity</Subheading>
               <Text>Games touched in the last 2 weeks.</Text>
             </div>
-            <Badge color="zinc" className="shrink-0 whitespace-nowrap">{recent.length} in 2 weeks</Badge>
+            <Badge color="zinc" className="shrink-0 whitespace-nowrap">
+              {recent.length} in 2 weeks
+            </Badge>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {recent.length > 0 ? (
@@ -681,9 +721,14 @@ export default function UserProfile() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <Subheading>All game progress</Subheading>
-              <Text>Filter the full history to inspect paused, dropped, finished, or untouched games.</Text>
+              <Text>
+                Filter the full history to inspect paused, dropped, finished, or
+                untouched games.
+              </Text>
             </div>
-            <Badge color="zinc" className="shrink-0 whitespace-nowrap">{allProgresses.length} matches</Badge>
+            <Badge color="zinc" className="shrink-0 whitespace-nowrap">
+              {allProgresses.length} matches
+            </Badge>
           </div>
           <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px] lg:items-end">
             <div className="w-full">
@@ -736,12 +781,17 @@ export default function UserProfile() {
           </div>
           <div className="mt-5 overflow-x-hidden md:max-h-168 md:overflow-y-auto grid gap-4 md:grid-cols-2">
             {allProgresses.length > 0 ? (
-              allProgresses.map((progress) => (
-                <ProfileProgressCard
+              allProgresses.map((progress, i) => (
+                <div
                   key={`all-${progress.id}`}
-                  progress={progress}
-                  onDelete={isOwnProfile ? handleDeleteProgress : undefined}
-                />
+                  className="animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none"
+                  style={{ animationDelay: `${Math.min(i * 0.04, 0.3)}s` }}
+                >
+                  <ProfileProgressCard
+                    progress={progress}
+                    onDelete={isOwnProfile ? handleDeleteProgress : undefined}
+                  />
+                </div>
               ))
             ) : (
               <div className="surface-panel-soft rounded-3xl p-6 text-sm text-gv-muted md:col-span-2">
@@ -757,7 +807,9 @@ export default function UserProfile() {
               <Subheading>Bookmarked shelf</Subheading>
               <Text>Games this player pinned for later.</Text>
             </div>
-            <Badge color="zinc" className="shrink-0 whitespace-nowrap">{bookmarks.length} saved</Badge>
+            <Badge color="zinc" className="shrink-0 whitespace-nowrap">
+              {bookmarks.length} saved
+            </Badge>
           </div>
           <div className="mt-5 flex gap-4 overflow-x-auto pb-2">
             {bookmarks.length > 0 ? (

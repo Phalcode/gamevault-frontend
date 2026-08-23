@@ -1,11 +1,9 @@
-import {
-  Disclosure,
-  DisclosureButton,
-  DisclosurePanel,
-} from "@headlessui/react";
+import { Disclosure, DisclosureButton } from "@headlessui/react";
 import { ChevronRightIcon } from "@heroicons/react/24/solid";
+import { AnimatePresence, motion } from "motion/react";
 import clsx from "clsx";
 import { ReactNode } from "react";
+import { EASE_OUT } from "@/lib/motion";
 
 interface SectionExpanderProps {
   title: string;
@@ -38,7 +36,20 @@ export function SectionExpander({
               <div className="ml-auto flex items-center">{headerRight}</div>
             )}
           </div>
-          <DisclosurePanel>{children}</DisclosurePanel>
+          <AnimatePresence initial={false}>
+            {open && (
+              <motion.div
+                key="content"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.18, ease: EASE_OUT }}
+                className="overflow-hidden"
+              >
+                {children}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
     </Disclosure>

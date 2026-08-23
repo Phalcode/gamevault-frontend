@@ -105,7 +105,12 @@ export function Media({
         <img
           src={blobUrl}
           alt={alt}
-          style={{ width: "100%", height: "100%", objectFit: fit }}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: fit,
+            animation: "media-fade-in 0.2s var(--ease-out)",
+          }}
           draggable={false}
           onClick={onClick}
           onError={retryAfterDecodeError}

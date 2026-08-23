@@ -2,6 +2,8 @@ import { Navbar } from "@components/Navbar";
 import { Sidebar } from "@components/Sidebar";
 import { SidebarLayout } from "@tw/sidebar-layout";
 import { Outlet, matchPath, useLocation } from "react-router";
+import { AnimatePresence, motion } from "motion/react";
+import { pageVariants } from "@/lib/motion";
 import ProtectedRoute from "../guards/ProtectedRoute";
 import { useGameTimeTracker } from "@/hooks/useGameTimeTracker";
 
@@ -31,7 +33,18 @@ export default function DashboardLayout({
         fullWidth={isFullBleed}
         fullBleed={isFullBleed}
       >
-        <Outlet />
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={location.pathname}
+            variants={pageVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            className="h-full"
+          >
+            <Outlet />
+          </motion.div>
+        </AnimatePresence>
       </SidebarLayout>
     </ProtectedRoute>
   );
