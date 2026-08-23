@@ -38,7 +38,6 @@ import {
   QueueListIcon,
   ShieldCheckIcon,
   SwatchIcon,
-  ArrowUpCircleIcon,
   ArrowPathIcon,
   SparklesIcon,
   ExclamationTriangleIcon,
@@ -79,8 +78,6 @@ type SettingsCategory =
   | "privacy"
   | "appearance"
   | "desktop"
-  | "ignore"
-  | "updates"
   | "developer"
   | "about";
 
@@ -114,18 +111,8 @@ const CATEGORY_META: Record<
   },
   desktop: {
     label: "Desktop",
-    description: "How GameVault behaves when you sign in and after downloads.",
+    description: "Startup, ignored executables and updates",
     icon: ComputerDesktopIcon,
-  },
-  ignore: {
-    label: "Ignore List",
-    description: "Manage the list of files GameVault ignores.",
-    icon: EyeSlashIcon,
-  },
-  updates: {
-    label: "Updates",
-    description: "See your version and choose how to stay up to date.",
-    icon: ArrowUpCircleIcon,
   },
   developer: {
     label: "Developer Tools",
@@ -581,19 +568,18 @@ export default function Settings() {
     };
   }, []);
 
-  // Master list sections (iOS Settings style), visibility depends on platform.
-  const generalCategories: SettingsCategory[] = [
+  // Flat category list (no group captions); desktop-only entries stay hidden for web users.
+  const navCategories: SettingsCategory[] = [
     "downloads",
     "library",
     "privacy",
     "appearance",
+    ...(isTauri ? (["desktop"] as SettingsCategory[]) : []),
+    ...(import.meta.env.DEV || devToolsUnlocked
+      ? (["developer"] as SettingsCategory[])
+      : []),
+    "about",
   ];
-  const desktopCategories: SettingsCategory[] = isTauri
-    ? ["desktop", "ignore", "updates"]
-    : [];
-  const developerCategories: SettingsCategory[] =
-    import.meta.env.DEV || devToolsUnlocked ? ["developer"] : [];
-  const aboutCategories: SettingsCategory[] = ["about"];
 
   const renderCategoryRow = (id: SettingsCategory) => {
     const meta = CATEGORY_META[id];
@@ -653,24 +639,8 @@ export default function Settings() {
         <div className="w-full max-w-3xl">
           {activeCategory === null ? (
             <div className="space-y-6">
-              <SettingsGroup caption="General">
-                {generalCategories.map(renderCategoryRow)}
-              </SettingsGroup>
-
-              {desktopCategories.length > 0 && (
-                <SettingsGroup caption="Desktop">
-                  {desktopCategories.map(renderCategoryRow)}
-                </SettingsGroup>
-              )}
-
-              {developerCategories.length > 0 && (
-                <SettingsGroup caption="Developer">
-                  {developerCategories.map(renderCategoryRow)}
-                </SettingsGroup>
-              )}
-
-              <SettingsGroup caption="About">
-                {aboutCategories.map(renderCategoryRow)}
+              <SettingsGroup>
+                {navCategories.map(renderCategoryRow)}
               </SettingsGroup>
             </div>
           ) : (
@@ -801,6 +771,50 @@ export default function Settings() {
                       {speedLimitControl}
                     </SettingsRow>
                   </SettingsGroup>
+
+                  {isTauri && (
+                    <SettingsGroup caption="After downloading">
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Auto-Extract Downloads"
+                          description="Unpack archives right after downloading."
+                        />
+                        <Switch
+                          name="autoExtract"
+                          color="indigo"
+                          aria-label="Automatically extract downloaded archives"
+                          checked={autoExtract}
+                          onChange={(v: boolean) => setAutoExtract(v)}
+                        />
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Auto-Install Games"
+                          description="Start installers or copy portable files automatically."
+                        />
+                        <Switch
+                          name="autoInstall"
+                          color="indigo"
+                          aria-label="Automatically install games after extraction"
+                          checked={autoInstall}
+                          onChange={(v: boolean) => setAutoInstall(v)}
+                        />
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Auto-Delete Source Files"
+                          description="Clean up downloads after installation to free up space."
+                        />
+                        <Switch
+                          name="autoDeleteSource"
+                          color="indigo"
+                          aria-label="Delete downloaded and extracted files after portable game install"
+                          checked={autoDeleteSource}
+                          onChange={(v: boolean) => setAutoDeleteSource(v)}
+                        />
+                      </SettingsRow>
+                    </SettingsGroup>
+                  )}
                 </>
               )}
 
@@ -883,7 +897,7 @@ export default function Settings() {
                   <SettingsSectionHeader
                     icon={ComputerDesktopIcon}
                     title="Desktop"
-                    description="How GameVault behaves when you sign in and after downloads."
+                    description="Startup, ignored executables and updates."
                   />
                   <SettingsGroup caption="Startup">
                     <SettingsRow>
@@ -932,58 +946,7 @@ export default function Settings() {
                     </SettingsRow>
                   </SettingsGroup>
 
-                  <SettingsGroup caption="After downloading">
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Auto-Extract Downloads"
-                        description="Unpack archives right after downloading."
-                      />
-                      <Switch
-                        name="autoExtract"
-                        color="indigo"
-                        aria-label="Automatically extract downloaded archives"
-                        checked={autoExtract}
-                        onChange={(v: boolean) => setAutoExtract(v)}
-                      />
-                    </SettingsRow>
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Auto-Install Games"
-                        description="Start installers or copy portable files automatically."
-                      />
-                      <Switch
-                        name="autoInstall"
-                        color="indigo"
-                        aria-label="Automatically install games after extraction"
-                        checked={autoInstall}
-                        onChange={(v: boolean) => setAutoInstall(v)}
-                      />
-                    </SettingsRow>
-                    <SettingsRow>
-                      <SettingsLabel
-                        title="Auto-Delete Source Files"
-                        description="Clean up downloads after installation to free up space."
-                      />
-                      <Switch
-                        name="autoDeleteSource"
-                        color="indigo"
-                        aria-label="Delete downloaded and extracted files after portable game install"
-                        checked={autoDeleteSource}
-                        onChange={(v: boolean) => setAutoDeleteSource(v)}
-                      />
-                    </SettingsRow>
-                  </SettingsGroup>
-                </>
-              )}
-
-              {activeCategory === "ignore" && isTauri && (
-                <>
-                  <SettingsSectionHeader
-                    icon={EyeSlashIcon}
-                    title="Ignore List"
-                    description="Manage the list of files GameVault ignores."
-                  />
-                  <SettingsGroup caption="Hidden executables">
+                  <SettingsGroup caption="Ignore List">
                     {ignoreList.length === 0 && (
                       <SettingsRow>
                         <div className="flex items-center gap-2 text-sm text-gv-muted">
@@ -1035,17 +998,8 @@ export default function Settings() {
                       </div>
                     </SettingsRow>
                   </SettingsGroup>
-                </>
-              )}
 
-              {activeCategory === "updates" && (
-                <>
-                  <SettingsSectionHeader
-                    icon={ArrowUpCircleIcon}
-                    title="Updates"
-                    description="See your version and choose how to stay up to date."
-                  />
-                  <SettingsGroup>
+                  <SettingsGroup caption="Updates">
                     <SettingsRow>
                       <SettingsLabel
                         title="Installed version"
@@ -1056,7 +1010,7 @@ export default function Settings() {
                       </span>
                     </SettingsRow>
 
-                    {isTauri && availableVersion && !isInstallingUpdate && (
+                    {availableVersion && !isInstallingUpdate && (
                       <SettingsRow>
                         <SettingsLabel
                           title="Available update"
@@ -1069,83 +1023,75 @@ export default function Settings() {
                       </SettingsRow>
                     )}
 
-                    {isTauri && (
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Update channel"
-                          description="Choose which kind of releases you receive."
-                        />
-                        <div className="w-36 shrink-0">
-                          <Listbox
-                            name="updateChannel"
-                            value={updateChannel}
-                            onChange={setUpdateChannel}
-                          >
-                            <ListboxOption value="stable">
-                              <ListboxLabel>Stable</ListboxLabel>
-                            </ListboxOption>
-                            <ListboxOption value="unstable">
-                              <ListboxLabel>Unstable</ListboxLabel>
-                            </ListboxOption>
-                          </Listbox>
-                        </div>
-                      </SettingsRow>
-                    )}
+                    <SettingsRow>
+                      <SettingsLabel
+                        title="Update channel"
+                        description="Choose which kind of releases you receive."
+                      />
+                      <div className="w-36 shrink-0">
+                        <Listbox
+                          name="updateChannel"
+                          value={updateChannel}
+                          onChange={setUpdateChannel}
+                        >
+                          <ListboxOption value="stable">
+                            <ListboxLabel>Stable</ListboxLabel>
+                          </ListboxOption>
+                          <ListboxOption value="unstable">
+                            <ListboxLabel>Unstable</ListboxLabel>
+                          </ListboxOption>
+                        </Listbox>
+                      </div>
+                    </SettingsRow>
 
-                    {isTauri && (
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Auto-update status"
-                          description={
-                            updaterErrorText
-                              ? updaterErrorText
-                              : updaterStatusText ||
-                                (updaterReady
-                                  ? updaterEnabled
-                                    ? `Enabled for the ${updateChannel} channel.`
-                                    : "Not configured for this build yet."
-                                  : "Checking availability...")
-                          }
-                        />
-                        {updaterErrorText ? (
-                          <ExclamationTriangleIcon className="size-4 shrink-0 text-red-400" />
-                        ) : (
-                          <span
-                            className={clsx(
-                              "size-2.5 shrink-0 rounded-full",
-                              updaterEnabled
-                                ? "bg-gv-success"
-                                : "bg-gv-muted/60",
-                            )}
-                          />
-                        )}
-                      </SettingsRow>
-                    )}
-                  </SettingsGroup>
-
-                  {isTauri && (
-                    <Button
-                      type="button"
-                      color="indigo"
-                      disabled={
-                        !updaterReady || isCheckingUpdates || isInstallingUpdate
-                      }
-                      onClick={() => void checkForUpdates({ manual: true })}
-                    >
-                      <ArrowPathIcon
-                        className={
-                          isCheckingUpdates
-                            ? "size-4 animate-spin motion-reduce:animate-none"
-                            : "size-4"
+                    <SettingsRow>
+                      <SettingsLabel
+                        title="Auto-update status"
+                        description={
+                          updaterErrorText
+                            ? updaterErrorText
+                            : updaterStatusText ||
+                              (updaterReady
+                                ? updaterEnabled
+                                  ? `Enabled for the ${updateChannel} channel.`
+                                  : "Not configured for this build yet."
+                                : "Checking availability...")
                         }
                       />
-                      {isCheckingUpdates
-                        ? "Checking..."
-                        : isInstallingUpdate
-                          ? "Updating..."
-                          : "Check for updates"}
-                    </Button>
-                  )}
+                      {updaterErrorText ? (
+                        <ExclamationTriangleIcon className="size-4 shrink-0 text-red-400" />
+                      ) : (
+                        <span
+                          className={clsx(
+                            "size-2.5 shrink-0 rounded-full",
+                            updaterEnabled ? "bg-gv-success" : "bg-gv-muted/60",
+                          )}
+                        />
+                      )}
+                    </SettingsRow>
+                  </SettingsGroup>
+
+                  <Button
+                    type="button"
+                    color="indigo"
+                    disabled={
+                      !updaterReady || isCheckingUpdates || isInstallingUpdate
+                    }
+                    onClick={() => void checkForUpdates({ manual: true })}
+                  >
+                    <ArrowPathIcon
+                      className={
+                        isCheckingUpdates
+                          ? "size-4 animate-spin motion-reduce:animate-none"
+                          : "size-4"
+                      }
+                    />
+                    {isCheckingUpdates
+                      ? "Checking..."
+                      : isInstallingUpdate
+                        ? "Updating..."
+                        : "Check for updates"}
+                  </Button>
                 </>
               )}
 
