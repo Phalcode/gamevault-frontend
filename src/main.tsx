@@ -27,12 +27,16 @@ import Settings from "./pages/Settings";
 import Downloads from "./pages/Downloads";
 import { GamevaultUserRoleEnum } from "./api";
 import { applyTheme, getStoredTheme } from "./utils/theme";
+import { applyZoom, getStoredZoom, registerZoomHotkeys } from "./utils/zoom";
+import { isTauriApp } from "./utils/tauri";
 import { isAnalyticsEnabled } from "./utils/analytics";
 import { startMediaCacheMaintenance } from "./utils/mediaCache";
 import * as Swetrix from "swetrix";
 
 // Apply stored theme immediately to prevent flash of wrong theme
 applyTheme(getStoredTheme());
+// Apply persisted zoom level (native webview zoom in Tauri, CSS zoom on web)
+void applyZoom(getStoredZoom());
 void startMediaCacheMaintenance();
 
 (window as any).global = window;
@@ -41,6 +45,11 @@ if (isAnalyticsEnabled()) {
   Swetrix.init("dBl2xaaJ9x3M", { preloadSessionReplay: true });
   Swetrix.trackViews();
   Swetrix.trackErrors();
+}
+
+// Ctrl/Cmd + +/-/0 zoom hotkeys (browsers already handle these natively)
+if (isTauriApp()) {
+  registerZoomHotkeys();
 }
 
 createRoot(document.getElementById("root")!).render(

@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/tailwind/button";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
 import ThemeSelect from "@/components/ThemeSelect";
+import ZoomControl from "@/components/ZoomControl";
 import {
   Dialog,
   DialogBody,
@@ -1012,6 +1013,15 @@ export default function Settings() {
                         />
                         <div className="w-40 shrink-0">
                           <ThemeSelect />
+                        </div>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Zoom"
+                          description="Zoom the interface in or out."
+                        />
+                        <div className="w-44 shrink-0">
+                          <ZoomControl />
                         </div>
                       </SettingsRow>
                     </SettingsGroup>
