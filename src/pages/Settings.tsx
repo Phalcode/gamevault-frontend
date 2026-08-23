@@ -68,6 +68,19 @@ const AUTO_DELETE_SOURCE_KEY = "tauri_auto_delete_source";
 
 const SENSITIVE_KEY_PATTERN = /token|password|secret|auth|refresh|credential/i;
 
+/** Plays the Developer Tools unlock jingle at medium volume. */
+function playUnlockSound() {
+  try {
+    const audio = new Audio("/laughingdog.mp3");
+    audio.volume = 0.5;
+    void audio.play().catch(() => {
+      // Autoplay blocked; the click gesture usually grants playback.
+    });
+  } catch {
+    // Audio unavailable
+  }
+}
+
 const SIMULATED_DOWNLOAD_KINDS: {
   kind: SimulatedDownloadKind;
   label: string;
@@ -645,6 +658,7 @@ export default function Settings() {
       versionClickCount.current = 0;
       if (!devToolsUnlocked) {
         setDevToolsUnlocked(true);
+        playUnlockSound();
         void showAlert({ title: "Developer Tools unlocked" });
       }
     }
