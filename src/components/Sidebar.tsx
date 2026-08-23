@@ -17,7 +17,7 @@ import {
 } from "@heroicons/react/16/solid";
 import { Cog6ToothIcon } from "@heroicons/react/20/solid";
 import { Badge } from "@tw/badge";
-import { isTauriApp } from "@/utils/tauri";
+import { isTauriApp, openExternalUrl } from "@/utils/tauri";
 import {
   Dropdown,
   DropdownButton,
@@ -162,11 +162,25 @@ export function Sidebar() {
 
           <SidebarSpacer />
           <SidebarSection>
-            <SidebarItem href="https://gamevau.lt/docs/intro" target="_blank">
+            <SidebarItem
+              href="https://gamevau.lt/docs/intro"
+              target="_blank"
+              onClick={(e) => {
+                e.preventDefault();
+                void openExternalUrl("https://gamevau.lt/docs/intro");
+              }}
+            >
               <LifebuoyIcon />
               <SidebarLabel>Documentation</SidebarLabel>
             </SidebarItem>
-            <SidebarItem href="https://discord.gg/NEdNen2dSu" target="_blank">
+            <SidebarItem
+              href="https://discord.gg/NEdNen2dSu"
+              target="_blank"
+              onClick={(e) => {
+                e.preventDefault();
+                void openExternalUrl("https://discord.gg/NEdNen2dSu");
+              }}
+            >
               <ChatBubbleLeftRightIcon />
               <SidebarLabel>Discord</SidebarLabel>
             </SidebarItem>
@@ -189,6 +203,10 @@ export function Sidebar() {
             <SidebarItem
               href="https://gamevau.lt/gamevault-plus"
               target="_blank"
+              onClick={(e) => {
+                e.preventDefault();
+                void openExternalUrl("https://gamevau.lt/gamevault-plus");
+              }}
             >
               <RocketLaunchIcon />
               <SidebarLabel>GameVault+</SidebarLabel>

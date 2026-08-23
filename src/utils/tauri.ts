@@ -33,3 +33,23 @@ export function isTauriApp(): boolean {
     typeof window !== "undefined" && Boolean((window as any).__TAURI_INTERNALS__)
   );
 }
+
+/**
+ * Open an external URL in the user's default browser.
+ * In Tauri, plain anchor links with `target="_blank"` are swallowed by the
+ * router/webview, so we invoke the native `open_external_url` command instead.
+ * On the web, fall back to `window.open`.
+ */
+export async function openExternalUrl(url: string): Promise<void> {
+  try {
+    if (isTauriApp()) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_external_url", { url });
+      return;
+    }
+
+    window.open(url, "_blank", "noopener,noreferrer");
+  } catch (error) {
+    console.error("Failed to open external URL:", error);
+  }
+}

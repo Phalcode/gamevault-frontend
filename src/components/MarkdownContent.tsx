@@ -1,9 +1,29 @@
 import clsx from "clsx";
-import Markdown from "react-markdown";
+import Markdown, { Components } from "react-markdown";
+import { openExternalUrl } from "@/utils/tauri";
 
 type MarkdownContentProps = {
   content: string;
   className?: string;
+};
+
+const markdownComponents: Components = {
+  a: ({ href, children, ...props }) => (
+    <a
+      {...props}
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => {
+        e.preventDefault();
+        if (href) {
+          void openExternalUrl(href);
+        }
+      }}
+    >
+      {children}
+    </a>
+  ),
 };
 
 export default function MarkdownContent({
@@ -30,7 +50,7 @@ export default function MarkdownContent({
         className,
       )}
     >
-      <Markdown>{normalizedContent}</Markdown>
+      <Markdown components={markdownComponents}>{normalizedContent}</Markdown>
     </div>
   );
 }
