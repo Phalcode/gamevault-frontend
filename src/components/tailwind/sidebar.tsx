@@ -145,6 +145,8 @@ export const SidebarItem = forwardRef(function SidebarItem(
   let classes = clsx(
     // Base
     "flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-[0.95rem]/6 font-medium tracking-[-0.01em] text-gv-text sm:py-2.5 sm:text-sm/6",
+    // Transition
+    "transition-colors duration-150",
     // Leading icon/icon-only
     "*:data-[slot=icon]:size-5 *:data-[slot=icon]:shrink-0 *:data-[slot=icon]:fill-gv-muted *:data-[slot=icon]:text-gv-muted sm:*:data-[slot=icon]:size-5",
     // Trailing icon (down chevron or similar)

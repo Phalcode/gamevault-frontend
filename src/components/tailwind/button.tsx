@@ -10,7 +10,7 @@ const styles = {
     // Sizing
     "px-[calc(--spacing(3.5)-1px)] py-[calc(--spacing(2.5)-1px)] sm:px-[calc(--spacing(3.25)-1px)] sm:py-[calc(--spacing(1.75)-1px)] sm:text-sm/6",
     // Motion
-    "transition-[transform,background-color,border-color,box-shadow,color] duration-150 ease-out active:scale-[0.98]",
+    "transition-[transform,translate,scale,background-color,border-color,box-shadow,color] duration-150 ease-out active:scale-[0.98]",
     // Focus
     "focus:not-data-focus:outline-hidden data-focus:outline-2 data-focus:outline-offset-2 data-focus:outline-gv-accent-cool",
     // Disabled

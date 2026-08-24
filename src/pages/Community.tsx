@@ -320,7 +320,7 @@ function NetworkUserCard({
     >
       <article
         className={clsx(
-          "surface-panel relative overflow-hidden rounded-[1.75rem] p-5 transition-[transform,box-shadow,border-color] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)",
+          "surface-panel relative overflow-hidden rounded-[1.75rem] p-5 transition-[transform,translate,scale,box-shadow,border-color] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)",
           isCurrentUser && "ring-1 ring-gv-accent/35",
         )}
       >
@@ -429,7 +429,7 @@ function ProfileProgressCard({ progress }: { progress: Progress }) {
       to={game?.id ? `/library/${game.id}` : "/library"}
       className="group block rounded-3xl focus:outline-none focus:ring-2 focus:ring-gv-accent-cool"
     >
-      <article className="surface-panel h-full rounded-3xl p-4 transition-[transform,box-shadow,border-color] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)">
+      <article className="surface-panel h-full rounded-3xl p-4 transition-[transform,translate,scale,box-shadow,border-color] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)">
         <div className="flex gap-4">
           <GamePoster
             game={game || undefined}
@@ -482,7 +482,7 @@ export default function Community() {
   const [users, setUsers] = useState<GamevaultUser[]>([]);
   const [detailsById, setDetailsById] = useState<UserDetailsMap>({});
   const [loading, setLoading] = useState(false);
-  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [detailsDone, setDetailsDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState("");
 
@@ -538,9 +538,13 @@ export default function Community() {
           });
 
         setUsers(activeUsers);
+        // No users → nothing to await; details `useEffect` keeps the gate
+        // closed below otherwise.
+        setDetailsDone(activeUsers.length === 0);
       } catch (fetchError: any) {
         if (!cancelled) {
           setError(fetchError?.message || "Failed to load community network");
+          setDetailsDone(true);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -552,17 +556,28 @@ export default function Community() {
     };
   }, [serverUrl, authFetch, currentUserId]);
 
+  // The list is ordered by activity (last played) which is only known once
+  // per-user details have loaded. Gate the grid on `detailsDone` so the card
+  // order is final on first paint — otherwise the list re-sorts a second
+  // after loading and the content visibly shifts.
   useEffect(() => {
     let cancelled = false;
+
+    // An empty user list at mount must NOT open the gate — the fetch might
+    // still be in flight and `detailsDone` would let the grid render in
+    // alphabetical order before activity details arrive.
+    if (users.length === 0) return;
 
     const missingIds = users
       .map((entry) => entry.id)
       .filter((userId) => !detailsById[userId]);
 
-    if (!missingIds.length) return;
+    if (!missingIds.length) {
+      setDetailsDone(true);
+      return;
+    }
 
     (async () => {
-      setLoadingDetails(true);
       const results = await Promise.allSettled(
         missingIds.map((userId) => fetchUserDetail(userId)),
       );
@@ -577,7 +592,7 @@ export default function Community() {
         }
         return next;
       });
-      setLoadingDetails(false);
+      setDetailsDone(true);
     })();
 
     return () => {
@@ -685,7 +700,7 @@ export default function Community() {
         </div>
       )}
 
-      {loading ? (
+      {loading || !detailsDone ? (
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, index) => (
             <div
@@ -714,33 +729,6 @@ export default function Community() {
           {userSearch.trim()
             ? "No members match your search."
             : "No community members found yet."}
-        </div>
-      )}
-
-      {loadingDetails && filteredMembers.length > 0 && (
-        <div className="flex items-center gap-2 text-sm text-gv-muted">
-          <svg
-            className="h-4 w-4 motion-safe:animate-spin"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            />
-          </svg>
-          Refreshing player activity…
         </div>
       )}
     </div>

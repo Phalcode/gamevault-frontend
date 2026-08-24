@@ -70,6 +70,8 @@ export function DropdownItem({
     className,
     // Base styles
     "group cursor-pointer rounded-xl px-3.5 py-2.5 focus:outline-hidden sm:px-3 sm:py-1.5",
+    // Smooth hover/focus transitions
+    "transition-colors duration-150",
     // Text styles
     "text-left text-base/6 text-gv-text sm:text-sm/6 forced-colors:text-[CanvasText]",
     // Focus

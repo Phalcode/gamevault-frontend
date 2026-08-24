@@ -390,8 +390,9 @@ export function GameCard({
         to={gameViewUrl}
         className={clsx(
           "group/card relative flex flex-col overflow-hidden rounded-3xl border border-gv-line bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)] shadow-(--shadow-card)",
-          "cursor-pointer transition-[transform,box-shadow,border-color] duration-200 ease-out",
+          "cursor-pointer select-none transition-[transform,translate,scale,box-shadow,border-color] duration-200 ease-out",
           "hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)",
+          "active:translate-y-0 active:scale-[0.99]",
           "focus:outline-none focus:ring-2 focus:ring-gv-accent-cool",
         )}
       >
@@ -439,7 +440,7 @@ export function GameCard({
 
           {/* Animated glare overlay */}
           <div
-            className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 ease-out group-hover/card:opacity-100! group-focus-within/card:opacity-100!"
+            className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 ease-out group-hover/card:opacity-100! group-focus-within/card:opacity-100!"
             aria-hidden="true"
           >
             <div
@@ -466,6 +467,7 @@ export function GameCard({
               bookmarked
                 ? "border-gv-warning/40 bg-gv-warning/15"
                 : "border-gv-line bg-gv-panel-soft/80 hover:border-gv-line-strong hover:bg-gv-panel",
+              "active:scale-95",
             )}
           >
             {bookmarked ? (
@@ -484,6 +486,7 @@ export function GameCard({
               "absolute top-2 left-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border border-gv-line bg-gv-panel-soft/80 text-gv-muted backdrop-blur-xl transition-all duration-200",
               "opacity-0 translate-y-1 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
               "hover:border-gv-line-strong hover:bg-gv-panel hover:text-gv-text",
+              "active:scale-95",
             )}
             title="Settings"
           >

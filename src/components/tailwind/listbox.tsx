@@ -149,7 +149,7 @@ export function ListboxOption<T>({
               // Typography
               "text-base/6 text-gv-text sm:text-sm/6 forced-colors:text-[CanvasText]",
               // Focus
-              "outline-hidden data-focus:bg-gv-accent data-focus:text-white",
+              "outline-hidden data-focus:bg-gv-accent data-focus:text-white transition-colors duration-150",
               // Forced colors mode
               "forced-color-adjust-none forced-colors:data-focus:bg-[Highlight] forced-colors:data-focus:text-[HighlightText]",
               // Disabled
