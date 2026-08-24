@@ -66,6 +66,22 @@ function collectFocusables(scope: HTMLElement | Document): HTMLElement[] {
 }
 
 /**
+ * Whether an element belongs to the application. Browser extensions (e.g.
+ * password managers like Bitwarden) inject autofill popups directly into the
+ * document, outside the app's `#root` and its HeadlessUI portals; those are
+ * not legitimate focus targets for the gamepad.
+ */
+function isAppElement(element: Element): boolean {
+  const root = document.getElementById("root");
+  if (root && (element === root || root.contains(element))) return true;
+  return (
+    element.closest(
+      '[data-headlessui-portal], [data-headlessui-state="open"]',
+    ) !== null
+  );
+}
+
+/**
  * Selectable options inside an open menu/listbox. Navigation moves focus
  * directly between these (HeadlessUI v2 ignores synthetic key events on its
  * floating panels, so dispatching ArrowUp/Down there does not move the active
@@ -210,12 +226,27 @@ export default function GamepadNavigator() {
   useEffect(() => {
     // The gamepad focus ring follows the element we focused; remove it as
     // soon as that element loses focus (mouse click elsewhere, blur, removal).
+    // Exception: when an external overlay (password-manager autofill popup,
+    // devtools, etc.) steals focus into a non-app element, the ring is kept as
+    // the navigation anchor so the gamepad doesn't silently reset.
     const handleFocusOut = (event: FocusEvent) => {
       const current = gamepadFocusRef.current;
-      if (current && event.target === current) {
+      if (!current || event.target !== current) return;
+      const next = event.relatedTarget;
+      const movedWithinApp =
+        next instanceof Element && isAppElement(next);
+      const movedToBody =
+        next === null ||
+        next === document.body ||
+        next === document.documentElement;
+      if (movedWithinApp || movedToBody) {
         current.classList.remove(GAMEPAD_FOCUS_CLASS);
         gamepadFocusRef.current = null;
+        return;
       }
+      // Focus stolen by a non-app element: keep the ring as the anchor. The
+      // next D-pad press / A will reclaim focus and resume from here.
+      gamepadFocusRef.current = current;
     };
     window.addEventListener("focusout", handleFocusOut, true);
 
@@ -311,16 +342,33 @@ export default function GamepadNavigator() {
       const candidates = collectFocusables(scope.root);
       if (candidates.length === 0) return;
 
+      let anchor: HTMLElement | null = null;
       const current = document.activeElement;
-      if (!(current instanceof HTMLElement) || !candidates.includes(current)) {
+      if (
+        current instanceof HTMLElement &&
+        candidates.includes(current) &&
+        isAppElement(current)
+      ) {
+        anchor = current;
+      } else if (
+        gamepadFocusRef.current &&
+        candidates.includes(gamepadFocusRef.current)
+      ) {
+        // An external overlay (e.g. password-manager autofill popup) stole
+        // focus from the ring element; resume navigation from it instead of
+        // resetting to the first focusable.
+        anchor = gamepadFocusRef.current;
+        setGamepadFocus(anchor);
+      }
+      if (!anchor) {
         adoptInitialFocus(scope);
         return;
       }
 
       const next =
-        pickSpatial(current, candidates, direction) ??
-        pickSpatial(current, candidates, direction, true) ??
-        fallbackDocumentOrder(current, candidates, direction);
+        pickSpatial(anchor, candidates, direction) ??
+        pickSpatial(anchor, candidates, direction, true) ??
+        fallbackDocumentOrder(anchor, candidates, direction);
       if (next) setGamepadFocus(next);
     }
 
@@ -349,7 +397,17 @@ export default function GamepadNavigator() {
         return;
       }
 
-      const element = document.activeElement;
+      const candidates = collectFocusables(scope.root);
+      let element = document.activeElement;
+      if (
+        !(element instanceof HTMLElement) ||
+        !candidates.includes(element) ||
+        !isAppElement(element)
+      ) {
+        // Focus is not on one of our targets (stolen by an external overlay):
+        // act on the ring element instead.
+        element = gamepadFocusRef.current;
+      }
       if (!(element instanceof HTMLElement)) return;
       if (
         element instanceof HTMLInputElement ||
