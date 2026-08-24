@@ -10,6 +10,7 @@ import { Input } from "@/components/tailwind/input";
 import { Text } from "@/components/tailwind/text";
 import { useAuth } from "@/context/AuthContext";
 import { resolveApiMediaBlob } from "@/utils/mediaCache";
+import { isTauriApp } from "@/utils/tauri";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GamevaultUser } from "../../api";
 
@@ -49,6 +50,7 @@ export function UserEditorModal({
   self = false,
 }: Props) {
   const { serverUrl, authFetch, refreshCurrentUser } = useAuth() as any;
+  const isTauri = isTauriApp();
   const [activeTab, setActiveTab] = useState<TabKey>("images");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -163,6 +165,10 @@ export function UserEditorModal({
   const [savingImages, setSavingImages] = useState(false);
   const [imagesMsg, setImagesMsg] = useState<string | null>(null);
   const revokeRef = useRef<string[]>([]);
+  const dragTargetRef = useRef<"avatar" | "bg" | null>(null);
+  const nativeDragHandledRef = useRef(false);
+  const avatarZoneRef = useRef<HTMLDivElement | null>(null);
+  const bgZoneRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(
     () => () => {
@@ -276,12 +282,99 @@ export function UserEditorModal({
   };
   const handleDrop = (e: React.DragEvent, target: "avatar" | "bg") => {
     e.preventDefault();
+    dragTargetRef.current = null;
+    // In Tauri, external drags are handled by the native onDragDropEvent
+    // listener; skip here so we don't double-load.
+    if (isTauri && nativeDragHandledRef.current) return;
     const f = e.dataTransfer.files?.[0];
-    if (f) loadFile(f, target, "drag");
+    if (f) {
+      if (isTauri) nativeDragHandledRef.current = true;
+      loadFile(f, target, "drag");
+      return;
+    }
+    const uriList = e.dataTransfer
+      .getData("text/uri-list")
+      ?.split(/\r?\n/)
+      .map((l) => l.trim())
+      .find((l) => l && !l.startsWith("#"));
+    const text = (uriList || e.dataTransfer.getData("text/plain") || "").trim();
+    if (text && isProbablyImageUrl(text)) {
+      loadUrl(text, target);
+    }
   };
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = (e: React.DragEvent, target: "avatar" | "bg") => {
     e.preventDefault();
+    dragTargetRef.current = target;
+    nativeDragHandledRef.current = false;
   };
+  const loadDroppedPath = async (path: string, target: "avatar" | "bg") => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const arr = (await invoke("fs_read_binary_file", { path })) as number[];
+      const bytes = new Uint8Array(arr);
+      const name = path.split(/[\\/]/).pop() || "image.png";
+      const ext = (name.split(".").pop() || "").toLowerCase();
+      const type =
+        /^(png|jpe?g|gif|webp|avif|svg)$/i.test(ext)
+          ? `image/${ext === "jpg" ? "jpeg" : ext}`
+          : "application/octet-stream";
+      const file = new File([bytes], name, { type });
+      if (file.type.startsWith("image/")) loadFile(file, target, "drag");
+    } catch (err) {
+      console.error("Failed to read dropped file:", err);
+    }
+  };
+  const resolveDropTargetByPosition = (position: {
+    x: number;
+    y: number;
+  }): "avatar" | "bg" | null => {
+    const dpr = window.devicePixelRatio || 1;
+    const x = position.x / dpr;
+    const y = position.y / dpr;
+    for (const [ref, target] of [
+      [avatarZoneRef, "avatar"],
+      [bgZoneRef, "bg"],
+    ] as const) {
+      const el = ref.current;
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)
+        return target;
+    }
+    return null;
+  };
+  useEffect(() => {
+    if (!isTauri) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        unlisten = await getCurrentWindow().onDragDropEvent((event) => {
+          const payload = event.payload;
+          if (payload.type === "enter" || payload.type === "over") {
+            nativeDragHandledRef.current = false;
+            return;
+          }
+          if (payload.type !== "drop") return;
+          const target =
+            dragTargetRef.current ??
+            resolveDropTargetByPosition(payload.position);
+          const path = payload.paths?.[0];
+          if (!target || !path) return;
+          nativeDragHandledRef.current = true;
+          void loadDroppedPath(path, target);
+        });
+      } catch (err) {
+        console.error("Failed to init native drag-drop listener:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTauri]);
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
   const bgFileInputRef = useRef<HTMLInputElement | null>(null);
   const imagesDirty =
@@ -294,6 +387,16 @@ export function UserEditorModal({
     if (state.file) return state.file;
     if (state.via === "url" && state.preview) {
       try {
+        if (isTauri) {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const res = (await invoke("fetch_url_bytes", {
+            url: state.preview,
+          })) as { bytes: number[]; content_type: string };
+          const bytes = new Uint8Array(res.bytes);
+          const mime = res.content_type || "image/png";
+          const ext = (mime.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+          return new File([bytes], `${fallbackName}.${ext}`, { type: mime });
+        }
         const r = await fetch(state.preview);
         if (!r.ok) throw new Error("url fetch failed");
         const b = await r.blob();
@@ -444,9 +547,10 @@ export function UserEditorModal({
                 )}
               </div>
               <div
+                ref={avatarZoneRef}
                 onPaste={(e) => handlePaste(e, "avatar")}
                 onDrop={(e) => handleDrop(e, "avatar")}
-                onDragOver={handleDragOver}
+                onDragOver={(e) => handleDragOver(e, "avatar")}
                 className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                 onClick={() => avatarFileInputRef.current?.click()}
               >
@@ -471,6 +575,13 @@ export function UserEditorModal({
                   onChange={(e) =>
                     setAvatarImg((p) => ({ ...p, urlInput: e.target.value }))
                   }
+                  onPaste={(e) => {
+                    const text = e.clipboardData?.getData("text");
+                    if (text && isProbablyImageUrl(text)) {
+                      loadUrl(text, "avatar");
+                      e.preventDefault();
+                    }
+                  }}
                 />
                 {avatarImg.preview &&
                   avatarImg.preview !== avatarImg.original && (
@@ -514,9 +625,10 @@ export function UserEditorModal({
                 )}
               </div>
               <div
+                ref={bgZoneRef}
                 onPaste={(e) => handlePaste(e, "bg")}
                 onDrop={(e) => handleDrop(e, "bg")}
-                onDragOver={handleDragOver}
+                onDragOver={(e) => handleDragOver(e, "bg")}
                 className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                 onClick={() => bgFileInputRef.current?.click()}
               >
@@ -543,6 +655,13 @@ export function UserEditorModal({
                   onChange={(e) =>
                     setBgImg((p) => ({ ...p, urlInput: e.target.value }))
                   }
+                  onPaste={(e) => {
+                    const text = e.clipboardData?.getData("text");
+                    if (text && isProbablyImageUrl(text)) {
+                      loadUrl(text, "bg");
+                      e.preventDefault();
+                    }
+                  }}
                 />
                 {bgImg.preview && bgImg.preview !== bgImg.original && (
                   <Button
