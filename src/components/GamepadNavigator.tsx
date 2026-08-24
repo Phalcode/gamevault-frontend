@@ -19,6 +19,11 @@ const GAMEPAD_FOCUS_CLASS = "gv-gamepad-focus";
 const SCROLL_PX_PER_FRAME = 28;
 const PAGE_SCROLL_FRACTION = 0.8;
 
+const OPEN_POPOVER_SELECTOR = [
+  '[role="listbox"][data-headlessui-state="open"]',
+  '[role="menu"][data-headlessui-state="open"]',
+].join(", ");
+
 type ScopeKind = "document" | "dialog" | "popover";
 interface Scope {
   kind: ScopeKind;
@@ -26,11 +31,28 @@ interface Scope {
 }
 
 function isVisible(element: Element): boolean {
-  const htmlElement = element as HTMLElement;
-  const rect = htmlElement.getBoundingClientRect();
+  // A focusable element is only a valid navigation target when it AND every
+  // ancestor up to <body> actually render. Ancestor visibility is checked via
+  // computed display/visibility/opacity — not box size: HeadlessUI wraps its
+  // floating panels and dialogs in zero-size portal containers, so a zero-box
+  // ancestor must not hide the (absolutely positioned) element inside it.
+  const rect = element.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return false;
-  const style = getComputedStyle(htmlElement);
-  return style.visibility !== "hidden" && style.display !== "none";
+  let node: HTMLElement | null = element as HTMLElement;
+  while (node && node !== document.body) {
+    if (node.hasAttribute("role")) {
+      const role = node.getAttribute("role");
+      if (role === "dialog" || role === "alertdialog") break;
+    }
+    const style = getComputedStyle(node);
+    if (style.display === "none" || style.visibility === "hidden") {
+      return false;
+    }
+    const opacity = Number.parseFloat(style.opacity);
+    if (!Number.isNaN(opacity) && opacity <= 0) return false;
+    node = node.parentElement;
+  }
+  return true;
 }
 
 function collectFocusables(scope: HTMLElement | Document): HTMLElement[] {
@@ -43,6 +65,40 @@ function collectFocusables(scope: HTMLElement | Document): HTMLElement[] {
   return focusables;
 }
 
+/**
+ * Whether an element belongs to the application. Browser extensions (e.g.
+ * password managers like Bitwarden) inject autofill popups directly into the
+ * document, outside the app's `#root` and its HeadlessUI portals; those are
+ * not legitimate focus targets for the gamepad.
+ */
+function isAppElement(element: Element): boolean {
+  const root = document.getElementById("root");
+  if (root && (element === root || root.contains(element))) return true;
+  return (
+    element.closest(
+      '[data-headlessui-portal], [data-headlessui-state="open"]',
+    ) !== null
+  );
+}
+
+/**
+ * Selectable options inside an open menu/listbox. Navigation moves focus
+ * directly between these (HeadlessUI v2 ignores synthetic key events on its
+ * floating panels, so dispatching ArrowUp/Down there does not move the active
+ * option). Focusing an option also drives the `data-focus`/`data-active`
+ * visual state, so the current item stays visible.
+ */
+function collectPopoverItems(root: HTMLElement): HTMLElement[] {
+  const items = Array.from(
+    root.querySelectorAll<HTMLElement>(
+      '[role="menuitem"], [role="option"]',
+    ),
+  );
+  return items.filter(
+    (element) => !element.hasAttribute("disabled") && isVisible(element),
+  );
+}
+
 /** Find the innermost open interactive layer (popover > dialog > document). */
 function detectScope(): Scope {
   // An open listbox/menu keeps focus on its trigger (aria-expanded="true");
@@ -53,18 +109,30 @@ function detectScope(): Scope {
     active.getAttribute("aria-expanded") === "true"
   ) {
     const popovers = document.querySelectorAll<HTMLElement>(
-      '[role="listbox"][data-headlessui-state="open"], [role="menu"][data-headlessui-state="open"]',
+      OPEN_POPOVER_SELECTOR,
     );
     for (const popover of popovers) {
       if (isVisible(popover)) return { kind: "popover", root: popover };
     }
   }
-  const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]');
+  // HeadlessUI renders the dialog ROOT as a zero-size element (its backdrop
+  // and panel children are position:fixed, so the root has no geometry of its
+  // own). Openness is therefore detected via state attributes, not size.
+  const dialogs = document.querySelectorAll<HTMLElement>(
+    '[role="dialog"], [role="alertdialog"]',
+  );
   for (const dialog of dialogs) {
-    if (isVisible(dialog)) return { kind: "dialog", root: dialog };
+    if (dialog.getAttribute("data-headlessui-state") === "open") {
+      return { kind: "dialog", root: dialog };
+    }
+    // Non-HeadlessUI dialogs (e.g. a native <dialog open>): fall back to
+    // geometry-based visibility.
+    if (!dialog.hasAttribute("data-headlessui-state") && isVisible(dialog)) {
+      return { kind: "dialog", root: dialog };
+    }
   }
   const popovers = document.querySelectorAll<HTMLElement>(
-    '[role="listbox"][data-headlessui-state="open"], [role="menu"][data-headlessui-state="open"]',
+    OPEN_POPOVER_SELECTOR,
   );
   for (const popover of popovers) {
     if (isVisible(popover)) return { kind: "popover", root: popover };
@@ -76,11 +144,17 @@ function detectScope(): Scope {
  * Pick the best candidate in the given direction. Restricts to elements whose
  * centers lie in the target half-plane and roughly inside the same row/column
  * band, then scores by primary-axis distance plus a perpendicular penalty.
+ *
+ * With `relaxed`, the perpendicular band limit is dropped; this keeps a press
+ * from silently doing nothing (or worse, falling back to DOM order and moving
+ * vertically) when the next target is farther away perpendicularly — e.g.
+ * jumping from the left sidebar into the page content.
  */
 function pickSpatial(
   from: HTMLElement,
   candidates: HTMLElement[],
   direction: GamepadDirection,
+  relaxed = false,
 ): HTMLElement | null {
   const fromRect = from.getBoundingClientRect();
   const fromCenterX = fromRect.left + fromRect.width / 2;
@@ -105,10 +179,12 @@ function pickSpatial(
     const horizontal = direction === "left" || direction === "right";
     const primary = horizontal ? Math.abs(dx) : Math.abs(dy);
     const secondary = horizontal ? Math.abs(dy) : Math.abs(dx);
-    const band = horizontal
-      ? Math.max(fromRect.height, rect.height)
-      : Math.max(fromRect.width, rect.width);
-    if (secondary > band) continue;
+    if (!relaxed) {
+      const band = horizontal
+        ? Math.max(fromRect.height, rect.height)
+        : Math.max(fromRect.width, rect.width);
+      if (secondary > band) continue;
+    }
 
     const score = primary + secondary * 2;
     if (score < bestScore) {
@@ -150,12 +226,27 @@ export default function GamepadNavigator() {
   useEffect(() => {
     // The gamepad focus ring follows the element we focused; remove it as
     // soon as that element loses focus (mouse click elsewhere, blur, removal).
+    // Exception: when an external overlay (password-manager autofill popup,
+    // devtools, etc.) steals focus into a non-app element, the ring is kept as
+    // the navigation anchor so the gamepad doesn't silently reset.
     const handleFocusOut = (event: FocusEvent) => {
       const current = gamepadFocusRef.current;
-      if (current && event.target === current) {
+      if (!current || event.target !== current) return;
+      const next = event.relatedTarget;
+      const movedWithinApp =
+        next instanceof Element && isAppElement(next);
+      const movedToBody =
+        next === null ||
+        next === document.body ||
+        next === document.documentElement;
+      if (movedWithinApp || movedToBody) {
         current.classList.remove(GAMEPAD_FOCUS_CLASS);
         gamepadFocusRef.current = null;
+        return;
       }
+      // Focus stolen by a non-app element: keep the ring as the anchor. The
+      // next D-pad press / A will reclaim focus and resume from here.
+      gamepadFocusRef.current = current;
     };
     window.addEventListener("focusout", handleFocusOut, true);
 
@@ -219,8 +310,30 @@ export default function GamepadNavigator() {
       const scope = detectScope();
 
       if (scope.kind === "popover") {
-        // HeadlessUI keeps focus on the owning button; its keyboard handler
-        // moves the active option.
+        // Move focus between the menu/listbox options directly. HeadlessUI v2
+        // keeps its own notion of the active option and does not react to
+        // synthetic ArrowUp/Down dispatched on the floating panel, so driving
+        // the options through real focus is the only reliable path.
+        const root = scope.root as HTMLElement;
+        const items = collectPopoverItems(root);
+        if (items.length > 0) {
+          const current = document.activeElement;
+          const index =
+            current instanceof HTMLElement ? items.indexOf(current) : -1;
+          if (index === -1) {
+            // Nothing inside the popover is focused yet — start at an edge.
+            setGamepadFocus(
+              direction === "up" ? items[items.length - 1] : items[0],
+            );
+          } else {
+            const delta = direction === "down" ? 1 : -1;
+            setGamepadFocus(
+              items[(index + delta + items.length) % items.length],
+            );
+          }
+          return;
+        }
+        // No discrete options (unusual popover): fall back to synthetic keys.
         if (direction === "up") dispatchKey("ArrowUp");
         if (direction === "down") dispatchKey("ArrowDown");
         return;
@@ -229,15 +342,33 @@ export default function GamepadNavigator() {
       const candidates = collectFocusables(scope.root);
       if (candidates.length === 0) return;
 
+      let anchor: HTMLElement | null = null;
       const current = document.activeElement;
-      if (!(current instanceof HTMLElement) || !candidates.includes(current)) {
+      if (
+        current instanceof HTMLElement &&
+        candidates.includes(current) &&
+        isAppElement(current)
+      ) {
+        anchor = current;
+      } else if (
+        gamepadFocusRef.current &&
+        candidates.includes(gamepadFocusRef.current)
+      ) {
+        // An external overlay (e.g. password-manager autofill popup) stole
+        // focus from the ring element; resume navigation from it instead of
+        // resetting to the first focusable.
+        anchor = gamepadFocusRef.current;
+        setGamepadFocus(anchor);
+      }
+      if (!anchor) {
         adoptInitialFocus(scope);
         return;
       }
 
       const next =
-        pickSpatial(current, candidates, direction) ??
-        fallbackDocumentOrder(current, candidates, direction);
+        pickSpatial(anchor, candidates, direction) ??
+        pickSpatial(anchor, candidates, direction, true) ??
+        fallbackDocumentOrder(anchor, candidates, direction);
       if (next) setGamepadFocus(next);
     }
 
@@ -245,12 +376,38 @@ export default function GamepadNavigator() {
       const scope = detectScope();
 
       if (scope.kind === "popover") {
-        // Enter confirms the active option in a listbox/menu.
+        const element = document.activeElement;
+        if (element instanceof HTMLElement) {
+          const role = element.getAttribute("role");
+          if (role === "menuitem" || role === "option") {
+            // Confirm the currently focused option.
+            element.click();
+            return;
+          }
+        }
+        // Focus is on the trigger/panel: jump to the first option so the next
+        // A confirms it (mirrors a keyboard user pressing Enter to move into
+        // the menu rather than closing it).
+        const items = collectPopoverItems(scope.root as HTMLElement);
+        if (items.length > 0) {
+          setGamepadFocus(items[0]);
+          return;
+        }
         dispatchKey("Enter");
         return;
       }
 
-      const element = document.activeElement;
+      const candidates = collectFocusables(scope.root);
+      let element = document.activeElement;
+      if (
+        !(element instanceof HTMLElement) ||
+        !candidates.includes(element) ||
+        !isAppElement(element)
+      ) {
+        // Focus is not on one of our targets (stolen by an external overlay):
+        // act on the ring element instead.
+        element = gamepadFocusRef.current;
+      }
       if (!(element instanceof HTMLElement)) return;
       if (
         element instanceof HTMLInputElement ||
@@ -261,23 +418,45 @@ export default function GamepadNavigator() {
         element.focus();
         return;
       }
+      // Opening a closed menu/listbox trigger via ArrowDown (as a keyboard
+      // user would) keeps focus on the trigger, so the gamepad focus ring
+      // stays visible instead of jumping into the panel and being cleared.
+      const trigger = element.closest<HTMLElement>("[aria-haspopup]");
+      if (trigger && trigger.getAttribute("aria-expanded") !== "true") {
+        dispatchKey("ArrowDown");
+        return;
+      }
       element.click();
     }
 
+    function isScrollable(node: HTMLElement): boolean {
+      const style = getComputedStyle(node);
+      return (
+        /(auto|scroll)/.test(style.overflowY) &&
+        node.scrollHeight > node.clientHeight
+      );
+    }
+
     function findScrollContainer(): HTMLElement | null {
-      let node =
-        document.activeElement instanceof HTMLElement
-          ? document.activeElement.parentElement
-          : null;
-      while (node) {
-        const style = getComputedStyle(node);
-        if (
-          /(auto|scroll)/.test(style.overflowY) &&
-          node.scrollHeight > node.clientHeight
-        ) {
-          return node;
-        }
+      const scope = detectScope();
+      const active = document.activeElement;
+
+      if (scope.kind === "popover") {
+        // Focus stays on the trigger (outside the popover), so only the
+        // popover root itself is a valid scroll target.
+        const root = scope.root as HTMLElement;
+        return isScrollable(root) ? root : null;
+      }
+
+      let node = active instanceof HTMLElement ? active.parentElement : null;
+      while (node && node !== document.body) {
+        if (isScrollable(node)) return node;
         node = node.parentElement;
+      }
+
+      if (scope.kind === "dialog") {
+        // Never scroll page content behind an open dialog.
+        return null;
       }
       return document.querySelector<HTMLElement>("[data-scroll-container]");
     }

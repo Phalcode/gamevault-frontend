@@ -439,7 +439,7 @@ export function GameCard({
 
           {/* Animated glare overlay */}
           <div
-            className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 ease-out group-hover/card:opacity-100 group-focus-within/card:opacity-100"
+            className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 ease-out group-hover/card:opacity-100! group-focus-within/card:opacity-100!"
             aria-hidden="true"
           >
             <div
@@ -449,7 +449,7 @@ export function GameCard({
           </div>
 
           {/* Gradient fade at bottom for button contrast */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 transition-opacity duration-200 group-hover/card:opacity-100 group-focus-within/card:opacity-100" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 transition-opacity duration-200 group-hover/card:opacity-100! group-focus-within/card:opacity-100!" />
 
           {/* Corner action buttons - hidden until hover */}
           {/* Bookmark */}
@@ -461,7 +461,7 @@ export function GameCard({
             disabled={!currentUserId || bookmarkBusy}
             className={clsx(
               "absolute top-2 right-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border backdrop-blur-xl transition-all duration-200",
-              "opacity-0 translate-y-1 group-hover/card:opacity-100 group-hover/card:translate-y-0 group-focus-within/card:opacity-100 group-focus-within/card:translate-y-0",
+              "opacity-0 translate-y-1 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
               "disabled:cursor-not-allowed disabled:opacity-50",
               bookmarked
                 ? "border-gv-warning/40 bg-gv-warning/15"
@@ -482,7 +482,7 @@ export function GameCard({
             aria-label="Settings"
             className={clsx(
               "absolute top-2 left-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border border-gv-line bg-gv-panel-soft/80 text-gv-muted backdrop-blur-xl transition-all duration-200",
-              "opacity-0 translate-y-1 group-hover/card:opacity-100 group-hover/card:translate-y-0 group-focus-within/card:opacity-100 group-focus-within/card:translate-y-0",
+              "opacity-0 translate-y-1 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
               "hover:border-gv-line-strong hover:bg-gv-panel hover:text-gv-text",
             )}
             title="Settings"
@@ -498,7 +498,7 @@ export function GameCard({
               onClick={handlePlayGame}
               className={clsx(
                 "absolute bottom-3 left-1/2 -translate-x-1/2 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-indigo-400/40 bg-indigo-500/90 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/30 backdrop-blur-sm transition-all duration-200",
-                "opacity-0 translate-y-2 group-hover/card:opacity-100 group-hover/card:translate-y-0 group-focus-within/card:opacity-100 group-focus-within/card:translate-y-0",
+                "opacity-0 translate-y-2 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
                 "hover:bg-indigo-400 active:scale-[0.97]",
               )}
             >
@@ -515,7 +515,7 @@ export function GameCard({
             <div
               className={clsx(
                 "absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center transition-all duration-200",
-                "opacity-0 translate-y-2 group-hover/card:opacity-100 group-hover/card:translate-y-0 group-focus-within/card:opacity-100 group-focus-within/card:translate-y-0",
+                "opacity-0 translate-y-2 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
               )}
             >
               {isTauri ? (
