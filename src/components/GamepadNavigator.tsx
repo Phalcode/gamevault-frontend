@@ -299,11 +299,19 @@ export default function GamepadNavigator() {
         scope.root instanceof Document
           ? document.querySelector<HTMLElement>("[data-gamepad-default]")
           : null;
-      const target =
+      let target =
         defaultElement && candidates.includes(defaultElement)
           ? defaultElement
-          : candidates[0];
-      setGamepadFocus(target);
+          : null;
+      if (!target && scope.root instanceof Document) {
+        // The first press should land in the page content, not on chrome
+        // like the logo link sitting before `<main>` in the DOM. Pages can
+        // still opt into an explicit target via [data-gamepad-default].
+        const main = document.querySelector<HTMLElement>("main");
+        const mainCandidates = main ? collectFocusables(main) : [];
+        if (mainCandidates.length > 0) target = mainCandidates[0];
+      }
+      setGamepadFocus(target ?? candidates[0]);
     }
 
     function moveFocus(direction: GamepadDirection): void {

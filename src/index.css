@@ -255,11 +255,12 @@
     outline-offset: 2px;
   }
 
-  /* Gamepad-driven focus ring. Unlayered so it wins over component utility
-     classes like focus:outline-none. Applied by GamepadNavigator. */
+  /* Gamepad-driven focus ring. Unlayered + important so it wins over any
+     component utility class (e.g. focus:outline-none, focus:outline-hidden)
+     — without it the ring silently disappears on cards and buttons. */
   .gv-gamepad-focus {
-    outline: 2px solid var(--color-gv-accent);
-    outline-offset: 2px;
+    outline: 2px solid var(--color-gv-accent) !important;
+    outline-offset: 2px !important;
   }
 
   ::selection {
