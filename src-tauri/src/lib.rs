@@ -9,6 +9,7 @@ mod fs_commands;
 mod time_tracker;
 mod cache;
 mod settings;
+mod net;
 
 use crate::settings::AppSettings;
 use semver::Version;
@@ -400,6 +401,8 @@ pub fn run() {
       fs_commands::fs_create_dir_all,
       fs_commands::fs_path_exists,
       fs_commands::fs_remove,
+      net::fetch_url_bytes,
+      net::fs_read_binary_file,
       cache::cache_game_data,
       cache::cache_game_image,
       cache::load_cached_game,

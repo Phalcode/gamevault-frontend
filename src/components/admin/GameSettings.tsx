@@ -19,7 +19,7 @@ import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { isTauriApp } from "@/utils/tauri";
+import { isTauriApp, openExternalUrl } from "@/utils/tauri";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { emitGameUpdated } from "@/utils/gameUpdates";
 import {
@@ -155,6 +155,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   const [savingImages, setSavingImages] = useState(false);
   const [imagesMsg, setImagesMsg] = useState<string | null>(null);
   const revokeRef = useRef<string[]>([]);
+  const dragTargetRef = useRef<"cover" | "bg" | null>(null);
+  const nativeDragHandledRef = useRef(false);
+  const coverZoneRef = useRef<HTMLDivElement | null>(null);
+  const bgZoneRef = useRef<HTMLDivElement | null>(null);
 
   // Custom metadata state - initialize empty object with all editable GameMetadata fields
   const getEmptyCustomMetadata = (): CustomMetadataForm => ({
@@ -1125,12 +1129,99 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   };
   const handleDrop = (e: React.DragEvent, target: "cover" | "bg") => {
     e.preventDefault();
+    dragTargetRef.current = null;
+    // In Tauri, external drags are handled by the native onDragDropEvent
+    // listener; skip here so we don't double-load.
+    if (isTauri && nativeDragHandledRef.current) return;
     const f = e.dataTransfer.files?.[0];
-    if (f) loadFile(f, target, "drag");
+    if (f) {
+      if (isTauri) nativeDragHandledRef.current = true;
+      loadFile(f, target, "drag");
+      return;
+    }
+    const uriList = e.dataTransfer
+      .getData("text/uri-list")
+      ?.split(/\r?\n/)
+      .map((l) => l.trim())
+      .find((l) => l && !l.startsWith("#"));
+    const text = (uriList || e.dataTransfer.getData("text/plain") || "").trim();
+    if (text && isProbablyImageUrl(text)) {
+      loadUrl(text, target);
+    }
   };
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = (e: React.DragEvent, target: "cover" | "bg") => {
     e.preventDefault();
+    dragTargetRef.current = target;
+    nativeDragHandledRef.current = false;
   };
+  const loadDroppedPath = async (path: string, target: "cover" | "bg") => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const arr = (await invoke("fs_read_binary_file", { path })) as number[];
+      const bytes = new Uint8Array(arr);
+      const name = path.split(/[\\/]/).pop() || "image.png";
+      const ext = (name.split(".").pop() || "").toLowerCase();
+      const type =
+        /^(png|jpe?g|gif|webp|avif|svg)$/i.test(ext)
+          ? `image/${ext === "jpg" ? "jpeg" : ext}`
+          : "application/octet-stream";
+      const file = new File([bytes], name, { type });
+      if (file.type.startsWith("image/")) loadFile(file, target, "drag");
+    } catch (err) {
+      console.error("Failed to read dropped file:", err);
+    }
+  };
+  const resolveDropTargetByPosition = (position: {
+    x: number;
+    y: number;
+  }): "cover" | "bg" | null => {
+    const dpr = window.devicePixelRatio || 1;
+    const x = position.x / dpr;
+    const y = position.y / dpr;
+    for (const [ref, target] of [
+      [coverZoneRef, "cover"],
+      [bgZoneRef, "bg"],
+    ] as const) {
+      const el = ref.current;
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)
+        return target;
+    }
+    return null;
+  };
+  useEffect(() => {
+    if (!isTauri) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        unlisten = await getCurrentWindow().onDragDropEvent((event) => {
+          const payload = event.payload;
+          if (payload.type === "enter" || payload.type === "over") {
+            nativeDragHandledRef.current = false;
+            return;
+          }
+          if (payload.type !== "drop") return;
+          const target =
+            dragTargetRef.current ??
+            resolveDropTargetByPosition(payload.position);
+          const path = payload.paths?.[0];
+          if (!target || !path) return;
+          nativeDragHandledRef.current = true;
+          void loadDroppedPath(path, target);
+        });
+      } catch (err) {
+        console.error("Failed to init native drag-drop listener:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTauri]);
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
   const bgFileInputRef = useRef<HTMLInputElement | null>(null);
   const imagesDirty =
@@ -1142,6 +1233,16 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     if (state.file) return state.file;
     if (state.via === "url" && state.preview) {
       try {
+        if (isTauri) {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const res = (await invoke("fetch_url_bytes", {
+            url: state.preview,
+          })) as { bytes: number[]; content_type: string };
+          const bytes = new Uint8Array(res.bytes);
+          const mime = res.content_type || "image/png";
+          const ext = (mime.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+          return new File([bytes], `${fallbackName}.${ext}`, { type: mime });
+        }
         const r = await fetch(state.preview);
         if (!r.ok) throw new Error("url fetch failed");
         const b = await r.blob();
@@ -1154,6 +1255,18 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       }
     }
     return null;
+  };
+  const resolveImageFile = async (
+    state: ImageState,
+    fallbackName: string,
+  ): Promise<File> => {
+    const f = await obtainFileForState(state, fallbackName);
+    if (!f) {
+      throw new Error(
+        "Could not download image from URL — the site blocks cross-origin downloads.",
+      );
+    }
+    return f;
   };
   const uploadImage = async (file: File): Promise<number> => {
     if (!serverUrl) throw new Error("No server URL");
@@ -1187,14 +1300,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
       // Upload new images and get their IDs
       const coverId = newCover
-        ? await uploadImage(
-          (await obtainFileForState(coverImg, "cover")) as File,
-        )
+        ? await uploadImage(await resolveImageFile(coverImg, "cover"))
         : undefined;
       const backgroundId = newBg
-        ? await uploadImage(
-          (await obtainFileForState(bgImg, "background")) as File,
-        )
+        ? await uploadImage(await resolveImageFile(bgImg, "background"))
         : undefined;
 
       // Update game with new media IDs
@@ -1763,9 +1872,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                       </div>
 
                       <div
+                        ref={coverZoneRef}
                         onPaste={(e) => handlePaste(e, "cover")}
                         onDrop={(e) => handleDrop(e, "cover")}
-                        onDragOver={handleDragOver}
+                        onDragOver={(e) => handleDragOver(e, "cover")}
                         className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                         onClick={() => coverFileInputRef.current?.click()}
                       >
@@ -1800,16 +1910,14 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               loadUrl(coverImg.urlInput, "cover");
                             }
                           }}
+                          onPaste={(e) => {
+                            const text = e.clipboardData?.getData("text");
+                            if (text && isProbablyImageUrl(text)) {
+                              loadUrl(text, "cover");
+                              e.preventDefault();
+                            }
+                          }}
                         />
-                        {coverImg.urlInput.trim() && (
-                          <Button
-                            color="indigo"
-                            type="button"
-                            onClick={() => loadUrl(coverImg.urlInput, "cover")}
-                          >
-                            Load
-                          </Button>
-                        )}
                         {coverImg.preview &&
                           coverImg.preview !== coverImg.original && (
                             <Button
@@ -1862,9 +1970,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                       </div>
 
                       <div
+                        ref={bgZoneRef}
                         onPaste={(e) => handlePaste(e, "bg")}
                         onDrop={(e) => handleDrop(e, "bg")}
-                        onDragOver={handleDragOver}
+                        onDragOver={(e) => handleDragOver(e, "bg")}
                         className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                         onClick={() => bgFileInputRef.current?.click()}
                       >
@@ -1900,16 +2009,14 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               loadUrl(bgImg.urlInput, "bg");
                             }
                           }}
+                          onPaste={(e) => {
+                            const text = e.clipboardData?.getData("text");
+                            if (text && isProbablyImageUrl(text)) {
+                              loadUrl(text, "bg");
+                              e.preventDefault();
+                            }
+                          }}
                         />
-                        {bgImg.urlInput.trim() && (
-                          <Button
-                            color="indigo"
-                            type="button"
-                            onClick={() => loadUrl(bgImg.urlInput, "bg")}
-                          >
-                            Load
-                          </Button>
-                        )}
                         {bgImg.preview && bgImg.preview !== bgImg.original && (
                           <Button
                             color="rose"
@@ -2163,6 +2270,12 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="text-xs text-gv-accent hover:underline"
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              const url =
+                                                currentShownMappedGame.provider_data_url;
+                                              if (url) void openExternalUrl(url);
+                                            }}
                                           >
                                             View on{" "}
                                             {
