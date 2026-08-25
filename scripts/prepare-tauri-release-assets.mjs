@@ -20,11 +20,16 @@ if (!platform || !version) {
 }
 
 const PLATFORM_CONFIG = {
+  // The Tauri Linux binary reports `BundleType::Deb`, so the updater feed must
+  // publish the signed `.deb` (not the AppImage) — otherwise a `.deb`-installed
+  // app tries `install_deb` on an AppImage payload and fails with
+  // "invalid updater binary format". The AppImage stays available as a plain
+  // downloadable asset.
   linux: {
-    updaterDir: "appimage",
-    updaterSuffix: ".AppImage",
+    updaterDir: "deb",
+    updaterSuffix: ".deb",
     osKey: "linux",
-    optionalReleaseAssets: [{ dir: "deb", suffix: ".deb" }],
+    optionalReleaseAssets: [{ dir: "appimage", suffix: ".AppImage" }],
   },
   windows: {
     updaterDir: "nsis",
@@ -199,7 +204,14 @@ const updaterReleaseName = toStructuredReleaseName(
   archLabel,
 );
 
-await stat(signaturePath);
+try {
+  await stat(signaturePath);
+} catch {
+  throw new Error(
+    `Missing updater signature for ${platform}: ${path.basename(signaturePath)} not found. ` +
+      "Ensure the release build sets createUpdaterArtifacts so Tauri signs the updater bundle.",
+  );
+}
 
 const releaseFiles = [
   {
