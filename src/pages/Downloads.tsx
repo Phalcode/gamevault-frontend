@@ -378,9 +378,8 @@ export default function Downloads() {
         {installState.mode === "portable" && (
           <div className="space-y-4">
             <p className="text-sm text-gv-muted">
-              Portable games don't need to be installed. Just press "Install"
-              and GameVault will copy the files into your library, so you can
-              play right away.
+              No setup needed. Just press "Install" and GameVault will copy the
+              game files to the game's installation folder. That's it.
             </p>
 
             {download.installationStatus === "copying" && (
