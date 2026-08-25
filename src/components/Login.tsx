@@ -1,7 +1,9 @@
 import { useAuth } from "@/context/AuthContext";
 import {
   AUTH_SERVER_STORAGE_KEY,
+  DEMO_PASSWORD,
   DEMO_SERVER_URL,
+  DEMO_USERNAME,
   detectBackendServedWebUi,
   getDevAutologinConfig,
   normalizeServerUrl,
@@ -83,6 +85,15 @@ export function Login() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    // Prefill demo credentials when the demo server is selected.
+    if (!confirmedServer) return;
+    if (normalizeServerUrl(confirmedServer) === DEMO_SERVER_URL) {
+      setUsername((u) => (u ? u : DEMO_USERNAME));
+      setPassword((p) => (p ? p : DEMO_PASSWORD));
+    }
+  }, [confirmedServer]);
 
   useEffect(() => {
     if (!confirmedServer) {

@@ -3,6 +3,8 @@ import { isTauriApp } from "./tauri";
 export const AUTH_REFRESH_STORAGE_KEY = "app_refresh_token";
 export const AUTH_SERVER_STORAGE_KEY = "app_server_url";
 export const DEMO_SERVER_URL = "https://demo.gamevau.lt";
+export const DEMO_USERNAME = "demo";
+export const DEMO_PASSWORD = "demodemo";
 
 export interface DevAutologinConfig {
   server: string;
