@@ -128,11 +128,57 @@ pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<Installe
 
 #[tauri::command]
 pub(crate) fn open_in_file_explorer(path: String) -> Result<(), String> {
-  Command::new("explorer")
-    .arg(path)
-    .spawn()
-    .map(|_| ())
-    .map_err(|e| format!("Failed to open folder: {e}"))
+  #[cfg(windows)]
+  {
+    Command::new("explorer.exe")
+      .arg(&path)
+      .spawn()
+      .map(|_| ())
+      .map_err(|e| format!("Failed to open folder: {e}"))?;
+    return Ok(());
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    Command::new("open")
+      .arg(&path)
+      .spawn()
+      .map(|_| ())
+      .map_err(|e| format!("Failed to open folder: {e}"))?;
+    return Ok(());
+  }
+
+  #[cfg(all(unix, not(target_os = "macos")))]
+  {
+    // Prefer Windows Explorer when the desktop app is running inside WSL.
+    // `wslpath` converts Linux paths, including paths under /home, to a form
+    // that Explorer can open.
+    if std::env::var_os("WSL_INTEROP").is_some() {
+      if let Ok(output) = Command::new("wslpath").args(["-w", &path]).output() {
+        if output.status.success() {
+          let windows_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+          if !windows_path.is_empty()
+            && Command::new("explorer.exe")
+              .arg(&windows_path)
+              .spawn()
+              .is_ok()
+          {
+            return Ok(());
+          }
+        }
+      }
+    }
+
+    Command::new("xdg-open")
+      .arg(&path)
+      .spawn()
+      .map(|_| ())
+      .map_err(|e| format!("Failed to open folder: {e}"))?;
+    return Ok(());
+  }
+
+  #[cfg(not(any(windows, unix)))]
+  Err("Opening folders is unsupported on this platform".to_string())
 }
 
 fn validate_external_url(value: &str) -> Result<(), String> {
