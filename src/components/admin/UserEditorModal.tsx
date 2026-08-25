@@ -506,7 +506,7 @@ export function UserEditorModal({
   };
 
   return (
-    <Dialog open onClose={onClose} size="3xl" className="">
+    <Dialog open onClose={onClose} size="3xl" className="!h-[min(85vh,850px)] flex flex-col">
       <DialogTitle>User Settings</DialogTitle>
       <div className="px-6 mt-1 flex gap-2 border-b border-gv-line text-sm">
         <button
@@ -532,8 +532,8 @@ export function UserEditorModal({
           Details
         </button>
       </div>
-      {/* Added a min height so switching tabs does not visually resize the dialog */}
-      <DialogBody className="pt-4 max-h-[70vh] overflow-y-auto space-y-8 min-h-[420px]">
+      {/* Fixed panel height so switching tabs does not visually resize the dialog */}
+      <DialogBody className="pt-4 overflow-y-auto space-y-8 flex-1 min-h-0">
         {activeTab === "images" && (
           <div className="grid gap-8 md:grid-cols-2">
             {/* Avatar zone */}

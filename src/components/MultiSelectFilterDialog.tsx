@@ -234,9 +234,9 @@ export default function MultiSelectFilterDialog({
   );
 
   return (
-    <Dialog open={open} onClose={onClose} size="lg">
+    <Dialog open={open} onClose={onClose} size="lg" className="!h-[min(70vh,650px)] flex flex-col">
       <DialogTitle>{title}</DialogTitle>
-      <DialogBody>
+      <DialogBody className="flex-1 min-h-0 overflow-y-auto">
         {/* Selected items display */}
         {selectedItems.length > 0 && (
           <div className="mb-4">
@@ -280,7 +280,7 @@ export default function MultiSelectFilterDialog({
         {loading && <div className="text-sm text-fg-muted">Loading...</div>}
         {error && <div className="text-sm text-red-500">{error}</div>}
         {!loading && !error && (
-          <div className="max-h-64 overflow-y-auto border border-gv-line rounded-lg">
+          <div className="border border-gv-line rounded-lg">
             {filteredItems.length === 0 ? (
               <div className="p-4 text-sm text-gv-muted text-center">
                 No {title.toLowerCase()} found

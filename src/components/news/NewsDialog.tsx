@@ -80,7 +80,7 @@ export function NewsDialog({ onClose }: NewsDialogProps) {
   };
 
   return (
-    <Dialog open onClose={onClose} size="3xl">
+    <Dialog open onClose={onClose} size="3xl" className="!h-[min(85vh,850px)] flex flex-col">
       <DialogTitle className="flex items-center justify-between gap-4 pb-1">
         <span>News</span>
         <button
@@ -127,7 +127,7 @@ export function NewsDialog({ onClose }: NewsDialogProps) {
           </button>
         </div>
       </div>
-      <DialogBody className="pt-4 max-h-[70vh] overflow-y-auto min-h-105">
+      <DialogBody className="pt-4 overflow-y-auto flex-1 min-h-0">
         {!showEditor && hasErr && (
           <div className="mb-4 text-sm text-rose-500">{hasErr}</div>
         )}

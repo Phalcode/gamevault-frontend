@@ -1488,6 +1488,7 @@ export default function Settings() {
         open={licensesOpen}
         onClose={() => setLicensesOpen(false)}
         size="3xl"
+        className="!h-[min(85vh,850px)] flex flex-col"
       >
         <div className="flex items-start justify-between gap-4">
           <DialogTitle>Open Source Licenses</DialogTitle>
@@ -1504,7 +1505,7 @@ export default function Settings() {
           GameVault is built with {licenseData?.packages.length ?? "…"} open
           source libraries. Tap a library to view its license.
         </DialogDescription>
-        <DialogBody>
+        <DialogBody className="flex-1 min-h-0 overflow-y-auto">
           {licenseData ? (
             <div className="divide-y divide-gv-line overflow-hidden rounded-2xl border border-gv-line bg-gv-panel-strong">
               {licenseData.packages.map((pkg) => {

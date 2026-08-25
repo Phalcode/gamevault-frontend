@@ -200,7 +200,7 @@ export function BackupRestoreDialog({ onClose }: BackupRestoreDialogProps) {
   const [tab, setTab] = useState<TabKey>("backup");
 
   return (
-    <Dialog open onClose={onClose} size="3xl">
+    <Dialog open onClose={onClose} size="3xl" className="!h-[min(70vh,650px)] flex flex-col">
       <DialogTitle className="flex items-center justify-between gap-4 pb-1">
         <span>Backup & Restore Database</span>
         <button
@@ -245,7 +245,7 @@ export function BackupRestoreDialog({ onClose }: BackupRestoreDialogProps) {
           Restore
         </button>
       </div>
-      <DialogBody className="pt-4 max-h-[70vh] overflow-y-auto min-h-50">
+      <DialogBody className="pt-4 overflow-y-auto flex-1 min-h-0">
         {tab === "backup" ? <Backup /> : <Restore />}
       </DialogBody>
     </Dialog>

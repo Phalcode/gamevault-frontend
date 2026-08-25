@@ -1755,7 +1755,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       open
       onClose={onClose}
       size="7xl"
-      className="!max-w-[min(95vw,1200px)] sm:!max-w-[min(65vw,1200px)] !max-h-[min(90vh,900px)] !w-full flex flex-col"
+      className="!max-w-[min(95vw,1200px)] sm:!max-w-[min(65vw,1200px)] !h-[min(90vh,900px)] !w-full flex flex-col"
     >
       <DialogTitle className="flex items-center justify-between gap-2 sm:gap-4 pb-1 flex-shrink-0">
         <span>Game Settings</span>
