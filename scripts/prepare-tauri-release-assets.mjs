@@ -154,17 +154,25 @@ function toStructuredReleaseName(
   const pattern = new RegExp(`^(.+?)_${escapeRegExp(version)}_(.+)$`);
   const match = filename.match(pattern);
 
-  if (!match) {
-    return `${productName}-${osLabel}-${archLabel}-${version}-${filename}`;
+  if (match) {
+    const [, , rest] = match;
+    const cleanedRest = ARCH_TOKENS.reduce(
+      (acc, token) => acc.replace(new RegExp(`^${token}(?=[.-]|$)`, "i"), ""),
+      rest,
+    );
+    return `${productName}-${osLabel}-${archLabel}-${version}${cleanedRest}`;
   }
 
-  const [, , rest] = match;
-  const cleanedRest = ARCH_TOKENS.reduce(
-    (acc, token) => acc.replace(new RegExp(`^${token}(?=[.-]|$)`, "i"), ""),
-    rest,
+  // Some bundles carry no "<name>_<version>_<arch>" prefix (e.g. the macOS
+  // updater bundle is just "<ProductName>.app.tar.gz"). Strip a leading product
+  // name so we don't produce "...-GameVault.app.tar.gz" but instead
+  // "...-<version>.app.tar.gz".
+  const stripped = filename.replace(
+    new RegExp(`^${escapeRegExp(productName)}`, "i"),
+    "",
   );
-
-  return `${productName}-${osLabel}-${archLabel}-${version}${cleanedRest}`;
+  const suffix = stripped || filename;
+  return `${productName}-${osLabel}-${archLabel}-${version}${suffix}`;
 }
 
 const tauriConfig = JSON.parse(

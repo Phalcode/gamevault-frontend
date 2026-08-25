@@ -300,6 +300,17 @@ jobs:
             fi
           fi
 
+      - name: Clean unstable release assets
+        if: github.ref == 'refs/heads/develop'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mapfile -t allowed_assets < <(
+            node -e "const fs=require('fs'); const path=require('path'); const names=new Set(['gamevault-frontend.zip','unstable.json']); const dir='updater-metadata'; for (const file of fs.readdirSync(dir)) { if (!file.endsWith('.json')) continue; const data=JSON.parse(fs.readFileSync(path.join(dir,file),'utf8')); for (const name of data.releaseAssetNames || []) names.add(name); } if ('${{ steps.manifest.outputs.channels_tag }}' === 'unstable') names.add('updater-channels.json'); console.log([...names].join('\n'));"
+          )
+
+          node scripts/cleanup-release-assets.mjs "${{ github.repository }}" unstable "${allowed_assets[@]}"
+
       - name: Download existing updater channels source
         shell: bash
         run: |
@@ -331,14 +342,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ steps.manifest.outputs.channels_tag }}" updater-channels.json --clobber
-
-      - name: Clean unstable release assets
-        if: github.ref == 'refs/heads/develop'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mapfile -t allowed_assets < <(
-            node -e "const fs=require('fs'); const path=require('path'); const names=new Set(['gamevault-frontend.zip','unstable.json']); const dir='updater-metadata'; for (const file of fs.readdirSync(dir)) { if (!file.endsWith('.json')) continue; const data=JSON.parse(fs.readFileSync(path.join(dir,file),'utf8')); for (const name of data.releaseAssetNames || []) names.add(name); } if ('${{ steps.manifest.outputs.channels_tag }}' === 'unstable') names.add('updater-channels.json'); console.log([...names].join('\\n'));"
-          )
-
-          node scripts/cleanup-release-assets.mjs "${{ github.repository }}" unstable "${allowed_assets[@]}"
