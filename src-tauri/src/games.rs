@@ -482,29 +482,69 @@ pub(crate) fn launch_game(
       }
     }
 
-    match Command::new("pkexec")
-      .args(&args)
-      .current_dir(working_dir)
-      .spawn()
-    {
-      Ok(_) => return Ok(()),
-      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-      Err(e) => return Err(format!("Failed to launch game as root: {e}")),
+    // Capture the child's console output (like the non-admin path) so an
+    // immediate exit — e.g. a script refusing to run as root — is surfaced to
+    // the user. Use a longer grace window to account for the auth prompt.
+    let (out_path, err_path, out_file, err_file) = create_launch_logs()?;
+
+    // Elevate via polkit's pkexec (graphical auth prompt), falling back to
+    // sudo for environments like WSL where pkexec is unavailable.
+    let mut pkexec = Command::new("pkexec");
+    pkexec.args(&args).current_dir(working_dir);
+    pkexec.stdout(Stdio::from(out_file)).stderr(Stdio::from(err_file));
+    match pkexec.spawn() {
+      Ok(child) => {
+        spawn_launch_monitor(
+          app,
+          game_title,
+          child,
+          out_path,
+          err_path,
+          ADMIN_LAUNCH_GRACE,
+        );
+        return Ok(());
+      }
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        let _ = fs::remove_file(&out_path);
+        let _ = fs::remove_file(&err_path);
+      }
+      Err(e) => {
+        let _ = fs::remove_file(&out_path);
+        let _ = fs::remove_file(&err_path);
+        return Err(format!("Failed to launch game as root: {e}"));
+      }
     }
 
     // pkexec isn't installed; try sudo.
-    return match Command::new("sudo")
-      .arg("--")
-      .args(&args)
-      .current_dir(working_dir)
-      .spawn()
-    {
-      Ok(_) => Ok(()),
-      Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(
-        "Unable to run the game as root: neither 'pkexec' nor 'sudo' is installed on this system."
-          .to_string(),
-      ),
-      Err(e) => Err(format!("Failed to launch game as root via sudo: {e}")),
+    let (out_path, err_path, out_file, err_file) = create_launch_logs()?;
+    let mut sudo = Command::new("sudo");
+    sudo.arg("--").args(&args).current_dir(working_dir);
+    sudo.stdout(Stdio::from(out_file)).stderr(Stdio::from(err_file));
+    return match sudo.spawn() {
+      Ok(child) => {
+        spawn_launch_monitor(
+          app,
+          game_title,
+          child,
+          out_path,
+          err_path,
+          ADMIN_LAUNCH_GRACE,
+        );
+        Ok(())
+      }
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        let _ = fs::remove_file(&out_path);
+        let _ = fs::remove_file(&err_path);
+        Err(
+          "Unable to run the game as root: neither 'pkexec' nor 'sudo' is installed on this system."
+            .to_string(),
+        )
+      }
+      Err(e) => {
+        let _ = fs::remove_file(&out_path);
+        let _ = fs::remove_file(&err_path);
+        Err(format!("Failed to launch game as root via sudo: {e}"))
+      }
     };
   }
 
@@ -535,20 +575,13 @@ pub(crate) fn launch_game(
   // Redirect the child's console output to temp files (not pipes) so a
   // long-running game can never block on a full pipe buffer, and so we can
   // read it back if the process exits immediately.
-  let log_token = next_launch_log_token();
-  let out_path = std::env::temp_dir().join(format!("gamevault-launch-{}-{log_token}.out", std::process::id()));
-  let err_path = std::env::temp_dir().join(format!("gamevault-launch-{}-{log_token}.err", std::process::id()));
-
-  let out_file = fs::File::create(&out_path)
-    .map_err(|e| format!("Failed to create launch log: {e}"))?;
-  let err_file = fs::File::create(&err_path)
-    .map_err(|e| format!("Failed to create launch log: {e}"))?;
+  let (out_path, err_path, out_file, err_file) = create_launch_logs()?;
   command.stdout(Stdio::from(out_file));
   command.stderr(Stdio::from(err_file));
 
   match command.spawn() {
     Ok(child) => {
-      spawn_launch_monitor(app, game_title, child, out_path, err_path);
+      spawn_launch_monitor(app, game_title, child, out_path, err_path, LAUNCH_GRACE);
       Ok(())
     }
     #[cfg(windows)]
@@ -589,6 +622,28 @@ pub(crate) fn launch_game(
   }
 }
 
+const LAUNCH_GRACE: Duration = Duration::from_secs(5);
+const ADMIN_LAUNCH_GRACE: Duration = Duration::from_secs(30);
+
+fn create_launch_logs() -> Result<(PathBuf, PathBuf, fs::File, fs::File), String> {
+  let log_token = next_launch_log_token();
+  let out_path = std::env::temp_dir().join(format!(
+    "gamevault-launch-{}-{log_token}.out",
+    std::process::id()
+  ));
+  let err_path = std::env::temp_dir().join(format!(
+    "gamevault-launch-{}-{log_token}.err",
+    std::process::id()
+  ));
+
+  let out_file = fs::File::create(&out_path)
+    .map_err(|e| format!("Failed to create launch log: {e}"))?;
+  let err_file = fs::File::create(&err_path)
+    .map_err(|e| format!("Failed to create launch log: {e}"))?;
+
+  Ok((out_path, err_path, out_file, err_file))
+}
+
 fn next_launch_log_token() -> u64 {
   static COUNTER: AtomicU64 = AtomicU64::new(0);
   COUNTER.fetch_add(1, Ordering::Relaxed)
@@ -616,9 +671,9 @@ fn spawn_launch_monitor(
   mut child: Child,
   out_path: PathBuf,
   err_path: PathBuf,
+  grace: Duration,
 ) {
   thread::spawn(move || {
-    let grace = Duration::from_secs(5);
     let start = Instant::now();
 
     let status = loop {
