@@ -7,6 +7,11 @@ import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
 import { useCallback, useEffect, useState } from "react";
+import {
+  AUTH_SERVER_STORAGE_KEY,
+  DEMO_SERVER_URL,
+  detectBackendServedWebUi,
+} from "@/utils/authConfig";
 import { applyTheme, getStoredTheme } from "@/utils/theme";
 
 interface FormState {
@@ -21,8 +26,11 @@ interface FormState {
 
 export function Register() {
   const { serverUrl } = useAuth();
-  const [serverInput, setServerInput] = useState(window.location.origin);
+  const [serverInput, setServerInput] = useState(
+    localStorage.getItem(AUTH_SERVER_STORAGE_KEY) || DEMO_SERVER_URL,
+  );
   const [confirmedServer, setConfirmedServer] = useState<string | null>(null);
+  const [backendServed, setBackendServed] = useState(false);
   const [form, setForm] = useState<FormState>({});
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -45,6 +53,22 @@ export function Register() {
     const stored = getStoredTheme();
     applyTheme("system");
     return () => applyTheme(stored);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    detectBackendServedWebUi().then((served) => {
+      if (cancelled) return;
+      setBackendServed(served);
+      if (served) {
+        const origin = window.location.origin;
+        setServerInput(origin);
+        setConfirmedServer(origin);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const onInput: React.ChangeEventHandler<HTMLInputElement> = (e) => {
@@ -170,7 +194,7 @@ export function Register() {
         </Text>
       </div>
 
-      {!confirmedServer && (
+      {!confirmedServer && !backendServed && (
         <>
           <Field>
             <Label>
@@ -204,14 +228,16 @@ export function Register() {
                 disabled
                 className="flex-1"
               />
-              <Button
-                type="button"
-                outline
-                onClick={handleChangeServer}
-                className="shrink-0"
-              >
-                Change
-              </Button>
+              {!backendServed && (
+                <Button
+                  type="button"
+                  outline
+                  onClick={handleChangeServer}
+                  className="shrink-0"
+                >
+                  Change
+                </Button>
+              )}
             </div>
           </Field>
 

@@ -1,6 +1,8 @@
 import { useAuth } from "@/context/AuthContext";
 import {
   AUTH_SERVER_STORAGE_KEY,
+  DEMO_SERVER_URL,
+  detectBackendServedWebUi,
   getDevAutologinConfig,
   normalizeServerUrl,
 } from "@/utils/authConfig";
@@ -24,7 +26,7 @@ export function Login() {
     return (
       localStorage.getItem(AUTH_SERVER_STORAGE_KEY) ||
       devAutologin?.server ||
-      window.location.origin
+      DEMO_SERVER_URL
     );
   });
   const [confirmedServer, setConfirmedServer] = useState<string | null>(() => {
@@ -38,6 +40,7 @@ export function Login() {
   const [serverStatus, setServerStatus] = useState<Status | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusError, setStatusError] = useState(false);
+  const [backendServed, setBackendServed] = useState(false);
 
   // Force device theme on login page; restore stored preference on leave
   useEffect(() => {
@@ -64,6 +67,22 @@ export function Login() {
       serverRef.current?.focus();
     }
   }, [confirmedServer]);
+
+  useEffect(() => {
+    let cancelled = false;
+    detectBackendServedWebUi().then((served) => {
+      if (cancelled) return;
+      setBackendServed(served);
+      if (served) {
+        const origin = window.location.origin;
+        setServer(origin);
+        setConfirmedServer(normalizeServerUrl(origin));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!confirmedServer) {
@@ -243,7 +262,7 @@ export function Login() {
         </Text>
       </div>
 
-      {!confirmedServer && (
+      {!confirmedServer && !backendServed && (
         <div className="grid grid-cols-1 gap-6 animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none">
           <Field>
             <Label>Server</Label>
@@ -278,14 +297,16 @@ export function Login() {
                 disabled
                 className="flex-1"
               />
-              <Button
-                type="button"
-                outline
-                onClick={handleChangeServer}
-                className="shrink-0"
-              >
-                Change
-              </Button>
+              {!backendServed && (
+                <Button
+                  type="button"
+                  outline
+                  onClick={handleChangeServer}
+                  className="shrink-0"
+                >
+                  Change
+                </Button>
+              )}
             </div>
           </Field>
 
