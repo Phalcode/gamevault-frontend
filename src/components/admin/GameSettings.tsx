@@ -3382,7 +3382,8 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                             <Label>Run as Administrator</Label>
                           </SwitchField>
                           <p className="mt-1 ml-0 text-xs text-gv-muted">
-                            Launch the game with elevated privileges (UAC prompt).
+                            Launch the game with elevated privileges (UAC on
+                            Windows, root prompt on Linux).
                           </p>
                         </div>
                       </>

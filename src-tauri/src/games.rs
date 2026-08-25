@@ -363,6 +363,29 @@ pub(crate) fn launch_game(
     return Ok(());
   }
 
+  // Linux has no UAC equivalent; elevate via polkit's pkexec (graphical auth prompt).
+  #[cfg(target_os = "linux")]
+  if run_as_admin.unwrap_or(false) {
+    let mut command = Command::new("pkexec");
+    command.arg(&exe_path);
+    if let Some(ref params) = launch_parameters {
+      let params = params.trim();
+      if !params.is_empty() {
+        for arg in params.split_whitespace() {
+          command.arg(arg);
+        }
+      }
+    }
+    command.current_dir(working_dir);
+    return match command.spawn() {
+      Ok(_) => Ok(()),
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        Err("Unable to run the game as root: 'pkexec' is not installed on this system.".to_string())
+      }
+      Err(e) => Err(format!("Failed to launch game as root: {e}")),
+    };
+  }
+
   let mut command = Command::new(&exe_path);
   command.current_dir(working_dir);
 
