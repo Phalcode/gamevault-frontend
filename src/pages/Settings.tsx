@@ -72,7 +72,7 @@ const SENSITIVE_KEY_PATTERN = /token|password|secret|auth|refresh|credential/i;
 /** Plays the Developer Tools unlock jingle at medium volume. */
 function playUnlockSound() {
   try {
-    const audio = new Audio("/laughingdog.mp3");
+    const audio = new Audio("/laughingdog.ogg");
     audio.volume = 0.5;
     void audio.play().catch(() => {
       // Autoplay blocked; the click gesture usually grants playback.
