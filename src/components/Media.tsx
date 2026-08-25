@@ -70,7 +70,6 @@ export function Media({
         background:
           "linear-gradient(110deg,#232230 8%,#2d2c3a 18%,#232230 33%)",
       }}
-      title={error || (imageId ? `Media ID: ${imageId}` : "No avatar")}
     >
       {imageId && !blobUrl && !error && (
         <div
