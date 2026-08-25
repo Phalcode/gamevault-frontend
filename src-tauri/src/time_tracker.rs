@@ -118,30 +118,42 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     let mut game_exe_map: HashMap<i64, Vec<PathBuf>> = HashMap::new();
 
     for game in &installed {
-      let install_dir = PathBuf::from(&game.installation_directory);
-      if !install_dir.exists() || !install_dir.is_dir() {
-        continue;
+      // The configured installation dir may not exist (e.g. no "Installation"
+      // subfolder); fall back to the version dir so the game is still tracked.
+      let configured_install = PathBuf::from(&game.installation_directory);
+      let mut scan_dir = configured_install.clone();
+      if !scan_dir.exists() || !scan_dir.is_dir() {
+        scan_dir = PathBuf::from(&game.version_directory);
       }
-
-      let mut candidates = Vec::new();
-      if collect_launch_candidates(&install_dir, &install_dir, &mut candidates).is_err() {
+      if !scan_dir.exists() || !scan_dir.is_dir() {
         continue;
       }
 
       let ignored = load_settings(&app).ignored_executables;
 
-      let abs_paths: Vec<PathBuf> = candidates
-        .iter()
-        .map(|rel| {
-          install_dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))
-        })
-        .filter(|path| !is_ignored_executable(path, &ignored))
-        .collect();
+      // Always include the exact launcher the user runs (from the per-game
+      // config), then any executables found by scanning the install dir.
+      let mut abs_paths: Vec<PathBuf> = Vec::new();
+      if let Some(rel_exe) = read_configured_launch_executable(Path::new(&game.version_directory)) {
+        let abs = scan_dir.join(rel_exe);
+        if abs.exists() && !is_ignored_executable(&abs, &ignored) {
+          abs_paths.push(abs);
+        }
+      }
 
-      game_exe_map
-        .entry(game.game_id)
-        .or_default()
-        .extend(abs_paths);
+      let mut candidates = Vec::new();
+      if collect_launch_candidates(&scan_dir, &scan_dir, &mut candidates).is_ok() {
+        for rel in candidates {
+          let abs = scan_dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+          if !is_ignored_executable(&abs, &ignored) {
+            abs_paths.push(abs);
+          }
+        }
+      }
+
+      if !abs_paths.is_empty() {
+        game_exe_map.entry(game.game_id).or_default().extend(abs_paths);
+      }
     }
 
     if game_exe_map.is_empty() {
@@ -199,10 +211,33 @@ fn process_matches_game(process: &sysinfo::Process, game_exe: &Path) -> bool {
   }
   // Script-launched games run via an interpreter (e.g. /bin/sh); its argv
   // references the actual script/binary, so also match the command line.
-  process
-    .cmd()
-    .iter()
-    .any(|arg| paths_match(game_exe, Path::new(arg)))
+  process.cmd().iter().any(|arg| {
+    let arg_path = Path::new(arg);
+    if paths_match(game_exe, arg_path) {
+      return true;
+    }
+    // Relative / basename args (e.g. "./game.sh") can't be canonicalized
+    // against our CWD; fall back to comparing the file name.
+    matches_game_file_name(game_exe, arg_path)
+  })
+}
+
+fn matches_game_file_name(game_exe: &Path, arg: &Path) -> bool {
+  match (game_exe.file_name(), arg.file_name()) {
+    (Some(a), Some(b)) => a == b,
+    _ => false,
+  }
+}
+
+fn read_configured_launch_executable(version_dir: &Path) -> Option<PathBuf> {
+  let config_path = version_dir.join(".gamevault.game.config.json");
+  let content = fs::read_to_string(config_path).ok()?;
+  let value: serde_json::Value = serde_json::from_str(&content).ok()?;
+  let exe = value.get("launchexecutable")?.as_str()?;
+  if exe.trim().is_empty() {
+    return None;
+  }
+  Some(PathBuf::from(exe))
 }
 
 fn save_offline_time(download_paths: &[String], user_id: i64, game_id: i64) {

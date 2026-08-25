@@ -1,0 +1,11 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: GameVault
+Source: https://gamevau.lt
+
+Files: *
+Copyright: 2023-2026 Phalcode
+License: CC BY-NC-SA 4.0
+ GameVault is licensed under the Creative Commons
+ Attribution-NonCommercial-ShareAlike 4.0 International license.
+ A human-readable summary and the full legal code are available at:
+ https://creativecommons.org/licenses/by-nc-sa/4.0/

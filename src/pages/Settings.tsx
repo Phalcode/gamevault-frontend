@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { useSearchParams } from "react-router";
 import { Divider } from "@tw/divider";
 import { Heading } from "@tw/heading";
 import { Input, InputGroup } from "@tw/input";
@@ -311,8 +312,7 @@ interface SystemInfo {
 function collectSystemInfo(isTauri: boolean): SystemInfo {
   const nav = typeof navigator !== "undefined" ? navigator : undefined;
   const uaData = (nav as any)?.userAgentData as
-    | { platform?: string; architecture?: string; mobile?: boolean }
-    | undefined;
+    { platform?: string; architecture?: string; mobile?: boolean } | undefined;
 
   const os = (uaData?.platform || nav?.platform || "Unknown").trim();
   const architecture = (uaData?.architecture || "").trim();
@@ -410,10 +410,18 @@ export default function Settings() {
   } = useAppUpdater();
   const [newIgnore, setNewIgnore] = useState("");
   const [ignoreSearch, setIgnoreSearch] = useState("");
+  // Deep-link support: `/settings?section=downloads` opens a specific section.
+  const [searchParams] = useSearchParams();
   // `null` shows the master list of settings areas; a value drills into it.
   const [activeCategory, setActiveCategory] = useState<SettingsCategory | null>(
     null,
   );
+  useEffect(() => {
+    const section = searchParams.get("section") as SettingsCategory | null;
+    if (section && section in CATEGORY_META) {
+      setActiveCategory(section);
+    }
+  }, [searchParams]);
   const [licensesOpen, setLicensesOpen] = useState(false);
   const [licenseData, setLicenseData] = useState<LicensesData | null>(null);
   const [expandedLicense, setExpandedLicense] = useState<string | null>(null);
@@ -1612,7 +1620,7 @@ export default function Settings() {
         open={licensesOpen}
         onClose={() => setLicensesOpen(false)}
         size="3xl"
-        className="!h-[min(85vh,850px)] flex flex-col"
+        className="h-[min(85vh,850px)]! flex flex-col"
       >
         <div className="flex items-start justify-between gap-4">
           <DialogTitle>Open Source Licenses</DialogTitle>

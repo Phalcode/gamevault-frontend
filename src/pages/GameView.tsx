@@ -410,7 +410,7 @@ export default function GameView() {
           affirmativeText: "Open Settings",
           negativeText: "Cancel",
         });
-        if (openSettings) navigate("/settings");
+        if (openSettings) navigate("/settings?section=downloads");
         return;
       }
 
@@ -436,7 +436,7 @@ export default function GameView() {
 
   const handleGoToSettingsFromRootSelect = useCallback(() => {
     setRootSelectOpen(false);
-    navigate("/settings");
+    navigate("/settings?section=downloads");
   }, [navigate]);
 
   const handleClientDownload = useCallback(() => {

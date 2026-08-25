@@ -20,39 +20,50 @@ export function useAuthMediaUrl(
     mediaId: number;
     nonce: number;
   } | null>(null);
-  // Track the object URL currently handed to the <img> and any URL that was
-  // replaced but must stay alive until the browser has switched src. Revoking a
-  // URL while the <img> still references it is what surfaces as
+  // Keep the latest online/auth refs so the fetch effect doesn't restart on
+  // connectivity or token churn (which caused flicker/reloops).
+  const isOnlineRef = useRef(isOnline);
+  isOnlineRef.current = isOnline;
+  const authFetchRef = useRef(authFetch);
+  authFetchRef.current = authFetch;
+
+  // Track the object URL currently handed to the <img> and any URLs that were
+  // replaced but must stay alive until the browser has finished with them.
+  // Revoking a URL while the <img> still references it is what surfaces as
   // "blob error ... failed to load the resource".
   const currentUrlRef = useRef<string | null>(null);
-  const retiredUrlsRef = useRef<string[]>([]);
+  const revokeTimersRef = useRef<Map<string, number>>(new Map());
   const loadedMediaIdRef = useRef<number | null>(null);
   const decodeRetryMediaIdRef = useRef<number | null>(null);
   const ownerGameId = owner?.gameId;
   const ownerSlot = owner?.slot;
 
-  // Only revoke on unmount; never synchronously while the image is in use.
+  // Revoke everything on unmount (the <img> is gone by then, so it's safe).
   useEffect(
     () => () => {
+      for (const [url, timer] of revokeTimersRef.current) {
+        window.clearTimeout(timer);
+        URL.revokeObjectURL(url);
+      }
+      revokeTimersRef.current.clear();
       if (currentUrlRef.current) {
         URL.revokeObjectURL(currentUrlRef.current);
         currentUrlRef.current = null;
       }
-      for (const url of retiredUrlsRef.current) {
-        URL.revokeObjectURL(url);
-      }
-      retiredUrlsRef.current = [];
     },
     [],
   );
 
-  // Revoke a replaced URL only after the browser has painted the new src.
-  const retireUrl = useCallback((url: string) => {
-    retiredUrlsRef.current.push(url);
-    requestAnimationFrame(() => {
-      retiredUrlsRef.current = retiredUrlsRef.current.filter((u) => u !== url);
+  // Revoke a replaced URL only after a safe delay (so a lazily-decoding <img>
+  // has already switched to the new src), never synchronously.
+  const scheduleRevoke = useCallback((url: string, delayMs = 10_000) => {
+    const existing = revokeTimersRef.current.get(url);
+    if (existing) window.clearTimeout(existing);
+    const timer = window.setTimeout(() => {
+      revokeTimersRef.current.delete(url);
       URL.revokeObjectURL(url);
-    });
+    }, delayMs);
+    revokeTimersRef.current.set(url, timer);
   }, []);
 
   useEffect(() => {
@@ -77,6 +88,7 @@ export function useAuthMediaUrl(
     }
 
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
 
@@ -85,13 +97,14 @@ export function useAuthMediaUrl(
         const blob = await resolveApiMediaBlob({
           serverUrl,
           mediaId: numericId,
-          authFetch,
+          authFetch: authFetchRef.current,
           owner:
             ownerGameId && ownerSlot
               ? { gameId: ownerGameId, slot: ownerSlot }
               : undefined,
           forceRefresh: refreshRequest?.mediaId === numericId,
-          allowTauriFallback: !isOnline,
+          allowTauriFallback: !isOnlineRef.current,
+          signal: controller.signal,
         });
         if (cancelled) return;
 
@@ -102,9 +115,14 @@ export function useAuthMediaUrl(
         setUrl(objectUrl);
 
         if (previous && previous !== objectUrl) {
-          retireUrl(previous);
+          scheduleRevoke(previous);
         }
       } catch (caughtError) {
+        // An aborted fetch is expected when the component unmounts or the
+        // media changes; don't surface it as an error or unhandled rejection.
+        if ((caughtError as { name?: string } | null)?.name === "AbortError") {
+          return;
+        }
         if (!cancelled) {
           setUrl(null);
           setError(
@@ -120,16 +138,15 @@ export function useAuthMediaUrl(
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     mediaId,
     serverUrl,
-    authFetch,
     ownerGameId,
     ownerSlot,
     refreshRequest,
-    isOnline,
-    retireUrl,
+    scheduleRevoke,
   ]);
 
   useEffect(() => {

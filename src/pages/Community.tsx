@@ -320,7 +320,7 @@ function NetworkUserCard({
     >
       <article
         className={clsx(
-          "surface-panel relative overflow-hidden rounded-[1.75rem] p-5 transition-[transform,translate,scale,box-shadow,border-color] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)",
+          "surface-panel relative overflow-hidden rounded-[1.75rem] p-5 transition-[transform,translate,scale,box-shadow] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)",
           isCurrentUser && "ring-1 ring-gv-accent/35",
         )}
       >
@@ -429,7 +429,7 @@ function ProfileProgressCard({ progress }: { progress: Progress }) {
       to={game?.id ? `/library/${game.id}` : "/library"}
       className="group block rounded-3xl focus:outline-none focus:ring-2 focus:ring-gv-accent-cool"
     >
-      <article className="surface-panel h-full rounded-3xl p-4 transition-[transform,translate,scale,box-shadow,border-color] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)">
+      <article className="surface-panel h-full rounded-3xl p-4 transition-[transform,translate,scale,box-shadow] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)">
         <div className="flex gap-4">
           <GamePoster
             game={game || undefined}

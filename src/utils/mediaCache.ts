@@ -82,6 +82,7 @@ export interface ResolveApiMediaBlobOptions {
   owner?: GameMediaOwner;
   forceRefresh?: boolean;
   allowTauriFallback?: boolean;
+  signal?: AbortSignal;
 }
 
 let databasePromise: Promise<IDBPDatabase<MediaCacheSchema> | null> | null =
@@ -343,6 +344,7 @@ export async function resolveApiMediaBlob({
   owner,
   forceRefresh,
   allowTauriFallback = false,
+  signal,
 }: ResolveApiMediaBlobOptions): Promise<Blob> {
   const numericMediaId = Number(mediaId);
   const base = serverUrl.replace(/\/+$/, "");
@@ -366,31 +368,34 @@ export async function resolveApiMediaBlob({
     owner,
     forceRefresh,
     fetchBlob: async () => {
-      const response = await authFetch(`${base}/api/media/${numericMediaId}`);
+      const response = await authFetch(`${base}/api/media/${numericMediaId}`, {
+        signal,
+      });
       if (!response.ok) {
         throw new Error(`Media fetch failed (${response.status})`);
       }
       return response.blob();
     },
-    loadFallbackBlob: allowTauriFallback && isTauriApp()
-      ? async () => {
-          try {
-            const { invoke } = await import("@tauri-apps/api/core");
-            const cachedBytes = await invoke<number[] | null>(
-              "load_cached_image",
-              {
-                serverNamespace,
-                mediaId: numericMediaId,
-              },
-            );
-            return cachedBytes && cachedBytes.length > 0
-              ? new Blob([new Uint8Array(cachedBytes)])
-              : null;
-          } catch {
-            return null;
+    loadFallbackBlob:
+      allowTauriFallback && isTauriApp()
+        ? async () => {
+            try {
+              const { invoke } = await import("@tauri-apps/api/core");
+              const cachedBytes = await invoke<number[] | null>(
+                "load_cached_image",
+                {
+                  serverNamespace,
+                  mediaId: numericMediaId,
+                },
+              );
+              return cachedBytes && cachedBytes.length > 0
+                ? new Blob([new Uint8Array(cachedBytes)])
+                : null;
+            } catch {
+              return null;
+            }
           }
-        }
-      : undefined,
+        : undefined,
   });
 }
 

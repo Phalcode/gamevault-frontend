@@ -7,11 +7,13 @@ import { getRootPaths } from "@/utils/rootPaths";
 export function useGameTimeTracker() {
   const { serverUrl, user, auth } = useAuth();
   const { onReconnect } = useOnlineStatus();
-  const startedRef = useRef(false);
+  const startedRef = useRef<{ serverUrl: string; userId: number } | null>(null);
   const syncInFlightRef = useRef(false);
   const initialSyncDoneRef = useRef(false);
 
-  // Start / restart tracker when credentials become available
+  // Start / restart tracker as soon as credentials are available. We key the
+  // "started" state on server+user so a token refresh (handled by
+  // update_tracker_auth) doesn't restart the 60s polling loop.
   useEffect(() => {
     if (!isTauriApp()) return;
 
@@ -22,7 +24,7 @@ export function useGameTimeTracker() {
     if (!serverUrl || !userId || !accessToken || !downloadPaths.length) {
       // If tracker was running but credentials are gone (logout), stop it
       if (startedRef.current) {
-        startedRef.current = false;
+        startedRef.current = null;
         import("@tauri-apps/api/core").then(({ invoke }) => {
           invoke("stop_game_time_tracker").catch(() => {});
         });
@@ -30,8 +32,23 @@ export function useGameTimeTracker() {
       return;
     }
 
-    // Start the tracker
-    startedRef.current = true;
+    const started = startedRef.current;
+    if (
+      started &&
+      started.serverUrl === serverUrl &&
+      started.userId === userId
+    ) {
+      // Same session (token may have refreshed); leave the loop running.
+      return;
+    }
+
+    // New session or a changed server/user — (re)start with fresh credentials.
+    if (started) {
+      import("@tauri-apps/api/core").then(({ invoke }) => {
+        invoke("stop_game_time_tracker").catch(() => {});
+      });
+    }
+    startedRef.current = { serverUrl, userId };
     import("@tauri-apps/api/core").then(({ invoke }) => {
       invoke("start_game_time_tracker", {
         serverUrl,
@@ -41,15 +58,17 @@ export function useGameTimeTracker() {
         downloadPaths,
       }).catch(() => {});
     });
+  }, [serverUrl, user?.id, auth?.access_token]);
 
+  // Stop the tracker on unmount.
+  useEffect(() => {
     return () => {
-      // Cleanup on unmount
-      startedRef.current = false;
+      startedRef.current = null;
       import("@tauri-apps/api/core").then(({ invoke }) => {
         invoke("stop_game_time_tracker").catch(() => {});
       });
     };
-  }, [serverUrl, user?.id]); // Intentionally NOT including accessToken — handled below
+  }, []);
 
   // Update auth token separately to avoid restarting the whole tracker on refresh
   useEffect(() => {
@@ -84,7 +103,9 @@ export function useGameTimeTracker() {
 
           for (const file of files) {
             if (!file.accumulatedMinutes || file.accumulatedMinutes <= 0) {
-              await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+              await invoke("delete_offline_time_file", {
+                path: file.path,
+              }).catch(() => {});
               continue;
             }
 
@@ -98,7 +119,9 @@ export function useGameTimeTracker() {
               });
 
               if (success) {
-                await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+                await invoke("delete_offline_time_file", {
+                  path: file.path,
+                }).catch(() => {});
               }
             } catch {
               // Retry on next reconnect
@@ -133,7 +156,9 @@ export function useGameTimeTracker() {
           for (const file of files) {
             if (!file.accumulatedMinutes || file.accumulatedMinutes <= 0) {
               // Delete empty files
-              await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+              await invoke("delete_offline_time_file", {
+                path: file.path,
+              }).catch(() => {});
               continue;
             }
 
@@ -147,7 +172,9 @@ export function useGameTimeTracker() {
               });
 
               if (success) {
-                await invoke("delete_offline_time_file", { path: file.path }).catch(() => {});
+                await invoke("delete_offline_time_file", {
+                  path: file.path,
+                }).catch(() => {});
               }
             } catch {
               // Retry on next reconnect

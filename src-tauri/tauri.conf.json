@@ -50,7 +50,11 @@
       "deb": {
         "desktopTemplate": "linux/gamevault.desktop.hbs",
         "changelog": "debian-changelog",
-        "section": "games"
+        "section": "games",
+        "files": {
+          "debian-copyright": "usr/share/doc/gamevault/copyright",
+          "debian-changelog": "usr/share/doc/gamevault/changelog.Debian"
+        }
       }
     }
   },
