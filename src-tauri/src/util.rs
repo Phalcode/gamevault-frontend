@@ -177,6 +177,12 @@ pub(crate) fn paths_match(a: &Path, b: &Path) -> bool {
   }
   #[cfg(not(windows))]
   {
+    // The process exe reported by /proc/<pid>/exe is canonicalized (symlinks
+    // resolved), while the game exe path is built from the configured install
+    // directory which may itself contain symlinks. Canonicalize before
+    // comparing so a game launched through a symlinked path still matches.
+    let a = fs::canonicalize(a).unwrap_or_else(|_| a.to_path_buf());
+    let b = fs::canonicalize(b).unwrap_or_else(|_| b.to_path_buf());
     a == b
   }
 }

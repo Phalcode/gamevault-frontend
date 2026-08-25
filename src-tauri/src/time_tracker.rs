@@ -151,26 +151,15 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     let mut sys = System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
-    let running_paths: Vec<PathBuf> = sys
-      .processes()
-      .values()
-      .filter_map(|p| {
-        let exe = p.exe()?;
-        if exe.as_os_str().is_empty() {
-          None
-        } else {
-          Some(exe.to_path_buf())
-        }
-      })
-      .collect();
+    let processes: Vec<&sysinfo::Process> = sys.processes().values().collect();
 
     let mut matched_game_ids: Vec<i64> = Vec::new();
 
     for (game_id, exe_paths) in &game_exe_map {
       let is_running = exe_paths.iter().any(|game_exe| {
-        running_paths.iter().any(|proc_exe| {
-          paths_match(game_exe, proc_exe)
-        })
+        processes
+          .iter()
+          .any(|process| process_matches_game(process, game_exe))
       });
       if is_running {
         matched_game_ids.push(*game_id);
@@ -199,6 +188,21 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
       }
     }
   }
+}
+
+fn process_matches_game(process: &sysinfo::Process, game_exe: &Path) -> bool {
+  // Direct binary: the process exe path resolves to the game executable.
+  if let Some(exe) = process.exe() {
+    if paths_match(game_exe, exe) {
+      return true;
+    }
+  }
+  // Script-launched games run via an interpreter (e.g. /bin/sh); its argv
+  // references the actual script/binary, so also match the command line.
+  process
+    .cmd()
+    .iter()
+    .any(|arg| paths_match(game_exe, Path::new(arg)))
 }
 
 fn save_offline_time(download_paths: &[String], user_id: i64, game_id: i64) {
