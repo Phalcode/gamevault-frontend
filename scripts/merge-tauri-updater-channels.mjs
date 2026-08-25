@@ -11,7 +11,7 @@ if (!existingPath || !channel || !manifestPath || !outputPath) {
   process.exit(1);
 }
 
-if (channel !== "stable" && channel !== "unstable") {
+if (!["stable", "unstable", "early-access"].includes(channel)) {
   throw new Error(`Unsupported channel '${channel}'.`);
 }
 

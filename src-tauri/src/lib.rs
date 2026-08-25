@@ -24,13 +24,15 @@ use url::Url;
 
 const STABLE_UPDATER_ENDPOINT: &str = "https://github.com/Phalcode/gamevault-frontend/releases/latest/download/latest.json";
 const UNSTABLE_UPDATER_ENDPOINT: &str = "https://github.com/Phalcode/gamevault-frontend/releases/download/unstable/unstable.json";
+const EARLY_ACCESS_UPDATER_ENDPOINT: &str = "https://github.com/Phalcode/gamevault-frontend/releases/download/early-access/early-access.json";
 const APP_UPDATER_EVENT: &str = "app-updater-progress";
 const UPDATER_STATE_PATH: &str = "updater-state.json";
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 enum UpdateChannel {
   Stable,
+  EarlyAccess,
   Unstable,
 }
 
@@ -38,6 +40,7 @@ impl UpdateChannel {
   fn endpoint(self) -> &'static str {
     match self {
       Self::Stable => STABLE_UPDATER_ENDPOINT,
+      Self::EarlyAccess => EARLY_ACCESS_UPDATER_ENDPOINT,
       Self::Unstable => UNSTABLE_UPDATER_ENDPOINT,
     }
   }
@@ -136,16 +139,15 @@ fn build_version_comparator(
       && current.patch == release.version.patch;
 
     match channel {
-      // Switching back to stable stays allowed even when the stable release is
-      // not semver-newer (e.g. the app was previously installed from the
-      // unstable channel).
+      // Switching back to a less-experimental channel stays allowed even when
+      // it is not semver-newer (e.g. the app was previously installed from a
+      // prerelease channel).
       UpdateChannel::Stable => matching_state
-        .is_some_and(|value| value.channel == UpdateChannel::Unstable),
-      // Unstable builds are prereleases of the same base version, so semver
-      // alone never marks them newer than the plain stable release. When the
-      // app is currently running that stable release, offer the unstable
-      // build of the same core (i.e. switching stable -> unstable).
-      UpdateChannel::Unstable => {
+        .is_some_and(|value| value.channel != UpdateChannel::Stable),
+      // Prerelease channels (early-access and unstable) are offered when the
+      // running build is the plain release of the same core, i.e. switching
+      // from stable up into a prerelease channel. Otherwise semver decides.
+      UpdateChannel::EarlyAccess | UpdateChannel::Unstable => {
         current.pre.is_empty() && !release.version.pre.is_empty() && same_core
       }
     }

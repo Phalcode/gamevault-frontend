@@ -16,16 +16,20 @@ const APP_UPDATER_EVENT = "app-updater-progress";
 const GITHUB_RELEASE_API_URLS: Record<UpdateChannel, string> = {
   stable:
     "https://api.github.com/repos/Phalcode/gamevault-frontend/releases/latest",
+  "early-access":
+    "https://api.github.com/repos/Phalcode/gamevault-frontend/releases/tags/early-access",
   unstable:
     "https://api.github.com/repos/Phalcode/gamevault-frontend/releases/tags/unstable",
 };
 const GITHUB_RELEASE_PAGE_URLS: Record<UpdateChannel, string> = {
   stable: "https://github.com/Phalcode/gamevault-frontend/releases/latest",
+  "early-access":
+    "https://github.com/Phalcode/gamevault-frontend/releases/tag/early-access",
   unstable:
     "https://github.com/Phalcode/gamevault-frontend/releases/tag/unstable",
 };
 
-export type UpdateChannel = "stable" | "unstable";
+export type UpdateChannel = "stable" | "early-access" | "unstable";
 
 type UpdateDownloadEvent =
   | {
@@ -86,7 +90,7 @@ const AppUpdaterContext = createContext<AppUpdaterContextValue | undefined>(
 );
 
 function channelLabel(channel: UpdateChannel): string {
-  return channel === "unstable" ? "unstable" : "stable";
+  return channel;
 }
 
 function readSkippedVersion(channel: UpdateChannel): string | null {
@@ -116,7 +120,7 @@ function clearSkippedVersion(channel: UpdateChannel): void {
 function readUpdateChannel(): UpdateChannel {
   try {
     const value = localStorage.getItem(UPDATE_CHANNEL_KEY);
-    return value === "unstable" ? "unstable" : "stable";
+    return value === "unstable" || value === "early-access" ? value : "stable";
   } catch {
     return "stable";
   }
@@ -394,10 +398,11 @@ export function AppUpdaterProvider({
             return;
           }
 
+          const label = channelLabel(updateChannel);
           setAvailableVersion(null);
           setErrorText(fallbackMessage);
           setStatusText(
-            "The unstable updater feed is not published yet. The unstable GitHub prerelease page is available instead.",
+            `The ${label} updater feed is not published yet. The ${label} GitHub prerelease page is available instead.`,
           );
 
           if (!manual) {
@@ -406,19 +411,19 @@ export function AppUpdaterProvider({
 
           const updatedLabel = release.updated_at || release.published_at;
           const description = updatedLabel
-            ? `The signed updater feed is not published yet for the unstable channel. GitHub shows an unstable prerelease updated at ${new Date(updatedLabel).toLocaleString()}. Open that prerelease page instead?`
-            : "The signed updater feed is not published yet for the unstable channel. Open the unstable GitHub prerelease page instead?";
+            ? `The signed updater feed is not published yet for the ${label} channel. GitHub shows a ${label} prerelease updated at ${new Date(updatedLabel).toLocaleString()}. Open that release page instead?`
+            : `The signed updater feed is not published yet for the ${label} channel. Open the ${label} GitHub prerelease page instead?`;
 
           const approved = await showAlert({
-            title: "Unstable release page available",
+            title: `${label} release page available`,
             description,
-            affirmativeText: "Open unstable release",
+            affirmativeText: `Open ${label} release`,
             negativeText: "Cancel",
           });
 
           if (approved) {
             openExternalReleasePage(updateChannel, releaseUrl);
-            setStatusText("Opened the unstable GitHub release page.");
+            setStatusText(`Opened the ${label} GitHub release page.`);
           }
         } catch (fallbackError) {
           const message = formatUpdateError(fallbackError);

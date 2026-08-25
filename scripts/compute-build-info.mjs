@@ -32,8 +32,14 @@ async function writeGithubOutput(values) {
 
 const pkg = JSON.parse(await readFile(packageJsonPath, "utf8"));
 const baseVersion = String(pkg.version || "").trim();
-const buildChannel =
-  process.env.GV_BUILD_CHANNEL === "unstable" ? "unstable" : "stable";
+const rawBuildChannel = String(process.env.GV_BUILD_CHANNEL || "")
+  .trim()
+  .toLowerCase();
+const buildChannel = ["stable", "unstable", "early-access"].includes(
+  rawBuildChannel,
+)
+  ? rawBuildChannel
+  : "stable";
 const runNumber = String(
   process.env.GITHUB_RUN_NUMBER || process.env.GV_BUILD_RUN_NUMBER || "0",
 ).trim();
@@ -51,8 +57,8 @@ const buildId = `${runNumber}.${runAttempt}`;
 const buildVersion =
   buildChannel === "stable"
     ? baseVersion
-    : `${major}.${minor}.${patch}-unstable.${runNumber}.${runAttempt}`;
-const releaseRef = buildChannel === "stable" ? baseVersion : "unstable";
+    : `${major}.${minor}.${patch}-${buildChannel}.${runNumber}.${runAttempt}`;
+const releaseRef = buildChannel === "stable" ? baseVersion : buildChannel;
 
 const result = {
   base_version: baseVersion,

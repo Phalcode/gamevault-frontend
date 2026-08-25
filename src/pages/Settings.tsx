@@ -1512,6 +1512,9 @@ export default function Settings() {
                                 <ListboxOption value="stable">
                                   <ListboxLabel>Stable</ListboxLabel>
                                 </ListboxOption>
+                                <ListboxOption value="early-access">
+                                  <ListboxLabel>Early Access</ListboxLabel>
+                                </ListboxOption>
                                 <ListboxOption value="unstable">
                                   <ListboxLabel>Unstable</ListboxLabel>
                                 </ListboxOption>
@@ -1528,7 +1531,7 @@ export default function Settings() {
                                   : updaterStatusText ||
                                     (updaterReady
                                       ? updaterEnabled
-                                        ? `Enabled for the ${updateChannel} channel.`
+                                        ? `Enabled for the ${updateChannel === "early-access" ? "Early Access" : updateChannel === "unstable" ? "Unstable" : "Stable"} channel.`
                                         : "Not configured for this build yet."
                                       : "Checking availability...")
                               }

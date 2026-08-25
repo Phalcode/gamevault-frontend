@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - develop
+      - early-access
 
 permissions:
   contents: write
@@ -35,7 +36,7 @@ jobs:
       - name: Compute build metadata
         id: build-info
         env:
-          GV_BUILD_CHANNEL: ${{ github.ref == 'refs/heads/master' && 'stable' || 'unstable' }}
+          GV_BUILD_CHANNEL: ${{ github.ref == 'refs/heads/master' && 'stable' || github.ref == 'refs/heads/develop' && 'unstable' || 'early-access' }}
         run: node scripts/compute-build-info.mjs package.json
 
       - name: Resolve API spec hash
@@ -105,6 +106,17 @@ jobs:
           file: gamevault-frontend.zip
           asset_name: gamevault-frontend.zip
           tag: unstable
+          overwrite: true
+          prerelease: true
+
+      - name: Upload Frontend artifact to early-access release
+        if: github.ref == 'refs/heads/early-access'
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: gamevault-frontend.zip
+          asset_name: gamevault-frontend.zip
+          tag: early-access
           overwrite: true
           prerelease: true
 
@@ -228,8 +240,21 @@ jobs:
           GV_RELEASE_REF: ${{ needs.release.outputs.release_ref }}
         run: pnpm tauri build --config src-tauri/tauri.release.generated.json
 
+      - name: Build Tauri early-access release
+        if: github.ref == 'refs/heads/early-access'
+        env:
+          GV_TAURI_UPDATER_PUBKEY: ${{ vars.GV_TAURI_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GV_BUILD_VERSION: ${{ needs.release.outputs.build_version }}
+          GV_BUILD_CHANNEL: ${{ needs.release.outputs.build_channel }}
+          GV_BUILD_COMMIT: ${{ needs.release.outputs.build_commit }}
+          GV_BUILD_ID: ${{ needs.release.outputs.build_id }}
+          GV_RELEASE_REF: ${{ needs.release.outputs.release_ref }}
+        run: pnpm tauri build --config src-tauri/tauri.release.generated.json
+
       - name: Prepare Tauri release assets
-        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop'
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access'
         run: node scripts/prepare-tauri-release-assets.mjs ${{ matrix.platform }} ${{ needs.release.outputs.build_version }}
 
       - name: Upload Tauri release assets
@@ -246,8 +271,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload unstable release-assets/${{ matrix.platform }}/* --clobber
 
+      - name: Upload early-access Tauri release assets
+        if: github.ref == 'refs/heads/early-access'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload early-access release-assets/${{ matrix.platform }}/* --clobber
+
       - name: Upload updater metadata artifact
-        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop'
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access'
         uses: actions/upload-artifact@v4
         with:
           name: updater-metadata-${{ matrix.platform }}
@@ -256,7 +288,7 @@ jobs:
   updater-manifest:
     name: Publish updater manifest
     needs: [release, tauri]
-    if: ${{ !cancelled() && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') && needs.release.result == 'success' && needs.tauri.result == 'success' }}
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access') && needs.release.result == 'success' && needs.tauri.result == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -287,6 +319,17 @@ jobs:
             echo "tag=${{ needs.release.outputs.version }}" >> "$GITHUB_OUTPUT"
             echo "asset_tag=${{ needs.release.outputs.version }}" >> "$GITHUB_OUTPUT"
             echo "channels_tag=${{ needs.release.outputs.version }}" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_REF" = "refs/heads/early-access" ]; then
+            echo "channel=early-access" >> "$GITHUB_OUTPUT"
+            echo "file=early-access.json" >> "$GITHUB_OUTPUT"
+            echo "tag=early-access" >> "$GITHUB_OUTPUT"
+            echo "asset_tag=early-access" >> "$GITHUB_OUTPUT"
+            stable_tag=$(gh api repos/${{ github.repository }}/releases/latest --jq .tag_name 2>/dev/null || true)
+            if [ -n "$stable_tag" ]; then
+              echo "channels_tag=$stable_tag" >> "$GITHUB_OUTPUT"
+            else
+              echo "channels_tag=early-access" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "channel=unstable" >> "$GITHUB_OUTPUT"
             echo "file=unstable.json" >> "$GITHUB_OUTPUT"
@@ -300,16 +343,23 @@ jobs:
             fi
           fi
 
-      - name: Clean unstable release assets
-        if: github.ref == 'refs/heads/develop'
+      - name: Clean prerelease release assets
+        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if [ "$GITHUB_REF" = "refs/heads/develop" ]; then
+            target_tag=unstable
+            feed_file=unstable.json
+          else
+            target_tag=early-access
+            feed_file=early-access.json
+          fi
           mapfile -t allowed_assets < <(
-            node -e "const fs=require('fs'); const path=require('path'); const names=new Set(['gamevault-frontend.zip','unstable.json']); const dir='updater-metadata'; for (const file of fs.readdirSync(dir)) { if (!file.endsWith('.json')) continue; const data=JSON.parse(fs.readFileSync(path.join(dir,file),'utf8')); for (const name of data.releaseAssetNames || []) names.add(name); } if ('${{ steps.manifest.outputs.channels_tag }}' === 'unstable') names.add('updater-channels.json'); console.log([...names].join('\n'));"
+            node -e "const fs=require('fs'); const path=require('path'); const names=new Set(['gamevault-frontend.zip','$feed_file']); const dir='updater-metadata'; for (const file of fs.readdirSync(dir)) { if (!file.endsWith('.json')) continue; const data=JSON.parse(fs.readFileSync(path.join(dir,file),'utf8')); for (const name of data.releaseAssetNames || []) names.add(name); } if ('${{ steps.manifest.outputs.channels_tag }}' === '$target_tag') names.add('updater-channels.json'); console.log([...names].join('\n'));"
           )
 
-          node scripts/cleanup-release-assets.mjs "${{ github.repository }}" unstable "${allowed_assets[@]}"
+          node scripts/cleanup-release-assets.mjs "${{ github.repository }}" "$target_tag" "${allowed_assets[@]}"
 
       - name: Download existing updater channels source
         shell: bash
@@ -318,6 +368,9 @@ jobs:
           curl -fsSL "https://github.com/${{ github.repository }}/releases/latest/download/updater-channels.json" -o existing-updater-channels.json || true
           if [ ! -s existing-updater-channels.json ]; then
             curl -fsSL "https://github.com/${{ github.repository }}/releases/download/unstable/updater-channels.json" -o existing-updater-channels.json || true
+          fi
+          if [ ! -s existing-updater-channels.json ]; then
+            curl -fsSL "https://github.com/${{ github.repository }}/releases/download/early-access/updater-channels.json" -o existing-updater-channels.json || true
           fi
 
       - name: Build current channel manifest
