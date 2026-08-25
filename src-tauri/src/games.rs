@@ -363,26 +363,44 @@ pub(crate) fn launch_game(
     return Ok(());
   }
 
-  // Linux has no UAC equivalent; elevate via polkit's pkexec (graphical auth prompt).
+  // Linux has no UAC equivalent; elevate via polkit's pkexec (graphical auth
+  // prompt), falling back to sudo for environments like WSL where pkexec is
+  // unavailable.
   #[cfg(target_os = "linux")]
   if run_as_admin.unwrap_or(false) {
-    let mut command = Command::new("pkexec");
-    command.arg(&exe_path);
+    let mut args: Vec<std::ffi::OsString> = vec![exe_path.as_os_str().to_os_string()];
     if let Some(ref params) = launch_parameters {
       let params = params.trim();
       if !params.is_empty() {
         for arg in params.split_whitespace() {
-          command.arg(arg);
+          args.push(arg.into());
         }
       }
     }
-    command.current_dir(working_dir);
-    return match command.spawn() {
+
+    match Command::new("pkexec")
+      .args(&args)
+      .current_dir(working_dir)
+      .spawn()
+    {
+      Ok(_) => return Ok(()),
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+      Err(e) => return Err(format!("Failed to launch game as root: {e}")),
+    }
+
+    // pkexec isn't installed; try sudo.
+    return match Command::new("sudo")
+      .arg("--")
+      .args(&args)
+      .current_dir(working_dir)
+      .spawn()
+    {
       Ok(_) => Ok(()),
-      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-        Err("Unable to run the game as root: 'pkexec' is not installed on this system.".to_string())
-      }
-      Err(e) => Err(format!("Failed to launch game as root: {e}")),
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(
+        "Unable to run the game as root: neither 'pkexec' nor 'sudo' is installed on this system."
+          .to_string(),
+      ),
+      Err(e) => Err(format!("Failed to launch game as root via sudo: {e}")),
     };
   }
 
