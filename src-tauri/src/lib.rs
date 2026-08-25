@@ -392,6 +392,7 @@ pub fn run() {
       downloads::recover_download_cards,
       games::list_installed_games,
       games::list_launch_executables,
+      games::make_script_executable,
       games::launch_game,
       time_tracker::start_game_time_tracker,
       time_tracker::stop_game_time_tracker,

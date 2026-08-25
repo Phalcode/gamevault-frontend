@@ -213,6 +213,8 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   // Launch options state
   const [launchExecutables, setLaunchExecutables] = useState<string[]>([]);
   const [selectedLaunchExe, setSelectedLaunchExe] = useState<string>("");
+  const [nonExecutableScripts, setNonExecutableScripts] = useState<string[]>([]);
+  const [makingExecutable, setMakingExecutable] = useState(false);
   const [launchParams, setLaunchParams] = useState<string>("");
   const [launchAsAdmin, setLaunchAsAdmin] = useState<boolean>(false);
   const [loadingLaunchOptions, setLoadingLaunchOptions] = useState(false);
@@ -396,10 +398,16 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         const { join } = await import("@tauri-apps/api/path");
 
         // List executables from installation directory
-        const exes = await invoke<string[]>("list_launch_executables", {
+        const result = await invoke<{
+          executables: string[];
+          nonExecutableScripts: string[];
+        }>("list_launch_executables", {
           installationPath: installedGame.installationDirectory,
         });
-        if (!cancelled) setLaunchExecutables(exes);
+        if (!cancelled) {
+          setLaunchExecutables(result.executables);
+          setNonExecutableScripts(result.nonExecutableScripts);
+        }
 
         // Read saved launch config
         const configPath = await join(
@@ -428,6 +436,31 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       cancelled = true;
     };
   }, [activeTab, installedGame]);
+
+  const handleMakeExecutable = useCallback(async () => {
+    if (!installedGame) return;
+    setMakingExecutable(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("make_script_executable", {
+        installationPath: installedGame.installationDirectory,
+        relativePaths: nonExecutableScripts,
+      });
+      // Refresh the list so the newly executable scripts appear.
+      const result = await invoke<{
+        executables: string[];
+        nonExecutableScripts: string[];
+      }>("list_launch_executables", {
+        installationPath: installedGame.installationDirectory,
+      });
+      setLaunchExecutables(result.executables);
+      setNonExecutableScripts(result.nonExecutableScripts);
+    } catch (err: any) {
+      console.error("Failed to make scripts executable:", err);
+    } finally {
+      setMakingExecutable(false);
+    }
+  }, [installedGame, nonExecutableScripts]);
 
   const persistLaunchOptions = useCallback(async (
     exe: string,
@@ -3327,9 +3360,34 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                             Launch Executable
                           </label>
                           {launchExecutables.length === 0 ? (
-                            <p className="text-sm text-gv-muted">
-                              No executables found in the installation folder.
-                            </p>
+                            <div className="space-y-3">
+                              <p className="text-sm text-gv-muted">
+                                No executables found in the installation folder.
+                              </p>
+                              {nonExecutableScripts.length > 0 && (
+                                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                                  <p className="text-sm text-amber-700 dark:text-amber-300">
+                                    Found {nonExecutableScripts.length}{" "}
+                                    {nonExecutableScripts.length === 1
+                                      ? "shell script"
+                                      : "shell scripts"}{" "}
+                                    that is missing the executable (
+                                    <code className="font-mono">+x</code>)
+                                    permission.
+                                  </p>
+                                  <Button
+                                    color="amber"
+                                    onClick={handleMakeExecutable}
+                                    disabled={makingExecutable}
+                                    className="mt-3"
+                                  >
+                                    {makingExecutable
+                                      ? "Making executable…"
+                                      : "Make executable"}
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
                           ) : (
                             <Listbox
                               name="launchExe"

@@ -337,9 +337,12 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       // Normalize separators for comparison — list_launch_executables always returns forward slashes
       const normalized = metaExe.trim().replace(/\\/g, "/").toLowerCase();
       // Match against the actual executable list (same source as the Listbox)
-      const exeList = await invoke<string[]>("list_launch_executables", {
-        installationPath: d.installationDirectory,
-      });
+      const { executables: exeList } = await invoke<{ executables: string[] }>(
+        "list_launch_executables",
+        {
+          installationPath: d.installationDirectory,
+        },
+      );
       // Case-insensitive match; use the exact casing from the list so it matches the UI
       const match = exeList.find(
         (e) => e.replace(/\\/g, "/").toLowerCase() === normalized,

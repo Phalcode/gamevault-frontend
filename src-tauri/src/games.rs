@@ -294,14 +294,75 @@ pub(crate) fn collect_launch_candidates(root: &Path, current: &Path, results: &m
   Ok(())
 }
 
+#[derive(serde::Serialize)]
+pub(crate) struct LaunchExecutables {
+  pub executables: Vec<String>,
+  #[serde(rename = "nonExecutableScripts")]
+  pub non_executable_scripts: Vec<String>,
+}
+
+#[cfg(not(windows))]
+fn collect_non_executable_scripts(
+  root: &Path,
+  current: &Path,
+  results: &mut Vec<String>,
+) -> Result<(), String> {
+  use std::os::unix::fs::PermissionsExt;
+
+  let entries = fs::read_dir(current)
+    .map_err(|e| format!("Failed to read installation folder: {e}"))?;
+
+  for entry in entries {
+    let entry = entry.map_err(|e| format!("Failed to read installation folder entry: {e}"))?;
+    let path = entry.path();
+
+    if path.is_dir() {
+      collect_non_executable_scripts(root, &path, results)?;
+      continue;
+    }
+
+    let Ok(metadata) = fs::metadata(&path) else { continue };
+    let mode = metadata.permissions().mode();
+    // Only shell scripts that are missing the executable bit are interesting.
+    if mode & 0o111 != 0 {
+      continue;
+    }
+    let ext = path
+      .extension()
+      .and_then(|v| v.to_str())
+      .map(|v| v.to_ascii_lowercase())
+      .unwrap_or_default();
+    if !matches!(ext.as_str(), "sh" | "bash" | "zsh" | "run" | "command") {
+      continue;
+    }
+    if let Ok(relative) = path.strip_prefix(root) {
+      results.push(relative.to_string_lossy().replace('\\', "/"));
+    }
+  }
+
+  Ok(())
+}
+
+#[cfg(windows)]
+fn collect_non_executable_scripts(
+  _root: &Path,
+  _current: &Path,
+  _results: &mut Vec<String>,
+) -> Result<(), String> {
+  Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn list_launch_executables(
   app: tauri::AppHandle,
   installation_path: String,
-) -> Result<Vec<String>, String> {
+) -> Result<LaunchExecutables, String> {
   let root = PathBuf::from(&installation_path);
   if !root.exists() || !root.is_dir() {
-    return Ok(Vec::new());
+    return Ok(LaunchExecutables {
+      executables: Vec::new(),
+      non_executable_scripts: Vec::new(),
+    });
   }
 
   let ignored = load_settings(&app).ignored_executables;
@@ -315,7 +376,45 @@ pub(crate) fn list_launch_executables(
   results.sort_by(|a, b| {
     a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase())
   });
-  Ok(results)
+
+  let mut non_executable_scripts = Vec::new();
+  collect_non_executable_scripts(&root, &root, &mut non_executable_scripts)?;
+
+  Ok(LaunchExecutables {
+    executables: results,
+    non_executable_scripts,
+  })
+}
+
+#[tauri::command]
+pub(crate) fn make_script_executable(
+  installation_path: String,
+  relative_paths: Vec<String>,
+) -> Result<(), String> {
+  let root = PathBuf::from(&installation_path);
+  for rel in relative_paths {
+    let path = root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    if !path.exists() || !path.is_file() {
+      return Err(format!("Script does not exist: {rel}"));
+    }
+
+    #[cfg(unix)]
+    {
+      use std::os::unix::fs::PermissionsExt;
+      let mut permissions = fs::metadata(&path)
+        .map_err(|e| format!("Failed to read permissions: {e}"))?
+        .permissions();
+      permissions.set_mode(permissions.mode() | 0o111);
+      fs::set_permissions(&path, permissions)
+        .map_err(|e| format!("Failed to make script executable: {e}"))?;
+    }
+
+    #[cfg(not(unix))]
+    {
+      return Err("Making scripts executable is only supported on Unix-like systems".to_string());
+    }
+  }
+  Ok(())
 }
 
 #[tauri::command]
