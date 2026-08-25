@@ -716,7 +716,15 @@ export default function Settings() {
     }, 1500);
     if (versionClickCount.current >= 5) {
       versionClickCount.current = 0;
-      if (!devToolsUnlocked) {
+      if (devToolsUnlocked) {
+        setDevToolsUnlocked(false);
+        try {
+          localStorage.removeItem(DEV_TOOLS_KEY);
+        } catch {
+          // localStorage unavailable
+        }
+        void showAlert({ title: "Developer Tools locked", tone: "warning" });
+      } else {
         setDevToolsUnlocked(true);
         try {
           localStorage.setItem(DEV_TOOLS_KEY, "1");
