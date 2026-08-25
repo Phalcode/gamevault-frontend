@@ -1,4 +1,4 @@
-import useDarkMode from "use-dark-mode";
+import { useIsDark } from "@/utils/theme";
 import { SidebarItem } from "./tailwind/sidebar";
 
 type LogoVariant = "logo" | "plus" | "text" | "sidebar";
@@ -20,9 +20,9 @@ export function Logo({
   height = "h-8",
   gap = "gap-2",
 }: LogoProps) {
-  const darkMode = useDarkMode();
+  const isDark = useIsDark();
 
-  const srcText = `/logo-text-${darkMode.value ? "dark" : "light"}.svg`;
+  const srcText = `/logo-text-${isDark ? "dark" : "light"}.svg`;
 
   if (variant === "sidebar") {
     return (

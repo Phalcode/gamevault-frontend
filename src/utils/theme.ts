@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 export type ThemeMode = "system" | "light" | "dark";
 
 const STORAGE_KEY = "darkMode";
@@ -46,4 +48,33 @@ export function applyTheme(mode: ThemeMode): void {
   } catch {
     // events unavailable
   }
+}
+
+export function useIsDark(): boolean {
+  const [isDark, setIsDark] = useState<boolean>(() =>
+    typeof window !== "undefined" ? resolveIsDark(getStoredTheme()) : false,
+  );
+
+  useEffect(() => {
+    const apply = () => setIsDark(resolveIsDark(getStoredTheme()));
+    const onThemeChange = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { darkMode?: boolean }
+        | undefined;
+      if (typeof detail?.darkMode === "boolean") {
+        setIsDark(detail.darkMode);
+      }
+    };
+
+    apply();
+    window.addEventListener("darkMode", onThemeChange);
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    media.addEventListener("change", apply);
+    return () => {
+      window.removeEventListener("darkMode", onThemeChange);
+      media.removeEventListener("change", apply);
+    };
+  }, []);
+
+  return isDark;
 }
