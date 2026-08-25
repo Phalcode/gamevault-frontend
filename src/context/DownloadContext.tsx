@@ -1028,6 +1028,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             destinationDir: downloadsVersionFolder,
             fallbackFilename: filename,
             authHeader,
+            speedLimitKb: speedLimitKB > 0 ? speedLimitKB : null,
             resumePosition:
               resumePosition && resumePosition > 0 ? resumePosition : null,
           });
@@ -1466,58 +1467,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          if (payload.status === "completed") {
-            updateDownload(gameId, {
-              extractionStatus: "completed",
-              extractionProgress: 100,
-              extractionCurrentFile: undefined,
-            });
-
-            // Auto-install if enabled
-            try {
-              if (
-                typeof localStorage !== "undefined" &&
-                localStorage.getItem("tauri_auto_install") === "1"
-              ) {
-                const dl = downloads[gameId];
-                const gameType = dl?.gameType;
-                const isPortable =
-                  gameType === "WINDOWS_PORTABLE" ||
-                  gameType === "LINUX_PORTABLE" ||
-                  gameType === "WINDOWS_SOFTWARE" ||
-                  gameType === "LINUX_SOFTWARE";
-                const isSetup = gameType === "WINDOWS_SETUP";
-
-                if (isPortable) {
-                  setTimeout(() => {
-                    copyInstallationFilesRef
-                      .current?.(gameId)
-                      .catch((e: any) =>
-                        console.error("Auto-install (portable) failed:", e),
-                      );
-                  }, 50);
-                } else if (isSetup) {
-                  setTimeout(async () => {
-                    try {
-                      const candidates =
-                        (await listInstallExecutablesRef.current?.(gameId)) ??
-                        [];
-                      if (candidates.length > 0) {
-                        await launchInstallationExecutableRef.current?.(
-                          gameId,
-                          candidates[0],
-                        );
-                      }
-                    } catch (e: any) {
-                      console.error("Auto-install (setup) failed:", e);
-                    }
-                  }, 50);
-                }
-              }
-            } catch {
-              // localStorage not available
-            }
-          } else if (payload.status === "needs-password") {
+          if (payload.status === "needs-password") {
             updateDownload(gameId, {
               extractionStatus: "needs-password",
               extractionPasswordRequired: true,
@@ -1561,6 +1511,37 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             extractionError: undefined,
             extractionPasswordRequired: false,
           });
+
+          // Start installation only after extraction has actually completed.
+          try {
+            if (
+              typeof localStorage !== "undefined" &&
+              localStorage.getItem("tauri_auto_install") === "1"
+            ) {
+              const gameType = d.gameType;
+              const isPortable =
+                gameType === "WINDOWS_PORTABLE" ||
+                gameType === "LINUX_PORTABLE" ||
+                gameType === "WINDOWS_SOFTWARE" ||
+                gameType === "LINUX_SOFTWARE";
+              const isSetup = gameType === "WINDOWS_SETUP";
+
+              if (isPortable) {
+                await copyInstallationFilesRef.current?.(gameId);
+              } else if (isSetup) {
+                const candidates =
+                  (await listInstallExecutablesRef.current?.(gameId)) ?? [];
+                if (candidates.length > 0) {
+                  await launchInstallationExecutableRef.current?.(
+                    gameId,
+                    candidates[0],
+                  );
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Auto-install failed:", e);
+          }
           return;
         }
 

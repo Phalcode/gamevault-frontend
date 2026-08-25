@@ -292,6 +292,7 @@ pub(crate) fn download_game_version(
   destination_dir: String,
   fallback_filename: Option<String>,
   auth_header: Option<String>,
+  speed_limit_kb: Option<u64>,
   resume_position: Option<u64>,
 ) -> Result<(), String> {
   let control_flag = Arc::new(AtomicU8::new(DOWNLOAD_CONTROL_RUNNING));
@@ -309,6 +310,9 @@ pub(crate) fn download_game_version(
       if !auth.trim().is_empty() {
         req = req.header("Authorization", auth);
       }
+    }
+    if let Some(limit) = speed_limit_kb.filter(|limit| *limit > 0) {
+      req = req.header("X-Download-Speed-Limit", limit.to_string());
     }
     let resume_position = resume_position.unwrap_or(0);
     if resume_position > 0 {
