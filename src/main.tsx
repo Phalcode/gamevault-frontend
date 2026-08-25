@@ -48,8 +48,7 @@ void startMediaCacheMaintenance();
 (window as any).global = window;
 
 if (isAnalyticsEnabled()) {
-  // Avoid preloading the heavy session-replay bundle on startup; track views/errors now.
-  Swetrix.init("dBl2xaaJ9x3M", { preloadSessionReplay: false });
+  Swetrix.init("dBl2xaaJ9x3M", { preloadSessionReplay: true, apiURL: "https://analytics.platform.phalco.de/log" });
   Swetrix.trackViews();
   Swetrix.trackErrors();
 }
