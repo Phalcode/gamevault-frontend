@@ -10,6 +10,7 @@ import {
   ChevronRightIcon,
   ArrowsPointingOutIcon,
 } from "@heroicons/react/24/solid";
+import { isTauriApp } from "@/utils/tauri";
 
 export interface ResolvedStream {
   video: string; // Direct video stream URL (mp4/webm) OR image URL when type === image/placeholder
@@ -52,6 +53,27 @@ function extractYouTubeId(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+function useYoutubeEmbedBase(): string | null {
+  const [base, setBase] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isTauriApp()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const value = await invoke<string | null>("youtube_embed_base");
+        if (!cancelled) setBase(value);
+      } catch {
+        if (!cancelled) setBase(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return base;
 }
 
 export const MediaSlider: React.FC<MediaSliderProps> = ({
@@ -102,8 +124,19 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
 
   const isYT = !isImageOnly && isYouTube(current?.video);
   const ytId = isYT ? extractYouTubeId(current?.video || "") : null;
+  const ytEmbedBase = useYoutubeEmbedBase();
   const ytEmbedUrl = ytId
     ? (() => {
+        // In packaged Tauri builds the webview origin is tauri://localhost,
+        // which sends no HTTP Referer, so YouTube rejects the embed with
+        // Error 153. Serve the embed through a loopback http://127.0.0.1 page
+        // (see src-tauri/src/youtube.rs) so it has a valid HTTP origin. In
+        // dev/web we keep the direct embed, which works fine.
+        if (ytEmbedBase) {
+          const params = new URLSearchParams({ v: ytId, mute: "1" });
+          if (autoPlay) params.set("autoplay", "1");
+          return `${ytEmbedBase}/embed?${params.toString()}`;
+        }
         const params = new URLSearchParams({
           rel: "0",
           playsinline: "1",
@@ -222,7 +255,10 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
           referrerPolicy="strict-origin-when-cross-origin"
           // Native fullscreen intentionally disabled to use custom control
           ref={(el) => {
-            if (el && autoPlay) {
+            // The loopback proxy page handles autoplay itself via the embed
+            // URL, so only use the direct Iframe API postMessage fallback for
+            // the non-proxy (dev/web) embed path.
+            if (el && autoPlay && !ytEmbedBase) {
               // Attempt delayed play via YouTube Iframe API postMessage (minimal subset)
               setTimeout(() => {
                 try {

@@ -10,6 +10,7 @@ mod time_tracker;
 mod cache;
 mod settings;
 mod net;
+mod youtube;
 
 use crate::settings::AppSettings;
 use semver::Version;
@@ -291,6 +292,10 @@ pub fn run() {
 
   builder
     .setup(|app| {
+      // Serve YouTube embed pages over a loopback HTTP origin so they keep
+      // working in packaged builds (tauri-apps/tauri#14422).
+      youtube::start_embed_server();
+
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -383,6 +388,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       games::open_in_file_explorer,
       games::open_external_url,
+      youtube::youtube_embed_base,
       extraction::extract_archive,
       installation::list_install_executables,
       installation::copy_installation_files,
