@@ -392,7 +392,6 @@ export function GameCard({
           "group/card relative flex flex-col overflow-hidden rounded-3xl border border-gv-line bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)] shadow-(--shadow-card)",
           "cursor-pointer select-none transition-[transform,translate,scale,box-shadow,border-color] duration-200 ease-out",
           "hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)",
-          "active:translate-y-0 active:scale-[0.99]",
           "focus:outline-none focus:ring-2 focus:ring-gv-accent-cool",
         )}
       >
