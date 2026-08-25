@@ -66,6 +66,7 @@ const AUTOSTART_MINIMIZED_KEY = "tauri_start_minimized";
 const AUTO_EXTRACT_KEY = "tauri_auto_extract";
 const AUTO_INSTALL_KEY = "tauri_auto_install";
 const AUTO_DELETE_SOURCE_KEY = "tauri_auto_delete_source";
+const DEV_TOOLS_KEY = "gv_dev_tools_unlocked";
 
 const SENSITIVE_KEY_PATTERN = /token|password|secret|auth|refresh|credential/i;
 
@@ -418,7 +419,13 @@ export default function Settings() {
   const [expandedLicense, setExpandedLicense] = useState<string | null>(null);
   const [licenseExpanded, setLicenseExpanded] = useState(false);
   const [gameVaultLicense, setGameVaultLicense] = useState<string | null>(null);
-  const [devToolsUnlocked, setDevToolsUnlocked] = useState(false);
+  const [devToolsUnlocked, setDevToolsUnlocked] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(DEV_TOOLS_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const versionClickCount = useRef(0);
   const versionClickTimer = useRef<number | null>(null);
   const [editingRootId, setEditingRootId] = useState<string | null>(null);
@@ -711,6 +718,11 @@ export default function Settings() {
       versionClickCount.current = 0;
       if (!devToolsUnlocked) {
         setDevToolsUnlocked(true);
+        try {
+          localStorage.setItem(DEV_TOOLS_KEY, "1");
+        } catch {
+          // localStorage unavailable
+        }
         playUnlockSound();
         void showAlert({ title: "Developer Tools unlocked", tone: "success" });
       }
@@ -1512,12 +1524,16 @@ export default function Settings() {
                                 <ListboxOption value="stable">
                                   <ListboxLabel>Stable</ListboxLabel>
                                 </ListboxOption>
-                                <ListboxOption value="early-access">
-                                  <ListboxLabel>Early Access</ListboxLabel>
-                                </ListboxOption>
-                                <ListboxOption value="unstable">
-                                  <ListboxLabel>Unstable</ListboxLabel>
-                                </ListboxOption>
+                                {devToolsUnlocked && (
+                                  <>
+                                    <ListboxOption value="early-access">
+                                      <ListboxLabel>Early Access</ListboxLabel>
+                                    </ListboxOption>
+                                    <ListboxOption value="unstable">
+                                      <ListboxLabel>Unstable</ListboxLabel>
+                                    </ListboxOption>
+                                  </>
+                                )}
                               </Listbox>
                             </div>
                           </SettingsRow>
