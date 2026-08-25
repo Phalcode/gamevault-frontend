@@ -102,6 +102,21 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
 
   const isYT = !isImageOnly && isYouTube(current?.video);
   const ytId = isYT ? extractYouTubeId(current?.video || "") : null;
+  const ytEmbedUrl = ytId
+    ? (() => {
+        const params = new URLSearchParams({
+          rel: "0",
+          playsinline: "1",
+          mute: "1",
+          fs: "0",
+          enablejsapi: "1",
+          origin: window.location.origin,
+          widget_referrer: window.location.href,
+        });
+        if (autoPlay) params.set("autoplay", "1");
+        return `https://www.youtube.com/embed/${ytId}?${params.toString()}`;
+      })()
+    : null;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -201,7 +216,7 @@ export const MediaSlider: React.FC<MediaSliderProps> = ({
         <iframe
           key={ytId}
           className="absolute inset-0 w-full h-full"
-          src={`https://www.youtube.com/embed/${ytId}?rel=0&playsinline=1&mute=1&fs=0&enablejsapi=1${autoPlay ? "&autoplay=1" : ""}`}
+          src={ytEmbedUrl || undefined}
           title={current.title || "Trailer"}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           referrerPolicy="strict-origin-when-cross-origin"
