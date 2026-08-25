@@ -117,12 +117,27 @@ function clearSkippedVersion(channel: UpdateChannel): void {
   }
 }
 
+function defaultChannelForBuild(): UpdateChannel {
+  const buildChannel = __BUILD_CHANNEL__;
+  return buildChannel === "unstable" || buildChannel === "early-access"
+    ? buildChannel
+    : "stable";
+}
+
 function readUpdateChannel(): UpdateChannel {
+  const buildDefault = defaultChannelForBuild();
   try {
     const value = localStorage.getItem(UPDATE_CHANNEL_KEY);
-    return value === "unstable" || value === "early-access" ? value : "stable";
+    if (
+      value === "stable" ||
+      value === "unstable" ||
+      value === "early-access"
+    ) {
+      return value;
+    }
+    return buildDefault;
   } catch {
-    return "stable";
+    return buildDefault;
   }
 }
 
