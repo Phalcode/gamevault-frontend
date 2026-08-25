@@ -1,10 +1,11 @@
 [package]
 name = "app"
 version = "17.0.0"
-description = "A Tauri App"
+description = "The self-hosted gaming platform for DRM-free games"
 authors = ["Phalcode"]
-license = ""
-repository = ""
+license = "CC BY-NC-SA 4.0"
+repository = "https://github.com/Phalcode/gamevault-frontend"
+homepage = "https://gamevau.lt"
 edition = "2021"
 rust-version = "1.77.2"
 

@@ -29,6 +29,11 @@
     "active": true,
     "targets": ["nsis", "app", "dmg", "appimage", "deb"],
     "publisher": "Phalcode",
+    "license": "CC BY-NC-SA 4.0",
+    "homepage": "https://gamevau.lt",
+    "shortDescription": "The self-hosted gaming platform for DRM-free games",
+    "longDescription": "GameVault is a self-hosted gaming platform for DRM-free games. It acts as a central hub for your game library, keeps metadata and box art up to date, and lets you stream or download your games to any client.",
+    "category": "Game",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -39,6 +44,13 @@
     "windows": {
       "nsis": {
         "installMode": "perMachine"
+      }
+    },
+    "linux": {
+      "deb": {
+        "desktopTemplate": "linux/gamevault.desktop.hbs",
+        "changelog": "debian-changelog",
+        "section": "games"
       }
     }
   },
