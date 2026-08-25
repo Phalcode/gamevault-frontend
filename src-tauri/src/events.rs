@@ -169,3 +169,27 @@ pub(crate) fn emit_installer_status(
     },
   );
 }
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GameLaunchFailedEvent {
+  pub game_title: String,
+  pub exit_code: Option<i32>,
+  pub message: String,
+}
+
+pub(crate) fn emit_game_launch_failed(
+  app: &tauri::AppHandle,
+  game_title: String,
+  exit_code: Option<i32>,
+  message: String,
+) {
+  let _ = app.emit(
+    "game-launch-failed",
+    GameLaunchFailedEvent {
+      game_title,
+      exit_code,
+      message,
+    },
+  );
+}

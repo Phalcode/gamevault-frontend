@@ -479,6 +479,7 @@ export default function GameView() {
         }
 
         await invoke("launch_game", {
+          gameTitle: title || game?.title || "Game",
           installationPath: installedInfo.installationDirectory,
           executableRelativePath: launchExe,
           launchParameters: launchParams || null,

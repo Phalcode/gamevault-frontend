@@ -341,6 +341,7 @@ export function GameCard({
         }
 
         await invoke("launch_game", {
+          gameTitle: localGame.metadata?.title || localGame.title || "Game",
           installationPath: installedInfo.installationDirectory,
           executableRelativePath: launchExe,
           launchParameters: launchParams || null,

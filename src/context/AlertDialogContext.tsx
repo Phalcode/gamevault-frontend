@@ -2,6 +2,7 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -9,6 +10,7 @@ import { AnimatePresence } from "motion/react";
 import { Alert, AlertTitle, AlertDescription, AlertActions } from "@tw/alert";
 import { Button } from "@tw/button";
 import { Toast, type ToastTone } from "@tw/toast";
+import { isTauriApp } from "@/utils/tauri";
 
 // Shape of a queued alert request
 export interface AlertDialogRequest {
@@ -187,6 +189,39 @@ export const GlobalAlertDialogBridge: React.FC = () => {
   const { showAlert } = useAlertDialog();
   // Assign once per render (idempotent)
   window.showAlertDialog = showAlert;
+
+  // Surface game launch failures captured in the Tauri backend (a game that
+  // exits immediately with console output, e.g. a missing prerequisite) as a
+  // clear error dialog instead of silently doing nothing.
+  useEffect(() => {
+    if (!isTauriApp()) return;
+    let unlisten: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        unlisten = await listen<{
+          gameTitle: string;
+          exitCode?: number | null;
+          message: string;
+        }>("game-launch-failed", (event) => {
+          const { gameTitle, message } = event.payload;
+          showAlert({
+            title: `Failed to launch "${gameTitle}"`,
+            description: message,
+            affirmativeText: "OK",
+          });
+        });
+      } catch {
+        // Non-Tauri environments won't have the IPC bridge; ignore.
+      }
+    })();
+
+    return () => {
+      unlisten?.();
+    };
+  }, [showAlert]);
+
   return null;
 };
 

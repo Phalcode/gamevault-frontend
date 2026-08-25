@@ -1,9 +1,12 @@
-use crate::events::InstalledGameInfo;
+use crate::events::{emit_game_launch_failed, InstalledGameInfo};
 use crate::settings::load_settings;
 use crate::util::{is_ignored_executable, parse_version_folder, parse_i64_json, resolve_version_id, resolve_version_subdir, stable_id_from_path};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -420,6 +423,8 @@ pub(crate) fn make_script_executable(
 #[tauri::command]
 #[cfg_attr(not(windows), allow(unused_variables))]
 pub(crate) fn launch_game(
+  app: tauri::AppHandle,
+  game_title: String,
   installation_path: String,
   executable_relative_path: String,
   launch_parameters: Option<String>,
@@ -527,10 +532,29 @@ pub(crate) fn launch_game(
     command.creation_flags(0x00000200);
   }
 
+  // Redirect the child's console output to temp files (not pipes) so a
+  // long-running game can never block on a full pipe buffer, and so we can
+  // read it back if the process exits immediately.
+  let log_token = next_launch_log_token();
+  let out_path = std::env::temp_dir().join(format!("gamevault-launch-{}-{log_token}.out", std::process::id()));
+  let err_path = std::env::temp_dir().join(format!("gamevault-launch-{}-{log_token}.err", std::process::id()));
+
+  let out_file = fs::File::create(&out_path)
+    .map_err(|e| format!("Failed to create launch log: {e}"))?;
+  let err_file = fs::File::create(&err_path)
+    .map_err(|e| format!("Failed to create launch log: {e}"))?;
+  command.stdout(Stdio::from(out_file));
+  command.stderr(Stdio::from(err_file));
+
   match command.spawn() {
-    Ok(_) => Ok(()),
+    Ok(child) => {
+      spawn_launch_monitor(app, game_title, child, out_path, err_path);
+      Ok(())
+    }
     #[cfg(windows)]
     Err(ref e) if e.raw_os_error() == Some(740) => {
+      let _ = fs::remove_file(&out_path);
+      let _ = fs::remove_file(&err_path);
       use std::os::windows::ffi::OsStrExt;
       use std::ffi::OsStr;
 
@@ -557,8 +581,79 @@ pub(crate) fn launch_game(
       }
       Ok(())
     }
-    Err(e) => Err(format!("Failed to launch game: {e}")),
+    Err(e) => {
+      let _ = fs::remove_file(&out_path);
+      let _ = fs::remove_file(&err_path);
+      Err(format!("Failed to launch game: {e}"))
+    }
   }
+}
+
+fn next_launch_log_token() -> u64 {
+  static COUNTER: AtomicU64 = AtomicU64::new(0);
+  COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
+fn clean_up_launch_logs(out_path: &Path, err_path: &Path) {
+  let _ = fs::remove_file(out_path);
+  let _ = fs::remove_file(err_path);
+}
+
+fn format_launch_output(stderr: &str, stdout: &str) -> String {
+  let stderr = stderr.trim();
+  let stdout = stdout.trim();
+  match (stderr.is_empty(), stdout.is_empty()) {
+    (false, false) => format!("{stderr}\n{stdout}"),
+    (false, true) => stderr.to_string(),
+    (true, false) => stdout.to_string(),
+    (true, true) => "The game exited immediately without any output.".to_string(),
+  }
+}
+
+fn spawn_launch_monitor(
+  app: tauri::AppHandle,
+  game_title: String,
+  mut child: Child,
+  out_path: PathBuf,
+  err_path: PathBuf,
+) {
+  thread::spawn(move || {
+    let grace = Duration::from_secs(5);
+    let start = Instant::now();
+
+    let status = loop {
+      match child.try_wait() {
+        Ok(Some(status)) => break status,
+        Ok(None) => {
+          if start.elapsed() >= grace {
+            // Still running after the grace window — treat the launch as
+            // successful and stop watching; the process is already detached.
+            clean_up_launch_logs(&out_path, &err_path);
+            return;
+          }
+          thread::sleep(Duration::from_millis(50));
+        }
+        Err(_) => {
+          clean_up_launch_logs(&out_path, &err_path);
+          return;
+        }
+      }
+    };
+
+    let stdout = fs::read_to_string(&out_path).unwrap_or_default();
+    let stderr = fs::read_to_string(&err_path).unwrap_or_default();
+    clean_up_launch_logs(&out_path, &err_path);
+
+    let exit_code = status.code();
+    let message = format_launch_output(&stderr, &stdout);
+
+    // An immediate exit with console output (or a non-zero exit code) almost
+    // always means the game failed to start (e.g. a missing prerequisite).
+    // Surface it to the user instead of silently doing nothing.
+    if !status.success() || !stderr.trim().is_empty() || !stdout.trim().is_empty() {
+      emit_game_launch_failed(&app, game_title, exit_code, message);
+    }
+  });
 }
 
 #[cfg(test)]
