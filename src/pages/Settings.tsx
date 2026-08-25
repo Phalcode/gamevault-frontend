@@ -296,6 +296,47 @@ function AboutLinkRow({
   );
 }
 
+interface SystemInfo {
+  platform: string;
+  os: string;
+  architecture: string;
+  language: string;
+  cores: string;
+  memory: string;
+  screen: string;
+  userAgent: string;
+}
+
+function collectSystemInfo(isTauri: boolean): SystemInfo {
+  const nav = typeof navigator !== "undefined" ? navigator : undefined;
+  const uaData = (nav as any)?.userAgentData as
+    | { platform?: string; architecture?: string; mobile?: boolean }
+    | undefined;
+
+  const os = (uaData?.platform || nav?.platform || "Unknown").trim();
+  const architecture = (uaData?.architecture || "").trim();
+  const screen =
+    typeof window !== "undefined"
+      ? `${window.screen.width}x${window.screen.height}`
+      : "Unknown";
+
+  return {
+    platform: isTauri ? "desktop" : "web",
+    os,
+    architecture,
+    language: nav?.language || "Unknown",
+    cores: nav?.hardwareConcurrency
+      ? String(nav.hardwareConcurrency)
+      : "Unknown",
+    memory:
+      (nav as any)?.deviceMemory != null
+        ? `${(nav as any).deviceMemory} GB`
+        : "Unknown",
+    screen,
+    userAgent: nav?.userAgent || "Unknown",
+  };
+}
+
 export default function Settings() {
   const {
     speedLimitKB,
@@ -350,6 +391,7 @@ export default function Settings() {
     }
   });
   const isTauri = isTauriApp();
+  const systemInfo = collectSystemInfo(isTauri);
   const { ignoreList, setIgnoreList } = useIgnoreList();
   const { forceOffline, setForceOffline } = useOnlineStatus();
   const { showAlert } = useAlertDialog();
@@ -586,6 +628,7 @@ export default function Settings() {
         generatedAt: new Date().toISOString(),
         platform: isTauri ? "desktop" : "web",
         version: __APP_VERSION__,
+        system: systemInfo,
         settings,
       },
       null,
@@ -593,7 +636,10 @@ export default function Settings() {
     );
     try {
       await navigator.clipboard.writeText(dump);
-      await showAlert({ title: "Settings dump copied to clipboard" });
+      await showAlert({
+        title: "Settings dump copied to clipboard",
+        tone: "success",
+      });
     } catch {
       try {
         const blob = new Blob([dump], { type: "application/json" });
@@ -607,9 +653,15 @@ export default function Settings() {
         anchor.click();
         anchor.remove();
         URL.revokeObjectURL(url);
-        await showAlert({ title: "Settings dump downloaded as JSON" });
+        await showAlert({
+          title: "Settings dump downloaded as JSON",
+          tone: "success",
+        });
       } catch {
-        await showAlert({ title: "Couldn't export settings dump" });
+        await showAlert({
+          title: "Couldn't export settings dump",
+          tone: "danger",
+        });
       }
     }
   };
@@ -660,7 +712,7 @@ export default function Settings() {
       if (!devToolsUnlocked) {
         setDevToolsUnlocked(true);
         playUnlockSound();
-        void showAlert({ title: "Developer Tools unlocked" });
+        void showAlert({ title: "Developer Tools unlocked", tone: "success" });
       }
     }
   };
@@ -1383,6 +1435,51 @@ export default function Settings() {
                           <ChevronRightIcon className="size-3.5 shrink-0 text-gv-muted" />
                         </span>
                       </button>
+                    </SettingsGroup>
+
+                    <SettingsGroup caption="System">
+                      <SettingsRow>
+                        <SettingsLabel title="Platform" />
+                        <span className="shrink-0 font-mono text-xs text-gv-muted">
+                          {systemInfo.platform}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel title="Operating System" />
+                        <span className="shrink-0 font-mono text-xs text-gv-muted">
+                          {systemInfo.os}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel title="Architecture" />
+                        <span className="shrink-0 font-mono text-xs text-gv-muted">
+                          {systemInfo.architecture || "—"}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel title="Language" />
+                        <span className="shrink-0 font-mono text-xs text-gv-muted">
+                          {systemInfo.language}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel title="Screen" />
+                        <span className="shrink-0 font-mono text-xs text-gv-muted">
+                          {systemInfo.screen}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel title="CPU Cores" />
+                        <span className="shrink-0 font-mono text-xs text-gv-muted">
+                          {systemInfo.cores}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel title="Memory" />
+                        <span className="shrink-0 font-mono text-xs text-gv-muted">
+                          {systemInfo.memory}
+                        </span>
+                      </SettingsRow>
                     </SettingsGroup>
 
                     {isTauri && (

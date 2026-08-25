@@ -5,8 +5,10 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { AnimatePresence } from "motion/react";
 import { Alert, AlertTitle, AlertDescription, AlertActions } from "@tw/alert";
 import { Button } from "@tw/button";
+import { Toast, type ToastTone } from "@tw/toast";
 
 // Shape of a queued alert request
 export interface AlertDialogRequest {
@@ -15,6 +17,7 @@ export interface AlertDialogRequest {
   description?: string;
   affirmativeText?: string;
   negativeText?: string;
+  tone?: ToastTone;
   resolve: (value: boolean) => void;
 }
 
@@ -24,6 +27,7 @@ interface AlertDialogContextValue {
     description?: string;
     affirmativeText?: string;
     negativeText?: string;
+    tone?: ToastTone;
   }) => Promise<boolean>;
 }
 
@@ -89,7 +93,13 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const showAlert = useCallback<AlertDialogContextValue["showAlert"]>(
-    ({ title, description, affirmativeText = "Confirm", negativeText }) => {
+    ({
+      title,
+      description,
+      affirmativeText = "Confirm",
+      negativeText,
+      tone,
+    }) => {
       return new Promise<boolean>((resolve) => {
         const request: AlertDialogRequest = {
           id: ++idRef.current,
@@ -97,6 +107,7 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
           description,
           affirmativeText,
           negativeText,
+          tone,
           resolve,
         };
         queueRef.current.push(request);
@@ -119,14 +130,17 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
     <AlertDialogContext.Provider value={value}>
       {children}
       {variant === "toast" ? (
-        // Toast notifications - render without Dialog to avoid blocking interactions
-        active && (
-          <div className="fixed top-4 right-4 z-50 max-w-[90vw] sm:w-auto rounded-md bg-gv-panel px-4 py-2 shadow-lg ring-1 ring-gv-line text-sm flex items-center gap-2 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-150">
-            <div className="font-semibold text-gv-text">
-              {active.title}
-            </div>
-          </div>
-        )
+        // Toast notifications - render outside Dialog to avoid blocking interactions
+        <AnimatePresence>
+          {active && (
+            <Toast
+              tone={active.tone}
+              title={active.title}
+              description={active.description}
+              onDismiss={() => handleClose(true)}
+            />
+          )}
+        </AnimatePresence>
       ) : (
         // Modal dialogs - use Alert component
         <Alert
