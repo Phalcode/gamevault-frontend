@@ -403,7 +403,14 @@ export default function GameView() {
     try {
       const rootPaths = getRootPaths();
       if (rootPaths.length === 0) {
-        alert("Please configure a download location in Settings first.");
+        const openSettings = await showAlert({
+          title: "No download location configured",
+          description:
+            "A download location is required before games can be downloaded. Configure one in Settings.",
+          affirmativeText: "Open Settings",
+          negativeText: "Cancel",
+        });
+        if (openSettings) navigate("/settings");
         return;
       }
 

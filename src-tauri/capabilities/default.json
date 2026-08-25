@@ -9,6 +9,9 @@
     "core:path:default",
     "dialog:default",
     "dialog:allow-open",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-confirm",
     "fs:default",
     {
       "identifier": "fs:allow-create",
