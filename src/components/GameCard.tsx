@@ -26,11 +26,17 @@ import {
   DropdownMenu,
 } from "@tw/dropdown";
 import clsx from "clsx";
-import { useCallback, useMemo, useState, useEffect } from "react";
+import { memo, useCallback, useMemo, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router";
 import { GameVersion } from "@/api/models/GameVersion";
 
-export function GameCard({
+const releaseDateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
+const GameCard = memo(function GameCard({
   game,
   sortBy,
 }: {
@@ -132,19 +138,11 @@ export function GameCard({
         return formattedSize;
       case "created_at":
         return localGame.created_at
-          ? new Intl.DateTimeFormat(undefined, {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            }).format(new Date(localGame.created_at))
+          ? releaseDateFormatter.format(new Date(localGame.created_at))
           : null;
       case "metadata.release_date":
         return localGame.metadata?.release_date
-          ? new Intl.DateTimeFormat(undefined, {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            }).format(new Date(localGame.metadata.release_date))
+          ? releaseDateFormatter.format(new Date(localGame.metadata.release_date))
           : null;
       case "metadata.rating":
         return localGame.metadata?.rating != null
@@ -640,6 +638,6 @@ export function GameCard({
       />
     </>
   );
-}
+});
 
 export default GameCard;

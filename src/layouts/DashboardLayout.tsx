@@ -1,6 +1,8 @@
 import { Navbar } from "@components/Navbar";
 import { Sidebar } from "@components/Sidebar";
 import { SidebarLayout } from "@tw/sidebar-layout";
+import { PageLoader } from "@/components/PageLoader";
+import { Suspense } from "react";
 import { Outlet, matchPath, useLocation } from "react-router";
 import { AnimatePresence, motion } from "motion/react";
 import { pageVariants } from "@/lib/motion";
@@ -42,7 +44,9 @@ export default function DashboardLayout({
             exit="exit"
             className="h-full"
           >
-            <Outlet />
+            <Suspense fallback={<PageLoader />}>
+              <Outlet />
+            </Suspense>
           </motion.div>
         </AnimatePresence>
       </SidebarLayout>

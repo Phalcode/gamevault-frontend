@@ -110,6 +110,8 @@ export function Media({
             objectFit: fit,
             animation: "media-fade-in 0.2s var(--ease-out)",
           }}
+          loading="lazy"
+          decoding="async"
           draggable={false}
           onClick={onClick}
           onError={retryAfterDecodeError}

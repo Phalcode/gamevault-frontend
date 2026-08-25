@@ -1,9 +1,10 @@
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router";
 import { MotionConfig } from "motion/react";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
+import { PageLoader } from "./components/PageLoader";
 import {
   AlertDialogProvider,
   GlobalAlertDialogBridge,
@@ -17,16 +18,20 @@ import { OfflineProvider } from "./context/OfflineContext";
 import "./index.css";
 import DashboardLayout from "./layouts/DashboardLayout";
 import FullscreenLayout from "./layouts/FullscreenLayout";
-import Administration from "./pages/Administration";
 import ProtectedRoute from "./guards/ProtectedRoute";
-import Community from "./pages/Community";
-import Library from "./pages/Library";
-import GameView from "./pages/GameView";
-import UserProfile from "./pages/UserProfile";
-import NotFound from "./pages/NotFound";
-import Settings from "./pages/Settings";
-import Downloads from "./pages/Downloads";
 import { GamevaultUserRoleEnum } from "./api";
+
+// Route-level code splitting keeps the initial bundle small. Pages that are
+// only reached after login (library, game view, settings, downloads, ...) are
+// loaded lazily so the first paint is fast.
+const Administration = lazy(() => import("./pages/Administration"));
+const Community = lazy(() => import("./pages/Community"));
+const Library = lazy(() => import("./pages/Library"));
+const GameView = lazy(() => import("./pages/GameView"));
+const UserProfile = lazy(() => import("./pages/UserProfile"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const Settings = lazy(() => import("./pages/Settings"));
+const Downloads = lazy(() => import("./pages/Downloads"));
 import { applyTheme, getStoredTheme } from "./utils/theme";
 import { applyZoom, getStoredZoom, registerZoomHotkeys } from "./utils/zoom";
 import { isTauriApp } from "./utils/tauri";
@@ -43,7 +48,8 @@ void startMediaCacheMaintenance();
 (window as any).global = window;
 
 if (isAnalyticsEnabled()) {
-  Swetrix.init("dBl2xaaJ9x3M", { preloadSessionReplay: true });
+  // Avoid preloading the heavy session-replay bundle on startup; track views/errors now.
+  Swetrix.init("dBl2xaaJ9x3M", { preloadSessionReplay: false });
   Swetrix.trackViews();
   Swetrix.trackErrors();
 }
@@ -65,7 +71,8 @@ createRoot(document.getElementById("root")!).render(
                   <GlobalAlertDialogBridge />
                   <BrowserRouter>
                     <GamepadProvider>
-                      <Routes>
+                      <Suspense fallback={<PageLoader />}>
+                        <Routes>
                         <Route element={<FullscreenLayout />}>
                           <Route index element={<Login />} />
                           <Route path="register" element={<Register />} />
@@ -96,6 +103,7 @@ createRoot(document.getElementById("root")!).render(
 
                         <Route path="*" element={<NotFound />} />
                       </Routes>
+                      </Suspense>
                     </GamepadProvider>
                   </BrowserRouter>
                 </AppUpdaterProvider>
