@@ -20,27 +20,26 @@ if (!platform || !version) {
 }
 
 const PLATFORM_CONFIG = {
-  // The Tauri Linux binary reports `BundleType::Deb`, so the updater feed must
-  // publish the signed `.deb` (not the AppImage) — otherwise a `.deb`-installed
-  // app tries `install_deb` on an AppImage payload and fails with
-  // "invalid updater binary format". The AppImage stays available as a plain
-  // downloadable asset.
+  // Each platform can publish multiple *signed* updater bundles. The Tauri
+  // updater client searches the feed for "<os>-<arch>-<installer>" first and
+  // falls back to "<os>-<arch>", so we emit an entry per installer — this lets
+  // us support both `.deb` and AppImage installs on Linux.
   linux: {
-    updaterDir: "deb",
-    updaterSuffix: ".deb",
     osKey: "linux",
-    optionalReleaseAssets: [{ dir: "appimage", suffix: ".AppImage" }],
+    updaters: [
+      { dir: "deb", suffix: ".deb", installer: "deb" },
+      { dir: "appimage", suffix: ".AppImage", installer: "appimage" },
+    ],
+    optionalReleaseAssets: [],
   },
   windows: {
-    updaterDir: "nsis",
-    updaterSuffix: ".exe",
     osKey: "windows",
+    updaters: [{ dir: "nsis", suffix: ".exe", installer: "nsis" }],
     optionalReleaseAssets: [],
   },
   macos: {
-    updaterDir: "macos",
-    updaterSuffix: ".app.tar.gz",
     osKey: "darwin",
+    updaters: [{ dir: "macos", suffix: ".app.tar.gz", installer: "app" }],
     optionalReleaseAssets: [{ dir: "dmg", suffix: ".dmg" }],
   },
 };
@@ -186,43 +185,45 @@ const tauriConfig = JSON.parse(
 const productName = tauriConfig.productName || "GameVault";
 const archLabel = ARCH_LABELS[resolveArchKey()] || resolveArchKey();
 
-const updaterDirPath = path.join(bundleRoot, config.updaterDir);
-const updaterFiles = await listFiles(updaterDirPath);
-const updaterAssetPath = pickSingleFile(
-  updaterFiles,
-  (file) =>
-    file.endsWith(config.updaterSuffix) &&
-    !file.endsWith(`${config.updaterSuffix}.sig`),
-  `${platform} updater bundle`,
-);
-const signaturePath = `${updaterAssetPath}.sig`;
-const updaterReleaseName = toStructuredReleaseName(
-  path.basename(updaterAssetPath),
-  version,
-  productName,
-  platform,
-  archLabel,
-);
+const updaters = [];
+const releaseFiles = [];
 
-try {
-  await stat(signaturePath);
-} catch {
-  throw new Error(
-    `Missing updater signature for ${platform}: ${path.basename(signaturePath)} not found. ` +
-      "Ensure the release build sets createUpdaterArtifacts so Tauri signs the updater bundle.",
+for (const updater of config.updaters) {
+  const dirPath = path.join(bundleRoot, updater.dir);
+  const files = await listFiles(dirPath);
+
+  const assetPath = pickSingleFile(
+    files,
+    (file) =>
+      file.endsWith(updater.suffix) &&
+      !file.endsWith(`${updater.suffix}.sig`),
+    `${platform} updater bundle ${updater.suffix}`,
   );
-}
 
-const releaseFiles = [
-  {
-    source: updaterAssetPath,
-    target: updaterReleaseName,
-  },
-  {
-    source: signaturePath,
-    target: `${updaterReleaseName}.sig`,
-  },
-];
+  const signaturePath = `${assetPath}.sig`;
+  try {
+    await stat(signaturePath);
+  } catch {
+    throw new Error(
+      `Missing updater signature for ${platform} ${updater.suffix}: ` +
+        `${path.basename(signaturePath)} not found. Ensure the release build ` +
+        "sets createUpdaterArtifacts so Tauri signs the updater bundle.",
+    );
+  }
+
+  const assetName = toStructuredReleaseName(
+    path.basename(assetPath),
+    version,
+    productName,
+    platform,
+    archLabel,
+  );
+
+  releaseFiles.push({ source: assetPath, target: assetName });
+  releaseFiles.push({ source: signaturePath, target: `${assetName}.sig` });
+
+  updaters.push({ installer: updater.installer, assetName, signaturePath });
+}
 
 for (const optionalAsset of config.optionalReleaseAssets) {
   const assetPath = await resolveOptionalAsset(
@@ -251,17 +252,25 @@ for (const file of releaseFiles) {
   await copyFile(file.source, path.join(releaseAssetsDir, file.target));
 }
 
-const signature = (await readFile(signaturePath, "utf8")).trim();
-
-if (!signature) {
-  throw new Error(`Signature file for ${platform} updater bundle is empty.`);
+for (const updater of updaters) {
+  const signature = (await readFile(updater.signaturePath, "utf8")).trim();
+  if (!signature) {
+    throw new Error(
+      `Signature file for ${platform} ${updater.installer} is empty.`,
+    );
+  }
+  updater.signature = signature;
 }
 
 const metadata = {
   version,
-  platform: `${config.osKey}-${resolveArchKey()}`,
-  assetName: updaterReleaseName,
-  signature,
+  osKey: config.osKey,
+  arch: resolveArchKey(),
+  updaters: updaters.map(({ installer, assetName, signature }) => ({
+    installer,
+    assetName,
+    signature,
+  })),
   releaseAssetNames: releaseFiles.map((file) => file.target),
 };
 

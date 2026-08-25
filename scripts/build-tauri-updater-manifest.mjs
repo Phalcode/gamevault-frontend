@@ -45,14 +45,44 @@ for (const filePath of metadataFiles.sort()) {
   const raw = await readFile(filePath, "utf8");
   const entry = JSON.parse(raw);
 
-  if (!entry.platform || !entry.assetName || !entry.signature) {
+  if (
+    !entry.osKey ||
+    !entry.arch ||
+    !Array.isArray(entry.updaters) ||
+    entry.updaters.length === 0
+  ) {
     throw new Error(`Invalid updater metadata in ${filePath}.`);
   }
 
-  platforms[entry.platform] = {
-    url: `https://github.com/${repository}/releases/download/${assetTag}/${encodeURIComponent(entry.assetName)}`,
-    signature: entry.signature,
-  };
+  // Emit one feed entry per installer (e.g. "linux-x86_64-deb" and
+  // "linux-x86_64-appimage"). The Tauri updater client looks up
+  // "<os>-<arch>-<installer>" before falling back to "<os>-<arch>", so this
+  // lets both .deb and AppImage installs auto-update.
+  for (const updater of entry.updaters) {
+    if (!updater.assetName || !updater.signature) {
+      throw new Error(
+        `Invalid updater metadata (missing assetName/signature) in ${filePath}.`,
+      );
+    }
+    const key =
+      `${entry.osKey}-${entry.arch}` +
+      (updater.installer ? `-${updater.installer}` : "");
+    platforms[key] = {
+      url: `https://github.com/${repository}/releases/download/${assetTag}/${encodeURIComponent(updater.assetName)}`,
+      signature: updater.signature,
+    };
+  }
+
+  // Fallback "<os>-<arch>" key for clients whose installed bundle type is
+  // unknown; point it at the first (primary) updater bundle.
+  const fallbackKey = `${entry.osKey}-${entry.arch}`;
+  if (!platforms[fallbackKey]) {
+    const primary = entry.updaters[0];
+    platforms[fallbackKey] = {
+      url: `https://github.com/${repository}/releases/download/${assetTag}/${encodeURIComponent(primary.assetName)}`,
+      signature: primary.signature,
+    };
+  }
 }
 
 const manifest = {
