@@ -819,30 +819,37 @@ export default function Downloads() {
                           )}
 
                           <div className="mt-3 flex justify-end">
-                            <Button
-                              color={
-                                download.extractionStatus === "error" ||
-                                download.extractionStatus === "needs-password"
-                                  ? "amber"
-                                  : "indigo"
-                              }
-                              onClick={() =>
-                                void handleExtract(download.gameId)
-                              }
-                              disabled={
-                                download.extractionStatus === "extracting"
-                              }
-                            >
-                              {download.extractionStatus === "extracting"
-                                ? "Extracting..."
-                                : download.extractionStatus === "completed"
-                                  ? "Extract Again"
-                                  : download.extractionStatus === "error" ||
-                                      download.extractionStatus ===
-                                        "needs-password"
-                                    ? "Try Extraction Again"
-                                    : "Start Extraction"}
-                            </Button>
+                            {download.sourceFilesDeleted ? (
+                              <p className="text-xs text-gv-muted">
+                                Source files were deleted, so this download can
+                                no longer be extracted.
+                              </p>
+                            ) : (
+                              <Button
+                                color={
+                                  download.extractionStatus === "error" ||
+                                  download.extractionStatus === "needs-password"
+                                    ? "amber"
+                                    : "indigo"
+                                }
+                                onClick={() =>
+                                  void handleExtract(download.gameId)
+                                }
+                                disabled={
+                                  download.extractionStatus === "extracting"
+                                }
+                              >
+                                {download.extractionStatus === "extracting"
+                                  ? "Extracting..."
+                                  : download.extractionStatus === "completed"
+                                    ? "Extract Again"
+                                    : download.extractionStatus === "error" ||
+                                        download.extractionStatus ===
+                                          "needs-password"
+                                      ? "Try Extraction Again"
+                                      : "Start Extraction"}
+                              </Button>
+                            )}
                           </div>
 
                           {download.extractionStatus === "extracting" && (
@@ -900,8 +907,9 @@ export default function Downloads() {
                               </div>
 
                               <p className="mt-2 text-xs text-gv-muted">
-                                Start the installation process for this
-                                extracted game.
+                                {download.sourceFilesDeleted
+                                  ? "Source files were deleted after installation."
+                                  : "Start the installation process for this extracted game."}
                               </p>
 
                               {(download.installationStatus === "copying" ||
@@ -956,18 +964,23 @@ export default function Downloads() {
                               )}
 
                               <div className="mt-3 flex justify-end gap-2">
-                                <Button
-                                  color="zinc"
-                                  onClick={() => void openInstallFlow(download)}
-                                  disabled={
-                                    download.installationStatus === "copying" ||
-                                    download.installationStatus === "launching"
-                                  }
-                                >
-                                  {download.installationStatus === "completed"
-                                    ? "Install Again"
-                                    : "Install"}
-                                </Button>
+                                {!download.sourceFilesDeleted && (
+                                  <Button
+                                    color="zinc"
+                                    onClick={() => void openInstallFlow(download)}
+                                    disabled={
+                                      download.installationStatus ===
+                                        "copying" ||
+                                      download.installationStatus ===
+                                        "launching"
+                                    }
+                                  >
+                                    {download.installationStatus ===
+                                    "completed"
+                                      ? "Install Again"
+                                      : "Install"}
+                                  </Button>
+                                )}
                                 {download.installationStatus ===
                                   "completed" && (
                                   <Button

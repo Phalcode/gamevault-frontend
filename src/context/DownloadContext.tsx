@@ -57,6 +57,7 @@ export interface ActiveDownload {
   installationCurrentFile?: string;
   installationError?: string;
   installationExitCode?: number | null;
+  sourceFilesDeleted?: boolean;
   fileWriter?: { close(): Promise<void>; abort(): Promise<void> };
 }
 
@@ -1693,6 +1694,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                         path: extDir,
                         recursive: true,
                       }).catch(() => {});
+                      updateDownload(gameId, { sourceFilesDeleted: true });
                     } catch {
                       // Best-effort cleanup
                     }
@@ -1840,6 +1842,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                         path: extDir,
                         recursive: true,
                       }).catch(() => {});
+                      updateDownload(gameId, { sourceFilesDeleted: true });
                     } catch {
                       // Best-effort cleanup
                     }
@@ -1945,6 +1948,27 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             const gameId = Number(card.gameId || 0);
             if (!gameId || recovered[gameId]) continue;
 
+            const installationFinished = Boolean(card.installationFinished);
+            const dlDir = String(card.downloadDirectory || "");
+            const extDir = String(card.extractionDirectory || "");
+
+            // If a card was restored where the source files were already
+            // auto-deleted (e.g. after an install), don't offer a reinstall.
+            let sourceFilesDeleted = false;
+            if (installationFinished && (dlDir || extDir)) {
+              try {
+                const downloadExists = dlDir
+                  ? await invoke<boolean>("fs_path_exists", { path: dlDir })
+                  : false;
+                const extractionExists = extDir
+                  ? await invoke<boolean>("fs_path_exists", { path: extDir })
+                  : false;
+                sourceFilesDeleted = !downloadExists && !extractionExists;
+              } catch {
+                // best-effort; default to not deleted
+              }
+            }
+
             recovered[gameId] = {
               gameId,
               versionId: Number(card.versionId || 0),
@@ -1955,8 +1979,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                 : undefined,
               versionName: String(card.versionName || ""),
               filename: String(card.filename || "download.bin"),
-              downloadDirectory: String(card.downloadDirectory || ""),
-              extractionDirectory: String(card.extractionDirectory || ""),
+              downloadDirectory: dlDir,
+              extractionDirectory: extDir,
               installationDirectory: String(card.installationDirectory || ""),
               versionDirectory: String(card.versionDirectory || ""),
               downloadedFilePath: card.downloadedFilePath
@@ -1987,13 +2011,12 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                 card.extractionProgress !== null
                   ? Number(card.extractionProgress)
                   : null,
-              installationStatus: card.installationFinished
-                ? "completed"
-                : "idle",
-              installationProgress: card.installationFinished ? 100 : null,
+              installationStatus: installationFinished ? "completed" : "idle",
+              installationProgress: installationFinished ? 100 : null,
               installationCurrentFile: undefined,
               installationError: undefined,
-              installationExitCode: card.installationFinished ? 0 : null,
+              installationExitCode: installationFinished ? 0 : null,
+              sourceFilesDeleted,
               cachedMetadata: card.cachedMetadata ?? null,
             };
           }
