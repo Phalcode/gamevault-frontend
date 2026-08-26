@@ -274,7 +274,7 @@ const GameCard = memo(function GameCard({
             affirmativeText: "Open Settings",
             negativeText: "Cancel",
           });
-          if (openSettings) navigate("/settings?section=downloads");
+          if (openSettings) navigate("/settings");
           return;
         }
 
@@ -303,7 +303,7 @@ const GameCard = memo(function GameCard({
 
   const handleGoToSettingsFromRootSelect = useCallback(() => {
     setRootSelectOpen(false);
-    navigate("/settings?section=downloads");
+    navigate("/settings");
   }, [navigate]);
 
   const handlePlayGame = useCallback(
@@ -399,7 +399,7 @@ const GameCard = memo(function GameCard({
         className={clsx(
           "group/card relative flex flex-col overflow-hidden rounded-3xl border border-gv-line bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)] shadow-(--shadow-card)",
           "cursor-pointer select-none transition-[transform,translate,scale,box-shadow] duration-200 ease-out",
-          "hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)",
+          "hover:-translate-y-1 hover:shadow-(--shadow-shell)",
           "focus:outline-none focus:ring-2 focus:ring-gv-accent-cool",
         )}
       >

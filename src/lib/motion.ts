@@ -50,4 +50,4 @@ export const pageVariants: Variants = {
 
 /** Standard hover lift used by cards across the app. */
 export const CARD_HOVER =
-  "transition-[transform,translate,scale,box-shadow] duration-200 ease-out hover:-translate-y-1 hover:border-gv-line-strong hover:shadow-(--shadow-shell)";
+  "transition-[transform,translate,scale,box-shadow] duration-200 ease-out hover:-translate-y-1 hover:shadow-(--shadow-shell)";
