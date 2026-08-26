@@ -175,6 +175,34 @@ export default function Library() {
     earlyAccess,
   ]);
 
+  // Number of active filter selections (for the badge on the Filters toggle)
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (bookmarkFilter !== "all") count++;
+    if (earlyAccess !== "all") count++;
+    if (selectedGameState !== "") count++;
+    if (releaseDateFrom !== "") count++;
+    if (releaseDateTo !== "") count++;
+    count +=
+      selectedGameTypes.length +
+      selectedTags.length +
+      selectedGenres.length +
+      selectedDevelopers.length +
+      selectedPublishers.length;
+    return count;
+  }, [
+    bookmarkFilter,
+    selectedGameTypes,
+    selectedTags,
+    selectedGenres,
+    selectedDevelopers,
+    selectedPublishers,
+    selectedGameState,
+    releaseDateFrom,
+    releaseDateTo,
+    earlyAccess,
+  ]);
+
   // Clear all filters
   const clearAllFilters = useCallback(() => {
     setBookmarkFilter("all");
@@ -735,12 +763,26 @@ export default function Library() {
             <div className="shrink-0">
               <Button
                 outline
-                className={`${CONTROL_HEIGHT_CLASS} px-3`}
-                aria-label={showFilters ? "Hide filters" : "Show filters"}
+                className={`${CONTROL_HEIGHT_CLASS} px-3 ${hasActiveFilters ? "text-gv-accent" : ""}`}
+                aria-label={
+                  showFilters
+                    ? "Hide filters"
+                    : `Show filters${activeFilterCount > 0 ? ` (${activeFilterCount} active)` : ""}`
+                }
                 onClick={() => setShowFilters((s) => !s)}
               >
                 <FunnelIcon className="h-4 w-4 sm:mr-1" />
                 <span>{showFilters ? "Hide filters" : "Filters"}</span>
+                {activeFilterCount > 0 && (
+                  <span
+                    className="ml-1 inline-flex h-[1.125rem] min-w-[1.25rem] items-center justify-center rounded-full bg-gv-accent px-1 text-[0.65rem] font-bold leading-none text-white"
+                    aria-label={`${activeFilterCount} active filters`}
+                  >
+                    <span className="translate-y-[0.2em]">
+                      {activeFilterCount}
+                    </span>
+                  </span>
+                )}
               </Button>
             </div>
           </div>
