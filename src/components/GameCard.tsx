@@ -274,7 +274,7 @@ const GameCard = memo(function GameCard({
             affirmativeText: "Open Settings",
             negativeText: "Cancel",
           });
-          if (openSettings) navigate("/settings");
+          if (openSettings) navigate("/settings?section=downloads");
           return;
         }
 
@@ -303,7 +303,7 @@ const GameCard = memo(function GameCard({
 
   const handleGoToSettingsFromRootSelect = useCallback(() => {
     setRootSelectOpen(false);
-    navigate("/settings");
+    navigate("/settings?section=downloads");
   }, [navigate]);
 
   const handlePlayGame = useCallback(

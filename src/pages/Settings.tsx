@@ -418,9 +418,7 @@ export default function Settings() {
   );
   useEffect(() => {
     const section = searchParams.get("section") as SettingsCategory | null;
-    if (section && section in CATEGORY_META) {
-      setActiveCategory(section);
-    }
+    setActiveCategory(section && section in CATEGORY_META ? section : null);
   }, [searchParams]);
   const [licensesOpen, setLicensesOpen] = useState(false);
   const [licenseData, setLicenseData] = useState<LicensesData | null>(null);
