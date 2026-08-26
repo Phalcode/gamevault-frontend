@@ -6,6 +6,7 @@ on:
       - master
       - develop
       - early-access
+  workflow_dispatch:
 
 permissions:
   contents: write
