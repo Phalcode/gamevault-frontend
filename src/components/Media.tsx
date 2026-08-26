@@ -1,4 +1,5 @@
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
+import { useInView } from "@/hooks/useInView";
 import { GameMediaSlot } from "@/utils/mediaCache";
 import React, { useEffect, useState } from "react";
 import { Media as MediaType } from "../api";
@@ -34,6 +35,9 @@ export function Media({
 }: Props) {
   const imageId = media?.id;
   const [stalled, setStalled] = useState(false);
+  // Only start fetching the blob when the image is near the viewport, so a
+  // long/infinite list doesn't fire a burst of requests for off-screen covers.
+  const { ref: viewRef, inView } = useInView<HTMLDivElement>();
   const {
     url: blobUrl,
     error,
@@ -42,6 +46,7 @@ export function Media({
   } = useAuthMediaUrl(
     imageId,
     gameId && mediaSlot ? { gameId, slot: mediaSlot } : undefined,
+    inView,
   );
 
   useEffect(() => {
@@ -60,6 +65,7 @@ export function Media({
 
   return (
     <div
+      ref={viewRef}
       className={className}
       style={{
         position: "relative",

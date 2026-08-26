@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export function useAuthMediaUrl(
   mediaId?: number | string | null,
   owner?: GameMediaOwner,
+  enabled = true,
 ) {
   const { authFetch, serverUrl } = useAuth();
   const { isOnline } = useOnlineStatus();
@@ -67,6 +68,16 @@ export function useAuthMediaUrl(
   }, []);
 
   useEffect(() => {
+    // Defer the actual fetch until the element is near the viewport. This
+    // prevents a long/infinite list from issuing a burst of blob requests for
+    // images the user hasn't scrolled to yet. Once `enabled` flips true it
+    // stays true, so re-enabling always fetches fresh for the current media.
+    if (!enabled) {
+      loadedMediaIdRef.current = null;
+      setLoading(false);
+      return;
+    }
+
     const numericId = Number(mediaId);
     if (!numericId || !serverUrl) {
       setLoading(false);
@@ -147,6 +158,7 @@ export function useAuthMediaUrl(
     ownerSlot,
     refreshRequest,
     scheduleRevoke,
+    enabled,
   ]);
 
   useEffect(() => {

@@ -7,6 +7,10 @@ const UNUSED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const CLEANUP_META_KEY = "last-cleanup";
 const UNUSED_RETENTION_SECONDS = UNUSED_RETENTION_MS / 1000;
+// How often `lastAccessedAt`/`lastSeenAt` must be refreshed. Reads return the
+// blob immediately and only write when the cached timestamp is older than this,
+// so a burst of cache hits never queues a write per image.
+const ACCESS_UPDATE_THRESHOLD_MS = 60 * 60 * 1000;
 
 export type GameMediaSlot = "cover" | "background";
 
@@ -171,6 +175,21 @@ async function bindGameMedia(
 ): Promise<void> {
   const mediaKey = getMediaKey(serverNamespace, mediaId);
   const bindingKey = getBindingKey(serverNamespace, owner);
+
+  // Fast path (read-only): when the binding already points at this media and
+  // was seen recently, don't open a write transaction. IndexedDB serializes
+  // readwrite transactions on a store, so during a grid burst this would queue
+  // one write per card on every render.
+  const readTxn = database.transaction("gameMediaBindings", "readonly");
+  const existing = await readTxn.store.get(bindingKey);
+  if (
+    existing &&
+    existing.mediaKey === mediaKey &&
+    now - existing.lastSeenAt <= ACCESS_UPDATE_THRESHOLD_MS
+  ) {
+    return;
+  }
+
   const transaction = database.transaction(
     ["media", "gameMediaBindings"],
     "readwrite",
@@ -205,13 +224,30 @@ async function readMedia(
   mediaKey: string,
   now: number,
 ): Promise<Blob | null> {
-  const transaction = database.transaction("media", "readwrite");
-  const record = await transaction.store.get(mediaKey);
+  // Read-only: browsers serialize readwrite transactions on the same store, so
+  // opening one per lookup would queue dozens of writes during a grid burst.
+  // Return the blob immediately and only refresh `lastAccessedAt` in a
+  // background write when it is stale, so cache cleanup still works.
+  const readTxn = database.transaction("media", "readonly");
+  const record = await readTxn.store.get(mediaKey);
   if (!record) return null;
 
-  record.lastAccessedAt = now;
-  await transaction.store.put(record);
-  await transaction.done;
+  if (now - record.lastAccessedAt > ACCESS_UPDATE_THRESHOLD_MS) {
+    void (async () => {
+      try {
+        const writeTxn = database.transaction("media", "readwrite");
+        const current = await writeTxn.store.get(mediaKey);
+        if (current) {
+          current.lastAccessedAt = now;
+          await writeTxn.store.put(current);
+        }
+        await writeTxn.done;
+      } catch {
+        // Best-effort access-time refresh.
+      }
+    })();
+  }
+
   return record.blob;
 }
 
