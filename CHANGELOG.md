@@ -16,7 +16,7 @@
 - The desktop update channel now defaults to the channel the build was created for; users can still switch between stable, early-access, and unstable.
 - Early Access and Unstable channels are only offered in the Settings update-channel picker after unlocking Developer Tools (tap the version number 5×). Developer Tools can be toggled off again the same way.
 - Polished Linux and macOS packaging: the Debian package and binary are now `gamevault`, with proper license, homepage and description, a dedicated `.desktop` entry, and a bundled Debian changelog.
-- Release assets on the `unstable` and `early-access` releases are now cleaned up and named consistently.
+- Release assets on the `unstable` and `early-access` releases are now cleaned up by a dedicated, manifest-aware CI job that also runs after aborted or partially-failed builds, and are named consistently.
 - Improved startup and loading performance via route-level code splitting, vendor bundle splitting, memoized game cards, lazy/async media loading, and deferred session-replay analytics.
 - Fixed the download button not working on Linux when no root path is set.
 - Surface immediate game launch failures to users.
