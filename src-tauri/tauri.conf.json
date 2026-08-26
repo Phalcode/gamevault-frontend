@@ -52,8 +52,8 @@
         "changelog": "debian-changelog",
         "section": "games",
         "files": {
-          "debian-copyright": "usr/share/doc/gamevault/copyright",
-          "debian-changelog": "usr/share/doc/gamevault/changelog.Debian"
+          "usr/share/doc/gamevault/copyright": "debian-copyright",
+          "usr/share/doc/gamevault/changelog.Debian": "debian-changelog"
         }
       }
     }
