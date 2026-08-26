@@ -397,7 +397,7 @@ const GameCard = memo(function GameCard({
       <Link
         to={gameViewUrl}
         className={clsx(
-          "group/card relative flex flex-col overflow-hidden rounded-3xl bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)] shadow-(--shadow-card) transform-gpu",
+          "group/card relative flex flex-col overflow-hidden rounded-3xl bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)] shadow-(--shadow-card)",
           "cursor-pointer select-none transition-[transform,translate,scale,box-shadow] duration-200 ease-out",
           "hover:-translate-y-1 hover:shadow-(--shadow-shell)",
           "focus:outline-none focus:ring-2 focus:ring-gv-accent-cool",
@@ -456,8 +456,10 @@ const GameCard = memo(function GameCard({
             />
           </div>
 
-          {/* Gradient fade at bottom for button contrast */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 transition-opacity duration-200 group-hover/card:opacity-100! group-focus-within/card:opacity-100!" />
+          {/* Gradient fade at bottom for button contrast. Snap on hover rather
+              than fading: during the 200ms opacity fade WebKit flashes a 1px
+              seam between the shadow and the footer. */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 group-hover/card:opacity-100! group-focus-within/card:opacity-100!" />
 
           {/* Corner action buttons - hidden until hover */}
           {/* Bookmark */}
