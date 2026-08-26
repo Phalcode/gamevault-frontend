@@ -288,6 +288,30 @@ jobs:
           name: updater-metadata-${{ matrix.platform }}
           path: updater-metadata/${{ matrix.platform }}.json
 
+  cleanup-release:
+    name: Clean stale release assets
+    needs: [release, tauri, updater-manifest]
+    # Run even if a platform build fails or the manifest isn't published, so
+    # partially uploaded prerelease assets still get cleaned up (while keeping
+    # assets still referenced by the published updater feed).
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access') && needs.updater-manifest.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clean prerelease release assets
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/develop" ]; then
+            target_tag=unstable
+          else
+            target_tag=early-access
+          fi
+          node scripts/cleanup-release-assets.mjs "${{ github.repository }}" "$target_tag" --keep-version "${{ needs.release.outputs.build_version }}"
+
   updater-manifest:
     name: Publish updater manifest
     needs: [release, tauri]
@@ -345,24 +369,6 @@ jobs:
               echo "channels_tag=unstable" >> "$GITHUB_OUTPUT"
             fi
           fi
-
-      - name: Clean prerelease release assets
-        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ "$GITHUB_REF" = "refs/heads/develop" ]; then
-            target_tag=unstable
-            feed_file=unstable.json
-          else
-            target_tag=early-access
-            feed_file=early-access.json
-          fi
-          mapfile -t allowed_assets < <(
-            node -e "const fs=require('fs'); const path=require('path'); const names=new Set(['gamevault-frontend.zip','$feed_file']); const dir='updater-metadata'; for (const file of fs.readdirSync(dir)) { if (!file.endsWith('.json')) continue; const data=JSON.parse(fs.readFileSync(path.join(dir,file),'utf8')); for (const name of data.releaseAssetNames || []) names.add(name); } if ('${{ steps.manifest.outputs.channels_tag }}' === '$target_tag') names.add('updater-channels.json'); console.log([...names].join('\n'));"
-          )
-
-          node scripts/cleanup-release-assets.mjs "${{ github.repository }}" "$target_tag" "${allowed_assets[@]}"
 
       - name: Download existing updater channels source
         shell: bash
