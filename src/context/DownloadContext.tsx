@@ -13,6 +13,7 @@ import { useServerStatus } from "@/hooks/useServerStatus";
 import { isTauriApp } from "@/utils/tauri";
 import { onGameUpdated } from "@/utils/gameUpdates";
 import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
+import { getRootPaths } from "@/utils/rootPaths";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import type { GameMetadata } from "@/api/models/GameMetadata";
 import type {
@@ -1935,7 +1936,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       if (!isTauriApp()) return;
 
       try {
-        const { getRootPaths } = await import("@/utils/rootPaths");
         const rootPaths = getRootPaths();
         if (!rootPaths.length) return;
 
@@ -2072,7 +2072,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     const cleanupOrphanCaches = async () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const { getRootPaths } = await import("@/utils/rootPaths");
         const cachedIds = await invoke<number[]>("list_cached_game_ids");
         if (!cachedIds.length) return;
 

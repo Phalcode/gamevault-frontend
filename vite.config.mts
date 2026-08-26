@@ -9,24 +9,20 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   build: {
-    rollupOptions: {
+    // Acknowledges the larger vendor/analytics bundles produced by rolldown.
+    chunkSizeWarningLimit: 1000,
+    rolldownOptions: {
       output: {
-        // Vite 8 (rolldown) requires `manualChunks` to be a function — the
-        // object form is a Rollup-only feature and fails the build with
-        // "manualChunks is not a function".
-        manualChunks(id: string) {
-          if (!id.includes("node_modules")) return undefined;
-          if (
-            id.includes("node_modules/react/") ||
-            id.includes("node_modules/react-dom/") ||
-            id.includes("node_modules/react-router/")
-          ) {
-            return "react";
-          }
-          if (id.includes("node_modules/motion/")) return "motion";
-          if (id.includes("node_modules/@heroicons/")) return "heroicons";
-          if (id.includes("node_modules/swetrix/")) return "swetrix";
-          return undefined;
+        codeSplitting: {
+          groups: [
+            {
+              name: "react",
+              test: /node_modules[\\/](react|react-dom|react-router|react-router-dom)/,
+            },
+            { name: "motion", test: /node_modules[\\/]motion/ },
+            { name: "heroicons", test: /node_modules[\\/]@heroicons/ },
+            { name: "swetrix", test: /node_modules[\\/]swetrix/ },
+          ],
         },
       },
     },
