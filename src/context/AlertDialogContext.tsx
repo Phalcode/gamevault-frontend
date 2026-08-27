@@ -7,7 +7,18 @@ import React, {
   useState,
 } from "react";
 import { AnimatePresence } from "motion/react";
-import { Alert, AlertTitle, AlertDescription, AlertActions } from "@tw/alert";
+import {
+  CheckIcon,
+  ClipboardIcon,
+  CommandLineIcon,
+} from "@heroicons/react/24/outline";
+import {
+  Alert,
+  AlertTitle,
+  AlertDescription,
+  AlertBody,
+  AlertActions,
+} from "@tw/alert";
 import { Button } from "@tw/button";
 import { Toast, type ToastTone } from "@tw/toast";
 import { isTauriApp } from "@/utils/tauri";
@@ -17,6 +28,8 @@ export interface AlertDialogRequest {
   id: number;
   title: string;
   description?: string;
+  /** Optional raw process/console output rendered in a terminal-style block. */
+  log?: string;
   affirmativeText?: string;
   negativeText?: string;
   tone?: ToastTone;
@@ -27,6 +40,7 @@ interface AlertDialogContextValue {
   showAlert: (options: {
     title: string;
     description?: string;
+    log?: string;
     affirmativeText?: string;
     negativeText?: string;
     tone?: ToastTone;
@@ -45,6 +59,59 @@ export const useAlertDialog = () => {
     );
   return ctx;
 };
+
+/**
+ * Terminal-style block that shows raw process output with a copy button.
+ */
+function ConsoleOutput({ log }: { log: string }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  const copy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(log);
+      setCopied(true);
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard unavailable (e.g. insecure context); keep the button inert.
+    }
+  }, [log]);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+    },
+    [],
+  );
+
+  return (
+    <AlertBody>
+      <div className="flex items-center gap-2 rounded-t-lg border border-b-0 border-zinc-200 bg-zinc-950 px-3 py-2 dark:border-zinc-800">
+        <CommandLineIcon className="size-3.5 text-zinc-400" />
+        <span className="text-xs font-medium tracking-wide text-zinc-400">
+          CONSOLE OUTPUT
+        </span>
+        <button
+          type="button"
+          aria-label="Copy console output to clipboard"
+          onClick={() => void copy()}
+          className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100"
+        >
+          {copied ? (
+            <CheckIcon className="size-3.5 text-emerald-400" />
+          ) : (
+            <ClipboardIcon className="size-3.5" />
+          )}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="max-h-48 overflow-y-auto rounded-b-lg border border-zinc-200 bg-zinc-950 p-3 font-mono text-xs leading-5 whitespace-pre-wrap wrap-break-word text-zinc-200 dark:border-zinc-800">
+        {log}
+      </pre>
+    </AlertBody>
+  );
+}
 
 /**
  * Provider renders a single alert dialog at a time; subsequent calls are queued.
@@ -98,6 +165,7 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
     ({
       title,
       description,
+      log,
       affirmativeText = "Confirm",
       negativeText,
       tone,
@@ -107,6 +175,7 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
           id: ++idRef.current,
           title,
           description,
+          log,
           affirmativeText,
           negativeText,
           tone,
@@ -160,6 +229,7 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
               {active.description && (
                 <AlertDescription>{active.description}</AlertDescription>
               )}
+              {active.log && <ConsoleOutput log={active.log} />}
               <AlertActions>
                 {active.negativeText && (
                   <Button plain onClick={() => handleClose(false)}>
@@ -192,7 +262,9 @@ export const GlobalAlertDialogBridge: React.FC = () => {
 
   // Surface game launch failures captured in the Tauri backend (a game that
   // exits immediately with console output, e.g. a missing prerequisite) as a
-  // clear error dialog instead of silently doing nothing.
+  // clear error dialog instead of silently doing nothing. The wording makes
+  // it obvious the *game process* closed — not GameVault — and shows the
+  // game's own output in a console-style block.
   useEffect(() => {
     if (!isTauriApp()) return;
     let unlisten: (() => void) | undefined;
@@ -205,10 +277,13 @@ export const GlobalAlertDialogBridge: React.FC = () => {
           exitCode?: number | null;
           message: string;
         }>("game-launch-failed", (event) => {
-          const { gameTitle, message } = event.payload;
+          const { gameTitle, exitCode, message } = event.payload;
+          const codeInfo =
+            exitCode != null ? ` with exit code ${exitCode}` : "";
           showAlert({
-            title: `Failed to launch "${gameTitle}"`,
-            description: message,
+            title: `${gameTitle} exited with an error`,
+            description: `The game process closed${codeInfo}. It printed the following output:`,
+            log: message,
             affirmativeText: "OK",
           });
         });
