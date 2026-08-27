@@ -568,9 +568,22 @@ export default function GameView() {
 
   const playtimeMinutes = userProgress?.minutes_played || 0;
   const playtimeHours = playtimeMinutes / 60;
-  const lastPlayed = userProgress?.last_played_at
-    ? new Date(userProgress.last_played_at).toLocaleString()
+  const lastPlayedDate = userProgress?.last_played_at
+    ? new Date(userProgress.last_played_at)
+    : null;
+  const lastPlayedValid =
+    !!lastPlayedDate && !Number.isNaN(lastPlayedDate.getTime());
+  // European date format: DD.MM.YYYY on the first line, HH:mm on the second.
+  const lastPlayedDay = lastPlayedValid
+    ? `${String(lastPlayedDate.getDate()).padStart(2, "0")}.${String(
+        lastPlayedDate.getMonth() + 1,
+      ).padStart(2, "0")}.${lastPlayedDate.getFullYear()}`
     : "—";
+  const lastPlayedTime = lastPlayedValid
+    ? `${String(lastPlayedDate.getHours()).padStart(2, "0")}:${String(
+        lastPlayedDate.getMinutes(),
+      ).padStart(2, "0")}`
+    : null;
   const avgPlaytime =
     game?.metadata?.average_playtime ||
     (game as any)?.metadata?.average_playtime ||
@@ -607,7 +620,7 @@ export default function GameView() {
   const glassPanelClassName =
     "border border-white/35 bg-white/[0.42] backdrop-blur-md dark:border-white/10 dark:bg-gv-panel/80 dark:backdrop-blur-md";
   const darkGlassInsetClassName =
-    "dark:border dark:border-white/10 dark:bg-gv-panel/80 dark:backdrop-blur-md";
+    "dark:bg-gv-panel/80 dark:backdrop-blur-md";
   const progressSelectClassName = clsx(
     "rounded-lg before:bg-white/60 before:backdrop-blur-md before:shadow-sm",
     "dark:before:hidden",
@@ -878,33 +891,42 @@ export default function GameView() {
             {/* Spacer so grid second column first row stays empty - ensures metadata card aligns with media slider start */}
             {/* Right Column Row 1: Stats + Progress State */}
             <div className="flex flex-col gap-6 xl:col-start-2 xl:row-start-1 min-w-0">
-              <div className="grid grid-cols-3 gap-2 text-center text-xs animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none">
-                <div className="surface-panel rounded-2xl p-3">
-                  <div className="text-[10px] uppercase tracking-wide text-gv-muted">
+              <div className="grid grid-cols-3 gap-2 animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none">
+                <div className="surface-panel flex h-full min-h-16 flex-col items-center justify-center gap-1 rounded-2xl p-3 text-center">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.04em] leading-none whitespace-nowrap text-gv-muted">
                     Playtime
                   </div>
-                  <div className="font-semibold text-sm mt-1 text-gv-text">
+                  <div className="flex min-h-9 flex-col items-center justify-center text-sm font-semibold leading-tight tabular-nums text-gv-text">
                     {playtimeHours >= 1
                       ? `${playtimeHours.toFixed(playtimeHours < 10 ? 1 : 0)} h`
                       : `${playtimeMinutes} m`}
                   </div>
                 </div>
-                <div className="surface-panel rounded-2xl p-3">
-                  <div className="text-[10px] uppercase tracking-wide text-gv-muted">
+                <div className="surface-panel flex h-full min-h-16 flex-col items-center justify-center gap-1 rounded-2xl p-3 text-center">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.04em] leading-none whitespace-nowrap text-gv-muted">
                     Last Played
                   </div>
                   <div
-                    className="font-semibold text-sm mt-1 text-gv-text truncate"
-                    title={lastPlayed}
+                    className="flex min-h-9 flex-col items-center justify-center text-sm font-semibold leading-tight text-gv-text"
+                    title={lastPlayedTime ? `${lastPlayedDay}, ${lastPlayedTime}` : lastPlayedDay}
                   >
-                    {lastPlayed}
+                    {lastPlayedTime ? (
+                      <>
+                        <div className="tabular-nums">{lastPlayedDay}</div>
+                        <div className="tabular-nums text-gv-muted">
+                          {lastPlayedTime}
+                        </div>
+                      </>
+                    ) : (
+                      lastPlayedDay
+                    )}
                   </div>
                 </div>
-                <div className="surface-panel rounded-2xl p-3">
-                  <div className="text-[10px] uppercase tracking-wide text-gv-muted">
-                    Avg Playtime
+                <div className="surface-panel flex h-full min-h-16 flex-col items-center justify-center gap-1 rounded-2xl p-3 text-center">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.04em] leading-none whitespace-nowrap text-gv-muted">
+                    Avg Time
                   </div>
-                  <div className="font-semibold text-sm mt-1 text-gv-text">
+                  <div className="flex min-h-9 flex-col items-center justify-center text-sm font-semibold leading-tight tabular-nums text-gv-text">
                     {avgPlaytime
                       ? `${(avgPlaytime / 60).toFixed(avgPlaytime / 60 < 10 ? 1 : 0)} h`
                       : "—"}
