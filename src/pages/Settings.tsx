@@ -32,6 +32,8 @@ import {
   DialogTitle,
 } from "@/components/tailwind/dialog";
 import { isAnalyticsEnabled, setAnalyticsEnabled } from "@/utils/analytics";
+import { playSound } from "@/utils/audio";
+import { VolumeControl } from "@/components/VolumeControl";
 import {
   type RootPathEntry,
   getRootPaths,
@@ -60,6 +62,7 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
   FolderIcon,
+  SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
 
 const RETAIN_KEY = "app_retain_library_prefs";
@@ -70,42 +73,6 @@ const AUTO_DELETE_SOURCE_KEY = "tauri_auto_delete_source";
 const DEV_TOOLS_KEY = "gv_dev_tools_unlocked";
 
 const SENSITIVE_KEY_PATTERN = /token|password|secret|auth|refresh|credential/i;
-
-/**
- * Plays the Developer Tools unlock jingle at medium volume.
- *
- * On Linux the packaged app runs on `tauri://localhost`, and WebKitGTK blocks
- * media loaded from that custom scheme with "the resource was requested
- * insecurely" (tauri-apps/tauri#12767) even though the request returns 200.
- * Fetching the asset into a Blob and playing the object URL avoids the custom
- * scheme entirely, so it works on Linux and everywhere else.
- */
-async function playUnlockSound() {
-  try {
-    const response = await fetch("/laughingdog.ogg");
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.volume = 0.5;
-    audio.addEventListener("ended", () => URL.revokeObjectURL(url), {
-      once: true,
-    });
-    await audio.play();
-  } catch {
-    // Fetch or playback failed — fall back to the direct asset URL
-    // (works in the browser dev server).
-    try {
-      const audio = new Audio("/laughingdog.ogg");
-      audio.volume = 0.5;
-      void audio.play().catch(() => {
-        // Autoplay blocked; the click gesture usually grants playback.
-      });
-    } catch {
-      // Audio unavailable
-    }
-  }
-}
 
 const SIMULATED_DOWNLOAD_KINDS: {
   kind: SimulatedDownloadKind;
@@ -138,6 +105,7 @@ type SettingsCategory =
   | "library"
   | "privacy"
   | "appearance"
+  | "sound"
   | "desktop"
   | "ignore"
   | "developer"
@@ -170,6 +138,11 @@ const CATEGORY_META: Record<
     label: "Appearance",
     description: "Customize how GameVault looks on your device.",
     icon: SwatchIcon,
+  },
+  sound: {
+    label: "Sound",
+    description: "Control volume and sound effects in GameVault.",
+    icon: SpeakerWaveIcon,
   },
   desktop: {
     label: "Startup",
@@ -760,7 +733,7 @@ export default function Settings() {
         } catch {
           // localStorage unavailable
         }
-        playUnlockSound();
+        playSound("unlock");
         void showAlert({ title: "Developer Tools unlocked", tone: "success" });
       }
     }
@@ -780,6 +753,7 @@ export default function Settings() {
     "library",
     "privacy",
     "appearance",
+    "sound",
     ...(isTauri ? (["desktop", "ignore"] as SettingsCategory[]) : []),
     ...(import.meta.env.DEV || devToolsUnlocked
       ? (["developer"] as SettingsCategory[])
@@ -1124,6 +1098,41 @@ export default function Settings() {
                         <div className="w-44 shrink-0">
                           <ZoomControl />
                         </div>
+                      </SettingsRow>
+                    </SettingsGroup>
+                  </>
+                )}
+
+                {activeCategory === "sound" && (
+                  <>
+                    <SettingsSectionHeader
+                      icon={SpeakerWaveIcon}
+                      title="Sound"
+                      description="Control volume for GameVault sound effects."
+                    />
+                    <SettingsGroup>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Volume"
+                          description="Adjust the master volume of GameVault sounds. Click the speaker to mute."
+                        />
+                        <div className="w-44 shrink-0">
+                          <VolumeControl />
+                        </div>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Test sound"
+                          description="Play a preview at the current volume."
+                        />
+                        <Button
+                          color="zinc"
+                          onClick={() => void playSound("pop")}
+                          className="shrink-0"
+                        >
+                          <SpeakerWaveIcon className="h-4 w-4" aria-hidden="true" />
+                          Play
+                        </Button>
                       </SettingsRow>
                     </SettingsGroup>
                   </>
