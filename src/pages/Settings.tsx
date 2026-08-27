@@ -71,16 +71,39 @@ const DEV_TOOLS_KEY = "gv_dev_tools_unlocked";
 
 const SENSITIVE_KEY_PATTERN = /token|password|secret|auth|refresh|credential/i;
 
-/** Plays the Developer Tools unlock jingle at medium volume. */
-function playUnlockSound() {
+/**
+ * Plays the Developer Tools unlock jingle at medium volume.
+ *
+ * On Linux the packaged app runs on `tauri://localhost`, and WebKitGTK blocks
+ * media loaded from that custom scheme with "the resource was requested
+ * insecurely" (tauri-apps/tauri#12767) even though the request returns 200.
+ * Fetching the asset into a Blob and playing the object URL avoids the custom
+ * scheme entirely, so it works on Linux and everywhere else.
+ */
+async function playUnlockSound() {
   try {
-    const audio = new Audio("/laughingdog.ogg");
+    const response = await fetch("/laughingdog.ogg");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
     audio.volume = 0.5;
-    void audio.play().catch(() => {
-      // Autoplay blocked; the click gesture usually grants playback.
+    audio.addEventListener("ended", () => URL.revokeObjectURL(url), {
+      once: true,
     });
+    await audio.play();
   } catch {
-    // Audio unavailable
+    // Fetch or playback failed — fall back to the direct asset URL
+    // (works in the browser dev server).
+    try {
+      const audio = new Audio("/laughingdog.ogg");
+      audio.volume = 0.5;
+      void audio.play().catch(() => {
+        // Autoplay blocked; the click gesture usually grants playback.
+      });
+    } catch {
+      // Audio unavailable
+    }
   }
 }
 

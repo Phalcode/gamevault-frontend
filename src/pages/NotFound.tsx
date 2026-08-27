@@ -21,9 +21,32 @@ export default function NotFound() {
   useEffect(() => {
     const a = audioRef.current;
     if (!a) return;
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    // WebKitGTK (Linux packaged build) blocks media loaded from the
+    // `tauri://` custom scheme with "the resource was requested insecurely"
+    // even though the request returns 200 (tauri-apps/tauri#12767). Loading
+    // the asset as a blob URL avoids the custom scheme entirely.
+    fetch("/wellerman.m4a")
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        a.src = objectUrl;
+      })
+      .catch(() => {
+        // Fetch failed — keep the original direct URL as a fallback.
+      });
     const onEnded = () => setIsPlaying(false);
     a.addEventListener("ended", onEnded);
-    return () => a.removeEventListener("ended", onEnded);
+    return () => {
+      cancelled = true;
+      a.removeEventListener("ended", onEnded);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, []);
   return (
     <div className="flex flex-col items-center justify-center h-dvh w-dvw">
