@@ -1,26 +1,16 @@
 import clsx from "clsx";
 import Markdown, { Components } from "react-markdown";
-import { openExternalUrl } from "@/utils/tauri";
 
 type MarkdownContentProps = {
   content: string;
   className?: string;
 };
 
+// External links are routed through the global opener in Tauri; in browsers
+// target="_blank" opens a new tab as usual.
 const markdownComponents: Components = {
   a: ({ href, children, ...props }) => (
-    <a
-      {...props}
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={(e) => {
-        e.preventDefault();
-        if (href) {
-          void openExternalUrl(href);
-        }
-      }}
-    >
+    <a {...props} href={href} target="_blank" rel="noopener noreferrer">
       {children}
     </a>
   ),

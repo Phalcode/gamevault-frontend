@@ -53,3 +53,60 @@ export async function openExternalUrl(url: string): Promise<void> {
     console.error("Failed to open external URL:", error);
   }
 }
+
+/**
+ * Global delegated click handler for external links.
+ *
+ * The Tauri webview swallows `target="_blank"` anchors on every platform
+ * (and even `mailto:` links), so instead of fixing each link by hand we
+ * intercept every click on an external link and route it through the native
+ * `open_external_url` command (Windows `ShellExecute`, macOS `open`,
+ * Linux `xdg-open`). Register once at app start.
+ *
+ * External = `target="_blank"`, `mailto:`/`tel:` links, or absolute http(s)
+ * URLs that point to a different origin. Internal router links and hashes
+ * are left untouched.
+ */
+export function registerExternalLinkHandler(): () => void {
+  const onClick = (event: MouseEvent) => {
+    if (event.defaultPrevented) return;
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    const anchor = (event.target as Element | null)?.closest?.("a");
+    if (!anchor) return;
+    const href = anchor.getAttribute("href");
+    if (!href) return;
+
+    let external =
+      anchor.target === "_blank" ||
+      href.startsWith("mailto:") ||
+      href.startsWith("tel:");
+
+    if (!external && /^https?:\/\//i.test(href)) {
+      try {
+        external =
+          new URL(href, window.location.href).origin !==
+          window.location.origin;
+      } catch {
+        external = false;
+      }
+    }
+
+    if (!external) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    void openExternalUrl(href);
+  };
+
+  document.addEventListener("click", onClick, true);
+  return () => document.removeEventListener("click", onClick, true);
+}

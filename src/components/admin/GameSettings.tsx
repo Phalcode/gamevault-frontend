@@ -19,7 +19,7 @@ import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { isTauriApp, openExternalUrl } from "@/utils/tauri";
+import { isTauriApp } from "@/utils/tauri";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { emitGameUpdated } from "@/utils/gameUpdates";
 import {
@@ -2303,12 +2303,6 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="text-xs text-gv-accent hover:underline"
-                                            onClick={(e) => {
-                                              e.preventDefault();
-                                              const url =
-                                                currentShownMappedGame.provider_data_url;
-                                              if (url) void openExternalUrl(url);
-                                            }}
                                           >
                                             View on{" "}
                                             {

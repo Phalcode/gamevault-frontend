@@ -17,7 +17,6 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
   isTauriApp,
-  openExternalUrl,
   isDebugTauriOverride,
   setDebugTauriOverride,
 } from "@/utils/tauri";
@@ -269,7 +268,7 @@ function SettingsSectionHeader({
   );
 }
 
-/** Row that opens an external URL (native browser in Tauri, new tab on web). */
+/** Row that opens an external URL in the default browser (Tauri) or a new tab (web). */
 function AboutLinkRow({
   title,
   value,
@@ -280,9 +279,10 @@ function AboutLinkRow({
   href: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => void openExternalUrl(href)}
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
       className="group flex min-h-12 w-full cursor-pointer items-center justify-between gap-x-4 px-4 py-2.5 text-left transition-colors hover:bg-gv-panel-soft"
     >
       <SettingsLabel title={title} />
@@ -290,7 +290,7 @@ function AboutLinkRow({
         <span className="truncate">{value}</span>
         <ChevronRightIcon className="size-3.5 shrink-0 text-gv-muted" />
       </span>
-    </button>
+    </a>
   );
 }
 

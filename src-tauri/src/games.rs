@@ -186,10 +186,10 @@ pub(crate) fn open_in_file_explorer(path: String) -> Result<(), String> {
 
 fn validate_external_url(value: &str) -> Result<(), String> {
   let url = url::Url::parse(value).map_err(|e| format!("Invalid URL: {e}"))?;
-  if matches!(url.scheme(), "http" | "https") {
+  if matches!(url.scheme(), "http" | "https" | "mailto" | "tel") {
     Ok(())
   } else {
-    Err("Only HTTP(S) URLs can be opened externally".to_string())
+    Err("Only HTTP(S), mailto and tel URLs can be opened externally".to_string())
   }
 }
 
