@@ -78,8 +78,8 @@ export function Combobox<T>({
             "pr-[calc(--spacing(10)-1px)] pl-[calc(--spacing(3.5)-1px)] sm:pr-[calc(--spacing(9)-1px)] sm:pl-[calc(--spacing(3)-1px)]",
             // Typography
             "text-base/6 text-zinc-950 placeholder:text-zinc-500 sm:text-sm/6 dark:text-white",
-            // Border
-            "border border-zinc-950/10 data-hover:border-zinc-950/20 dark:border-white/10 dark:data-hover:border-white/20",
+            // Border (transparent by default — no visible gray outline)
+            "border border-transparent",
             // Background color
             "bg-transparent dark:bg-white/5",
             // Hide default focus styles
@@ -87,7 +87,7 @@ export function Combobox<T>({
             // Invalid state
             "data-invalid:border-red-500 data-invalid:data-hover:border-red-500 dark:data-invalid:border-red-500 dark:data-invalid:data-hover:border-red-500",
             // Disabled state
-            "data-disabled:border-zinc-950/20 dark:data-disabled:border-white/15 dark:data-disabled:bg-white/2.5 dark:data-hover:data-disabled:border-white/15",
+            "data-disabled:border-transparent dark:data-disabled:bg-white/2.5",
             // System icons
             "dark:scheme-dark",
           ])}

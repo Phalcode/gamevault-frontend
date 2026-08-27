@@ -84,8 +84,8 @@ export const Input = forwardRef(function Input(
           "relative block w-full appearance-none rounded-2xl px-[calc(--spacing(3.5)-1px)] py-[calc(--spacing(2.5)-1px)] sm:px-[calc(--spacing(3.25)-1px)] sm:py-[calc(--spacing(1.75)-1px)]",
           // Typography
           "text-base/6 text-gv-text placeholder:text-gv-muted sm:text-sm/6",
-          // Border
-          "border border-gv-line data-hover:border-gv-line-strong",
+          // Border (transparent by default — no visible gray outline)
+          "border border-transparent",
           // Background color
           "bg-gv-panel-strong shadow-sm",
           // Hide default focus styles
@@ -93,7 +93,7 @@ export const Input = forwardRef(function Input(
           // Invalid state
           "data-invalid:border-red-500 data-invalid:data-hover:border-red-500 dark:data-invalid:border-red-600 dark:data-invalid:data-hover:border-red-600",
           // Disabled state
-          "data-disabled:border-gv-line data-disabled:bg-gv-panel-soft data-disabled:shadow-none data-hover:data-disabled:border-gv-line",
+          "data-disabled:border-transparent data-disabled:bg-gv-panel-soft data-disabled:shadow-none",
           // System icons
           "dark:scheme-dark",
         ])}

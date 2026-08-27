@@ -55,14 +55,14 @@ export function Listbox<T>({
             "pr-[calc(--spacing(7)-1px)] pl-[calc(--spacing(3.5)-1px)] sm:pl-[calc(--spacing(3)-1px)]",
             // Typography
             "text-left text-base/6 text-gv-text placeholder:text-gv-muted sm:text-sm/6 forced-colors:text-[CanvasText]",
-            // Border
-            "border border-gv-line group-data-active:border-gv-line-strong group-data-hover:border-gv-line-strong",
+            // Border (transparent by default — no visible gray outline)
+            "border border-transparent",
             // Background color
             "bg-gv-panel-strong shadow-sm",
             // Invalid state
             "group-data-invalid:border-red-500 group-data-hover:group-data-invalid:border-red-500 dark:group-data-invalid:border-red-600 dark:data-hover:group-data-invalid:border-red-600",
             // Disabled state
-            "group-data-disabled:border-gv-line group-data-disabled:opacity-100 group-data-disabled:bg-gv-panel-soft group-data-disabled:shadow-none group-data-disabled:data-hover:border-gv-line",
+            "group-data-disabled:border-transparent group-data-disabled:opacity-100 group-data-disabled:bg-gv-panel-soft group-data-disabled:shadow-none",
           ])}
         />
         <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
