@@ -20,6 +20,10 @@ import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { isTauriApp } from "@/utils/tauri";
+import {
+  applyDroppedSources,
+  isProbablyImageUrl,
+} from "@/utils/droppedImage";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { emitGameUpdated } from "@/utils/gameUpdates";
 import {
@@ -1118,8 +1122,6 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     };
   }, [currentShownMappedGame?.cover?.id, fetchMediaBlobUrl]);
 
-  const isProbablyImageUrl = (v: string) =>
-    /^https?:\/\/.+\.(png|jpe?g|gif|webp|avif|svg)(\?.*)?$/i.test(v.trim());
   const loadFile = (
     file: File,
     target: "cover" | "bg",
@@ -1187,22 +1189,13 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     dragTargetRef.current = target;
     nativeDragHandledRef.current = false;
   };
-  const loadDroppedPath = async (path: string, target: "cover" | "bg") => {
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const arr = (await invoke("fs_read_binary_file", { path })) as number[];
-      const bytes = new Uint8Array(arr);
-      const name = path.split(/[\\/]/).pop() || "image.png";
-      const ext = (name.split(".").pop() || "").toLowerCase();
-      const type =
-        /^(png|jpe?g|gif|webp|avif|svg)$/i.test(ext)
-          ? `image/${ext === "jpg" ? "jpeg" : ext}`
-          : "application/octet-stream";
-      const file = new File([bytes], name, { type });
-      if (file.type.startsWith("image/")) loadFile(file, target, "drag");
-    } catch (err) {
-      console.error("Failed to read dropped file:", err);
-    }
+  const loadDroppedPath = async (paths: string[], target: "cover" | "bg") => {
+    await applyDroppedSources(paths, {
+      onUrl: (url) => loadUrl(url, target),
+      onFile: (file) => {
+        if (file.type.startsWith("image/")) loadFile(file, target, "drag");
+      },
+    });
   };
   const resolveDropTargetByPosition = (position: {
     x: number;
@@ -1240,10 +1233,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
           const target =
             dragTargetRef.current ??
             resolveDropTargetByPosition(payload.position);
-          const path = payload.paths?.[0];
-          if (!target || !path) return;
+          const paths = payload.paths ?? [];
+          if (!target || !paths.length) return;
           nativeDragHandledRef.current = true;
-          void loadDroppedPath(path, target);
+          void loadDroppedPath(paths, target);
         });
       } catch (err) {
         console.error("Failed to init native drag-drop listener:", err);
