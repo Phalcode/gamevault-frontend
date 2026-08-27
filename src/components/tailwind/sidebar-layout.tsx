@@ -4,6 +4,7 @@ import * as Headless from "@headlessui/react";
 import React, { useState } from "react";
 import { NavbarItem } from "./navbar";
 import WindowTitlebar from "../WindowTitlebar";
+import { isTauriApp } from "@/utils/tauri";
 
 function OpenMenuIcon() {
   return (
@@ -63,8 +64,13 @@ export function SidebarLayout({
 }>) {
   let [showSidebar, setShowSidebar] = useState(false);
 
+  // In the desktop app the custom window titlebar owns the top edge, so the
+  // dashboard and sidebar should sit flush against it (no top margin).
+  const hasTitlebar = isTauriApp();
+
   const mainClassName =
-    "flex min-h-0 flex-1 flex-col lg:min-w-0 lg:pb-4 lg:pl-72 lg:pr-4 lg:pt-4";
+    "flex min-h-0 flex-1 flex-col lg:min-w-0 lg:pb-4 lg:pl-72 lg:pr-4" +
+    (hasTitlebar ? "" : " lg:pt-4");
   const contentClassName = fullBleed
     ? "surface-shell flex min-h-0 grow flex-col overflow-hidden max-lg:overflow-visible max-lg:rounded-none max-lg:border-0 max-lg:shadow-none lg:rounded-[1.75rem]"
     : "surface-shell flex min-h-0 grow flex-col overflow-hidden max-lg:overflow-visible max-lg:rounded-none max-lg:border-0 max-lg:shadow-none lg:rounded-[1.75rem] lg:p-3";
@@ -77,7 +83,12 @@ export function SidebarLayout({
       <WindowTitlebar />
       <div className="relative isolate flex min-h-0 flex-1 w-full max-lg:flex-col">
         {/* Sidebar on desktop */}
-        <div className="absolute inset-y-0 left-0 z-20 w-72 p-4 max-lg:hidden">
+        <div
+          className={
+            "absolute inset-y-0 left-0 z-20 w-72 max-lg:hidden " +
+            (hasTitlebar ? "px-4 pb-4" : "p-4")
+          }
+        >
           {sidebar}
         </div>
 
