@@ -34,6 +34,7 @@ const Settings = lazy(() => import("./pages/Settings"));
 const Downloads = lazy(() => import("./pages/Downloads"));
 import { applyTheme, getStoredTheme } from "./utils/theme";
 import { applyZoom, getStoredZoom, registerZoomHotkeys } from "./utils/zoom";
+import { registerReloadHotkey } from "./utils/reload";
 import { isTauriApp } from "./utils/tauri";
 import { isAnalyticsEnabled } from "./utils/analytics";
 import { startMediaCacheMaintenance } from "./utils/mediaCache";
@@ -56,6 +57,8 @@ if (isAnalyticsEnabled()) {
 // Ctrl/Cmd + +/-/0 zoom hotkeys (browsers already handle these natively)
 if (isTauriApp()) {
   registerZoomHotkeys();
+  // F5 reloads the app in the Tauri webview (packaged builds have no native F5)
+  registerReloadHotkey();
 }
 
 createRoot(document.getElementById("root")!).render(
