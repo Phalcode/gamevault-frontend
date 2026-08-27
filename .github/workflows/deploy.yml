@@ -218,6 +218,9 @@ jobs:
       - name: Write Debian changelog
         run: node scripts/write-debian-changelog.mjs ${{ needs.release.outputs.build_version }}
 
+      - name: Write AppStream metainfo
+        run: node scripts/write-tauri-metainfo.mjs
+
       - name: Build Tauri stable release
         if: github.ref == 'refs/heads/master'
         env:
