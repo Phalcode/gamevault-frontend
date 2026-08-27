@@ -394,23 +394,43 @@ const GameCard = memo(function GameCard({
 
   return (
     <>
+      {/* Outer wrapper owns the shadow + lift. Lift uses `transform` (not
+          Tailwind's `translate`): will-change + translateZ make it one
+          pre-rasterized composited layer, so Chromium moves a texture instead
+          of re-rasterizing edges. The shadow NEVER changes on hover — a
+          box-shadow swap forces a repaint at the hover instant, flashing the
+          1px bottom seam when the card sits on a fractional scroll position. */}
+      <div
+        className={clsx(
+          "group/card relative rounded-3xl shadow-(--shadow-card)",
+          "transform-gpu will-change-transform backface-hidden",
+          "transition-transform duration-200 ease-out hover:[transform:translateY(-4px)_translateZ(0)]",
+        )}
+      >
       <Link
         to={gameViewUrl}
         className={clsx(
-          "group/card relative flex flex-col overflow-hidden rounded-3xl bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)] shadow-(--shadow-card)",
-          "cursor-pointer select-none transition-[transform,translate,scale,box-shadow] duration-200 ease-out",
-          "hover:-translate-y-1 hover:shadow-(--shadow-shell)",
+          // No own layer here — rasterize into the wrapper's single composited
+          // layer so content + shadow move as one texture (a second layer
+          // misaligns 1px at the bottom during the transform move).
+          "relative flex flex-col overflow-hidden rounded-3xl bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)]",
+          "cursor-pointer select-none",
           "focus:outline-none focus:ring-2 focus:ring-gv-accent-cool",
         )}
       >
-        {/* Cover art container */}
+        {/* Cover art container. NO overflow-hidden here: the oversized Media is
+            clipped by the inner absolute wrapper, while the bottom fade below
+            is free to bleed 1px into the footer — an overflow-hidden on this
+            box would clip that bleed and leave a 1px open line at the bottom
+            of the artwork in Chromium. */}
         <div
           className={clsx(
-            "relative flex aspect-3/4 w-full items-center justify-center overflow-hidden",
+            "relative flex aspect-3/4 w-full items-center justify-center",
             coverId &&
               "bg-[radial-gradient(circle_at_top,rgba(100,89,223,0.14),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0))]",
           )}
         >
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
           {coverId ? (
             <Media
               media={
@@ -424,7 +444,7 @@ const GameCard = memo(function GameCard({
                 } as any
               }
               size={300}
-              className="h-full w-full object-contain rounded-none transition-transform duration-300 ease-out group-hover/card:scale-[1.02]"
+              className="h-full w-full object-contain rounded-none"
               square
               alt={localGame.title}
               gameId={localGame.id}
@@ -444,22 +464,13 @@ const GameCard = memo(function GameCard({
               className="h-full w-full"
             />
           )}
-
-          {/* Animated glare overlay */}
-          <div
-            className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 ease-out group-hover/card:opacity-100! group-focus-within/card:opacity-100!"
-            aria-hidden="true"
-          >
-            <div
-              className="absolute inset-0 -translate-x-full animate-[shimmer_1.2s_ease-in-out_infinite] bg-[linear-gradient(105deg,transparent_30%,rgba(255,255,255,0.06)_40%,rgba(255,255,255,0.12)_45%,rgba(255,255,255,0.06)_50%,transparent_60%)] group-hover/card:[animation-play-state:running]"
-              style={{ animationPlayState: "paused" }}
-            />
           </div>
 
-          {/* Gradient fade at bottom for button contrast. Snap on hover rather
-              than fading: during the 200ms opacity fade WebKit flashes a 1px
-              seam between the shadow and the footer. */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 group-hover/card:opacity-100! group-focus-within/card:opacity-100!" />
+          {/* Gradient fade at bottom for button contrast. Snapped on hover,
+              extended 1px below the cover bottom (`-bottom-px`) and NOT inside
+              the Media clip wrapper, so it bleeds 1px into the footer and the
+              bottom of the artwork never shows a 1px open line in Chromium. */}
+          <div className="pointer-events-none absolute inset-x-0 -bottom-px h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 group-hover/card:opacity-100! group-focus-within/card:opacity-100!" />
 
           {/* Corner action buttons - hidden until hover */}
           {/* Bookmark */}
@@ -613,6 +624,7 @@ const GameCard = memo(function GameCard({
           )}
         </div>
       </Link>
+      </div>
       {settingsOpen && (
         <GameSettings
           game={game}
