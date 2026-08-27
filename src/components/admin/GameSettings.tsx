@@ -23,6 +23,8 @@ import { isTauriApp } from "@/utils/tauri";
 import {
   applyDroppedSources,
   isProbablyImageUrl,
+  extractImageCandidatesFromDataTransfer,
+  pickBestImageUrl,
 } from "@/utils/droppedImage";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { emitGameUpdated } from "@/utils/gameUpdates";
@@ -1174,14 +1176,13 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       loadFile(f, target, "drag");
       return;
     }
-    const uriList = e.dataTransfer
-      .getData("text/uri-list")
-      ?.split(/\r?\n/)
-      .map((l) => l.trim())
-      .find((l) => l && !l.startsWith("#"));
-    const text = (uriList || e.dataTransfer.getData("text/plain") || "").trim();
-    if (text && isProbablyImageUrl(text)) {
-      loadUrl(text, target);
+    // Browser image drags expose multiple URLs (page URL first, image link
+    // second) and `<img src>` in text/html — prefer the direct image link.
+    const best = pickBestImageUrl(
+      extractImageCandidatesFromDataTransfer(e.dataTransfer),
+    );
+    if (best && isProbablyImageUrl(best)) {
+      loadUrl(best, target);
     }
   };
   const handleDragOver = (e: React.DragEvent, target: "cover" | "bg") => {

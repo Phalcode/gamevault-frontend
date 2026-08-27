@@ -22,6 +22,95 @@ export function isProbablyImageUrl(value: string): boolean {
   );
 }
 
+/** Pull the first http(s) URL out of a string, ignoring trailing link text. */
+export function extractFirstUrl(value: string): string | null {
+  const match = value.match(/https?:\/\/[^\s]+/i);
+  return match ? match[0] : null;
+}
+
+/** Decode the handful of HTML entities that can appear in attribute values. */
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+/**
+ * Extract the `src` URLs from `<img>` tags in dragged HTML. Uses a real
+ * parser when available (handles HTML entities) and falls back to a regex.
+ */
+export function extractImgSrcsFromHtml(html: string): string[] {
+  const urls: string[] = [];
+  try {
+    if (typeof DOMParser !== "undefined") {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      doc.querySelectorAll("img").forEach((img) => {
+        const src = img.getAttribute("src");
+        if (src) urls.push(src);
+      });
+      return urls;
+    }
+  } catch {
+    // Fall through to the regex path.
+  }
+  const srcRe = /<img\b[^>]*?\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+  let match: RegExpExecArray | null;
+  while ((match = srcRe.exec(html))) {
+    const src = match[1] ?? match[2] ?? match[3];
+    if (src) urls.push(decodeHtmlEntities(src));
+  }
+  return urls;
+}
+
+/** Minimal surface of a drop payload that we read (keeps this testable). */
+export interface DropDataReader {
+  getData(format: string): string;
+}
+
+/**
+ * Collect candidate image URLs from a DOM drop payload, in priority order:
+ * `<img src>` from `text/html`, then every URL in `text/uri-list`, then
+ * `text/plain`. Deduplicated.
+ */
+export function extractImageCandidatesFromDataTransfer(
+  dt: DropDataReader,
+): string[] {
+  const urls: string[] = [];
+  const push = (url: string | null) => {
+    if (url && !urls.includes(url)) urls.push(url);
+  };
+
+  const html = dt.getData("text/html");
+  if (html) {
+    for (const src of extractImgSrcsFromHtml(html)) push(src);
+  }
+
+  const uriList = dt.getData("text/uri-list");
+  if (uriList) {
+    for (const line of uriList.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      push(extractFirstUrl(trimmed));
+    }
+  }
+
+  const plain = dt.getData("text/plain");
+  if (plain) push(extractFirstUrl(plain));
+
+  return urls;
+}
+
+/**
+ * Pick the best URL to paste into the image-URL input: prefer a direct image
+ * link (ends in an image extension) over a page URL.
+ */
+export function pickBestImageUrl(urls: string[]): string | null {
+  return urls.find((url) => isProbablyImageUrl(url)) ?? urls[0] ?? null;
+}
+
 async function readLocalFile(path: string): Promise<File | null> {
   try {
     const { invoke } = await import("@tauri-apps/api/core");
@@ -108,6 +197,16 @@ export async function applyDroppedSources(
   sources: string[],
   handlers: { onUrl: (url: string) => void; onFile: (file: File) => void },
 ): Promise<boolean> {
+  // Prefer a direct image URL anywhere in the drop. Browser image drags on
+  // Linux (WebKitGTK) can list the page URL first and the image link second
+  // (often with link text appended), so we must not just take the first one.
+  for (const source of sources) {
+    const url = extractFirstUrl(source);
+    if (url && isProbablyImageUrl(url)) {
+      handlers.onUrl(url);
+      return true;
+    }
+  }
   for (const source of sources) {
     const resolved = await resolveDroppedImageSource(source);
     if (!resolved) continue;

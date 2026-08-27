@@ -1424,12 +1424,6 @@ export default function Settings() {
                           </span>
                         </SettingsRow>
                         <SettingsRow>
-                          <SettingsLabel title="Commit" />
-                          <span className="shrink-0 font-mono text-xs text-gv-muted">
-                            {__BUILD_COMMIT__}
-                          </span>
-                        </SettingsRow>
-                        <SettingsRow>
                           <SettingsLabel title="Channel" />
                           <span className="shrink-0 font-mono text-xs text-gv-muted">
                             {__BUILD_CHANNEL__}
@@ -1438,11 +1432,7 @@ export default function Settings() {
                         <SettingsRow>
                           <SettingsLabel title="Environment" />
                           <span className="shrink-0 font-mono text-xs text-gv-muted">
-                            {import.meta.env.MODE} ·{" "}
-                            {import.meta.env.PROD
-                              ? "production"
-                              : "development"}{" "}
-                            · {isTauri ? "desktop" : "web"}
+                            {import.meta.env.MODE} · {isTauri ? "desktop" : "web"}
                           </span>
                         </SettingsRow>
                       </SettingsGroup>

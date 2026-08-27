@@ -31,7 +31,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(
       process.env.GV_BUILD_VERSION || pkg.version,
     ),
-    __BUILD_COMMIT__: JSON.stringify(process.env.GV_RELEASE_REF || "unknown"),
+    __BUILD_COMMIT__: JSON.stringify(process.env.GV_BUILD_COMMIT || "unknown"),
     __BUILD_CHANNEL__: JSON.stringify(
       process.env.GV_BUILD_CHANNEL ||
         (process.env.GV_BUILD_VERSION ? "ci" : "dev"),
