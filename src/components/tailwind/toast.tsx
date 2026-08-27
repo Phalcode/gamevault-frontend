@@ -9,6 +9,7 @@ import clsx from "clsx";
 import type React from "react";
 import { motion, type HTMLMotionProps } from "motion/react";
 import { DURATION_FAST, DURATION_SLOW, EASE_OUT } from "@/lib/motion";
+import { isTauriApp } from "@/utils/tauri";
 
 export type ToastTone = "info" | "success" | "warning" | "danger";
 
@@ -78,7 +79,11 @@ export function Toast({
       {...props}
       className={clsx(
         className,
-        "pointer-events-auto fixed top-4 right-4 z-50 flex w-[min(90vw,360px)] items-start gap-2.5 overflow-hidden rounded-2xl border border-gv-line bg-gv-panel-strong py-3 pr-2 pl-4 shadow-(--shadow-shell)",
+        "pointer-events-auto fixed right-4 z-50 flex w-[min(90vw,360px)] items-start gap-2.5 overflow-hidden rounded-2xl border border-gv-line bg-gv-panel-strong py-3 pr-2 pl-4 shadow-(--shadow-shell)",
+        // In the desktop app the custom window titlebar (36px) owns the top
+        // right corner, so keep toasts below it instead of covering the
+        // window controls.
+        isTauriApp() ? "top-13" : "top-4",
       )}
     >
       {/* Accent rail: semantic tone signal (paired with the icon for a11y) */}

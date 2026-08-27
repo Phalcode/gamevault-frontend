@@ -1335,6 +1335,63 @@ export default function Settings() {
                         </SettingsRow>
                       </SettingsGroup>
 
+                      <SettingsGroup caption="Toasts">
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Toast Notifications"
+                            description="Preview each toast tone. Handy for checking the snackbar position and styling."
+                          />
+                        </SettingsRow>
+                        <SettingsRow>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              color="zinc"
+                              onClick={() =>
+                                void showAlert({
+                                  title: "Info toast",
+                                  tone: "info",
+                                })
+                              }
+                            >
+                              Info
+                            </Button>
+                            <Button
+                              color="zinc"
+                              onClick={() =>
+                                void showAlert({
+                                  title: "Success toast",
+                                  tone: "success",
+                                })
+                              }
+                            >
+                              Success
+                            </Button>
+                            <Button
+                              color="zinc"
+                              onClick={() =>
+                                void showAlert({
+                                  title: "Warning toast",
+                                  tone: "warning",
+                                })
+                              }
+                            >
+                              Warning
+                            </Button>
+                            <Button
+                              color="zinc"
+                              onClick={() =>
+                                void showAlert({
+                                  title: "Danger toast",
+                                  tone: "danger",
+                                })
+                              }
+                            >
+                              Danger
+                            </Button>
+                          </div>
+                        </SettingsRow>
+                      </SettingsGroup>
+
                       <SettingsGroup caption="Downloads">
                         <SettingsRow>
                           <SettingsLabel
