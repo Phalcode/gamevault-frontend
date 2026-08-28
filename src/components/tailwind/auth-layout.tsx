@@ -1,11 +1,19 @@
 import type React from "react";
+import WindowTitlebar from "../WindowTitlebar";
 
 export function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-dvh flex-col p-2">
-      <div className="flex grow items-center justify-center p-6 lg:rounded-lg lg:bg-white lg:p-10 lg:shadow-xs lg:ring-1 lg:ring-zinc-950/5 dark:lg:bg-zinc-900 dark:lg:ring-white/10">
-        {children}
-      </div>
-    </main>
+    <div className="flex h-full min-h-0 flex-col">
+      <WindowTitlebar />
+      <main className="relative flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-3 py-4 sm:px-5 sm:py-6 lg:p-6">
+        <div className="relative flex min-h-full grow items-center justify-center">
+          <div className="relative w-full max-w-xl">
+            <div className="surface-panel relative flex justify-center rounded-[1.75rem] p-6 sm:p-8 lg:p-10 animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none">
+              {children}
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }

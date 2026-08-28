@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 export interface ServerInfo {
   status: string;
   version: string;
+  server_uuid?: string;
   registration_enabled: boolean;
   required_registration_fields: string[];
   available_authentication_methods: string[];

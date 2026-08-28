@@ -1,5 +1,6 @@
 import { Navigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
+import { Spinner } from "@/components/Spinner";
 
 export default function RedirectIfAuth({
   children,
@@ -14,7 +15,7 @@ export default function RedirectIfAuth({
     return children;
   }
 
-  if (bootstrapping) return <div className="p-6 text-center">Loading…</div>;
+  if (bootstrapping) return <Spinner label="Loading…" />;
   // If already authenticated, redirect to primary app entry (library)
   if (auth) return <Navigate to="/library" replace />;
   return children;

@@ -6,8 +6,13 @@ import { Field, Label } from "@tw/fieldset";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
-import { useCallback, useState } from "react";
-import ThemeSwitch from "./ThemeSwitch";
+import { useCallback, useEffect, useState } from "react";
+import {
+  AUTH_SERVER_STORAGE_KEY,
+  DEMO_SERVER_URL,
+  detectBackendServedWebUi,
+} from "@/utils/authConfig";
+import { applyTheme, getStoredTheme } from "@/utils/theme";
 
 interface FormState {
   username?: string;
@@ -21,8 +26,11 @@ interface FormState {
 
 export function Register() {
   const { serverUrl } = useAuth();
-  const [serverInput, setServerInput] = useState(window.location.origin);
+  const [serverInput, setServerInput] = useState(
+    localStorage.getItem(AUTH_SERVER_STORAGE_KEY) || DEMO_SERVER_URL,
+  );
   const [confirmedServer, setConfirmedServer] = useState<string | null>(null);
+  const [backendServed, setBackendServed] = useState(false);
   const [form, setForm] = useState<FormState>({});
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -39,6 +47,29 @@ export function Register() {
 
   const basicAuthAvailable = availableAuthenticationMethods.includes("basic");
   const ssoAvailable = availableAuthenticationMethods.includes("sso");
+
+  // Force device theme on register page; restore stored preference on leave
+  useEffect(() => {
+    const stored = getStoredTheme();
+    applyTheme("system");
+    return () => applyTheme(stored);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    detectBackendServedWebUi().then((served) => {
+      if (cancelled) return;
+      setBackendServed(served);
+      if (served) {
+        const origin = window.location.origin;
+        setServerInput(origin);
+        setConfirmedServer(origin);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const onInput: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     const { name, value } = e.target;
@@ -152,12 +183,18 @@ export function Register() {
   return (
     <form
       onSubmit={confirmedServer ? handleSubmit : handleContinue}
-      className="grid w-full max-w-sm grid-cols-1 gap-8"
+      className="grid w-full max-w-sm grid-cols-1 gap-6"
     >
       <Logo variant="text" className="w-full" height="h-full" />
-      <Heading>Create your account</Heading>
+      <div className="space-y-3">
+        <Heading>Create your account</Heading>
+        <Text>
+          Point at your server, confirm requirements, then create a local
+          launcher account.
+        </Text>
+      </div>
 
-      {!confirmedServer && (
+      {!confirmedServer && !backendServed && (
         <>
           <Field>
             <Label>
@@ -191,17 +228,28 @@ export function Register() {
                 disabled
                 className="flex-1"
               />
-              <Button
-                type="button"
-                onClick={handleChangeServer}
-                className="shrink-0 bg-gray-200 text-gray-800 hover:bg-gray-300"
-              >
-                Change
-              </Button>
+              {!backendServed && (
+                <Button
+                  type="button"
+                  outline
+                  onClick={handleChangeServer}
+                  className="shrink-0"
+                >
+                  Change
+                </Button>
+              )}
             </div>
           </Field>
 
-          {reqLoading && <Text>Connecting to server...</Text>}
+          {reqLoading && (
+            <div className="flex items-center gap-2 text-gv-muted">
+              <svg className="h-4 w-4 motion-safe:animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <Text>Connecting to server...</Text>
+            </div>
+          )}
 
           {reqError && (
             <Text className="text-xs text-rose-400 -mt-4">
@@ -220,7 +268,7 @@ export function Register() {
               {!basicAuthAvailable && (
                 <Text className="text-xs text-rose-400 -mt-4" role="alert">
                   {ssoAvailable
-                    ? "Registration via username/password is disabled. Please sign in with SSO."
+                    ? "Registration via username and password is disabled on this server. Please sign in via SSO. Your account should be created automatically."
                     : "Registration is not available."}
                 </Text>
               )}
@@ -424,7 +472,6 @@ export function Register() {
           <Strong>Sign in</Strong>
         </TextLink>
       </Text>
-      <ThemeSwitch />
     </form>
   );
 }

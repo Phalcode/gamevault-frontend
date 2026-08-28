@@ -84,6 +84,30 @@ export function useNews() {
     fetchServerNews();
   }, [fetchGvNews, fetchServerNews]);
 
+  const updateServerNews = useCallback(
+    async (content: string) => {
+      if (!serverUrl) throw new Error("No server connected.");
+
+      const base = serverUrl.replace(/\/$/, "");
+      const res = await authFetch(base + "/api/config/news", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content }),
+      });
+
+      if (!res.ok) {
+        throw new Error((await res.text()) || `${res.status} ${res.statusText}`);
+      }
+
+      const hash = content.trim() ? await hashText(content) : "";
+      localStorage.setItem("hash_server_news", hash);
+      setServerNews({ content, error: null, isNew: false });
+    },
+    [authFetch, serverUrl],
+  );
+
   useEffect(() => {
     fetchAllNews();
   }, [fetchAllNews]);
@@ -104,5 +128,12 @@ export function useNews() {
     }
   }, [gvNews, serverNews]);
 
-  return { gvNews, serverNews, fetchAllNews, hasNewNews, markNewsAsRead };
+  return {
+    gvNews,
+    serverNews,
+    fetchAllNews,
+    hasNewNews,
+    markNewsAsRead,
+    updateServerNews,
+  };
 }

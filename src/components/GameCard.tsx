@@ -1,14 +1,21 @@
 import { GamevaultGame } from "@/api/models/GamevaultGame";
 import { Media } from "@/components/Media";
+import CoverPlaceholder from "@/components/CoverPlaceholder";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useDownloads } from "@/context/DownloadContext";
 import { getGameCoverMediaId } from "@/hooks/useGames";
 import { CloudArrowDownIcon } from "@heroicons/react/16/solid";
-import { StarIcon as StarSolid, Cog8ToothIcon } from "@heroicons/react/24/solid";
+import {
+  StarIcon as StarSolid,
+  Cog8ToothIcon,
+} from "@heroicons/react/24/solid";
 import { StarIcon as StarOutline } from "@heroicons/react/24/outline";
 import { Button } from "@tw/button";
 import { GameSettings } from "@/components/admin/GameSettings";
+import { VersionSelectDialog } from "@/components/VersionSelectDialog";
+import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
+import { getRootPaths } from "@/utils/rootPaths";
 import { isTauriApp } from "@/utils/tauri";
 import { Alert, AlertTitle } from "@tw/alert";
 import {
@@ -19,12 +26,37 @@ import {
   DropdownMenu,
 } from "@tw/dropdown";
 import clsx from "clsx";
-import { useCallback, useMemo, useState, useEffect } from "react";
-import { Link } from "react-router";
+import { memo, useCallback, useMemo, useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router";
+import { GameVersion } from "@/api/models/GameVersion";
 
-export function GameCard({ game }: { game: GamevaultGame }) {
+const releaseDateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
+const GameCard = memo(function GameCard({
+  game,
+  sortBy,
+}: {
+  game: GamevaultGame;
+  sortBy?: string;
+}) {
   const { serverUrl, user, authFetch } = useAuth();
   const { showAlert } = useAlertDialog();
+  // Detect if this is a locally installed game (set by Library for installed games)
+  const installedInfo = (game as any)?._installedInfo as
+    | {
+        installationDirectory: string;
+        versionDirectory: string;
+        versionId: number;
+        versionName: string;
+      }
+    | undefined;
+  const onUninstalledCallback = (game as any)?._onUninstalled as
+    (() => void) | undefined;
+  const isInstalled = !!installedInfo;
   // Derive initial bookmarked state from raw API shape (bookmarked_users or bookmarkedUsers)
   const currentUserId = (user as any)?.id ?? (user as any)?.ID;
   const initialBookmarked = useMemo(() => {
@@ -37,6 +69,16 @@ export function GameCard({ game }: { game: GamevaultGame }) {
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [localGame, setLocalGame] = useState<GamevaultGame>(game);
+  const [versionDialogOpen, setVersionDialogOpen] = useState(false);
+  const [selectableVersions, setSelectableVersions] = useState<GameVersion[]>(
+    [],
+  );
+  const [pendingDownloadAction, setPendingDownloadAction] = useState<
+    "direct" | "tauri" | "client" | null
+  >(null);
+  const [rootSelectOpen, setRootSelectOpen] = useState(false);
+  const [pendingRootPath, setPendingRootPath] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const coverId = getGameCoverMediaId(localGame) as number | string | null;
 
@@ -70,10 +112,6 @@ export function GameCard({ game }: { game: GamevaultGame }) {
 
   const isTauri = isTauriApp();
 
-  const filename = (() => {
-    return `${localGame.title}.zip`;
-  })();
-
   const rawSize = localGame.size;
 
   const formatBytes = useCallback((bytes?: number) => {
@@ -93,198 +131,536 @@ export function GameCard({ game }: { game: GamevaultGame }) {
     typeof rawSize === "number" ? rawSize : Number(rawSize),
   );
 
-  const handleDirectDownload = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!serverUrl) return;
-      startDownload(game.id, filename);
-      
-      // Show global alert notification
+  // Dynamic metric based on current sort
+  const sortMetric = useMemo(() => {
+    switch (sortBy) {
+      case "size":
+        return formattedSize;
+      case "created_at":
+        return localGame.created_at
+          ? releaseDateFormatter.format(new Date(localGame.created_at))
+          : null;
+      case "metadata.release_date":
+        return localGame.metadata?.release_date
+          ? releaseDateFormatter.format(
+              new Date(localGame.metadata.release_date),
+            )
+          : null;
+      case "metadata.rating":
+        return localGame.metadata?.rating != null
+          ? `${localGame.metadata.rating.toFixed(1)}%`
+          : null;
+      case "download_count":
+        return localGame.download_count != null
+          ? localGame.download_count.toLocaleString()
+          : null;
+      case "metadata.average_playtime":
+        return (localGame as any).metadata?.average_playtime != null
+          ? `${Math.round((localGame as any).metadata.average_playtime / 60)}h`
+          : null;
+      default:
+        return formattedSize;
+    }
+  }, [sortBy, formattedSize, localGame]);
+
+  const resolveVersions = useCallback(async (): Promise<GameVersion[]> => {
+    if (Array.isArray(localGame.versions) && localGame.versions.length > 0) {
+      return localGame.versions;
+    }
+    if (!serverUrl) return [];
+
+    const base = serverUrl.replace(/\/+$/, "");
+    const res = await authFetch(`${base}/api/games/${game.id}`, {
+      method: "GET",
+    });
+    if (!res.ok) return [];
+    const fullGame = (await res.json()) as GamevaultGame;
+    const fullVersions = Array.isArray(fullGame.versions)
+      ? fullGame.versions
+      : [];
+    if (fullVersions.length > 0) {
+      setLocalGame((prev) => ({ ...prev, versions: fullVersions }));
+    }
+    return fullVersions;
+  }, [localGame.versions, serverUrl, authFetch, game.id]);
+
+  const executeDownloadAction = useCallback(
+    (
+      action: "direct" | "tauri" | "client",
+      selectedVersion: GameVersion,
+      rootPath?: string,
+    ) => {
+      const resolvedTitle = localGame.metadata?.title || localGame.title;
+      const filePathFallback = selectedVersion.file_path
+        ? selectedVersion.file_path.split(/[/\\]/).pop()
+        : undefined;
+      const selectedFilename =
+        filePathFallback && filePathFallback.trim().length > 0
+          ? filePathFallback
+          : `${resolvedTitle}.zip`;
+
+      if (action === "client") {
+        const url = `gamevault://install?gameid=${game.id}&versionid=${selectedVersion.id}`;
+        window.location.href = url;
+        return;
+      }
+
+      startDownload({
+        gameId: game.id,
+        versionId: selectedVersion.id,
+        versionName: selectedVersion.version,
+        gameTitle: resolvedTitle,
+        gameMetadata: localGame.metadata,
+        gameType: (selectedVersion.type || localGame.type) as any,
+        filename: selectedFilename,
+        downloadRootPath: rootPath,
+      });
+
       showAlert({
-        title: `Added ${localGame.metadata?.title || localGame.title} to the download queue`
+        title: `Added ${resolvedTitle} to the download queue`,
       });
     },
-    [serverUrl, startDownload, game.id, filename, showAlert, localGame],
+    [game.id, localGame, showAlert, startDownload],
   );
+
+  const selectVersionAndRun = useCallback(
+    async (action: "direct" | "tauri" | "client", rootPath?: string) => {
+      const versions = await resolveVersions();
+
+      if (!versions.length) {
+        showAlert({
+          title: "No downloadable version found",
+          description:
+            "This game currently has no available version to download.",
+        });
+        return;
+      }
+
+      if (versions.length === 1) {
+        executeDownloadAction(action, versions[0], rootPath);
+        return;
+      }
+
+      setSelectableVersions(versions);
+      setPendingDownloadAction(action);
+      setPendingRootPath(rootPath ?? null);
+      setVersionDialogOpen(true);
+    },
+    [resolveVersions, showAlert, executeDownloadAction],
+  );
+
+  const handleDirectDownload = useCallback(async () => {
+    if (!serverUrl) return;
+    await selectVersionAndRun("direct");
+  }, [serverUrl, selectVersionAndRun]);
 
   const handleTauriDownload = useCallback(
     async (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       if (!serverUrl) return;
-      
-      console.log('=== handleTauriDownload called ===');
-      console.log('Game ID:', game.id, 'Filename:', filename);
-      
+
+      console.log("=== handleTauriDownload called ===");
+      console.log("Game ID:", game.id);
+
       try {
-        // Get download path from localStorage
-        const downloadPath = localStorage.getItem('tauri_download_path');
-        console.log('Download path check:', downloadPath);
-        if (!downloadPath) {
-          alert('Please select a download location in Settings first.');
+        const rootPaths = getRootPaths();
+        console.log("Root paths:", rootPaths);
+        if (rootPaths.length === 0) {
+          const openSettings = await showAlert({
+            title: "No download location configured",
+            description:
+              "A download location is required before games can be downloaded. Configure one in Settings.",
+            affirmativeText: "Open Settings",
+            negativeText: "Cancel",
+          });
+          if (openSettings) navigate("/settings?section=downloads");
           return;
         }
 
-        // Start download tracking
-        console.log('Starting download...');
-        startDownload(game.id, filename);
-        
-        // Show global alert notification
-        showAlert({
-          title: `Added ${localGame.metadata?.title || localGame.title} to the download queue`
-        });
+        if (rootPaths.length === 1) {
+          console.log("Single root path — proceeding directly");
+          await selectVersionAndRun("tauri", rootPaths[0].path);
+          return;
+        }
+
+        console.log("Multiple root paths — showing selection dialog");
+        setRootSelectOpen(true);
       } catch (error) {
-        console.error('Error starting Tauri download:', error);
+        console.error("Error starting Tauri download:", error);
       }
     },
-    [serverUrl, startDownload, game.id, filename, showAlert, localGame],
+    [serverUrl, selectVersionAndRun],
   );
 
-  const handleClientDownload = useCallback(
-    (e: React.MouseEvent) => {
+  const handleRootPathSelect = useCallback(
+    (rootPath: string) => {
+      setRootSelectOpen(false);
+      void selectVersionAndRun("tauri", rootPath);
+    },
+    [selectVersionAndRun],
+  );
+
+  const handleGoToSettingsFromRootSelect = useCallback(() => {
+    setRootSelectOpen(false);
+    navigate("/settings?section=downloads");
+  }, [navigate]);
+
+  const handlePlayGame = useCallback(
+    async (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      const url = `gamevault://install?gameid=${game.id}`;
-      window.location.href = url;
+      if (!installedInfo) return;
+
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const { join } = await import("@tauri-apps/api/path");
+
+        const configPath = await join(
+          installedInfo.versionDirectory,
+          ".gamevault.game.config.json",
+        );
+
+        let launchExe: string | undefined;
+        let launchParams: string | undefined;
+        let launchAsAdmin = false;
+
+        if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
+          try {
+            const raw = JSON.parse(
+              await invoke<string>("fs_read_text_file", { path: configPath }),
+            );
+            launchExe = raw.launchexecutable;
+            launchParams = raw.launchparameters;
+            launchAsAdmin = !!raw.launchasadmin;
+          } catch {
+            console.warn("Failed to parse game config:", configPath);
+          }
+        }
+
+        if (!launchExe) {
+          showAlert({
+            title: "No launch executable configured",
+            description:
+              "Open Game Settings → Launch Options to select an executable first.",
+          });
+          return;
+        }
+
+        await invoke("launch_game", {
+          gameTitle: localGame.metadata?.title || localGame.title || "Game",
+          installationPath: installedInfo.installationDirectory,
+          executableRelativePath: launchExe,
+          launchParameters: launchParams || null,
+          runAsAdmin: launchAsAdmin,
+        });
+      } catch (err: any) {
+        showAlert({
+          title: "Failed to launch game",
+          description: err?.message || String(err),
+        });
+      }
     },
-    [game.id],
+    [installedInfo, showAlert],
+  );
+
+  const handleClientDownload = useCallback(async () => {
+    await selectVersionAndRun("client");
+  }, [selectVersionAndRun]);
+
+  const handleVersionSelect = useCallback(
+    (selectedVersion: GameVersion) => {
+      if (!pendingDownloadAction) return;
+      executeDownloadAction(
+        pendingDownloadAction,
+        selectedVersion,
+        pendingRootPath ?? undefined,
+      );
+      setVersionDialogOpen(false);
+      setPendingDownloadAction(null);
+      setPendingRootPath(null);
+      setSelectableVersions([]);
+    },
+    [pendingDownloadAction, pendingRootPath, executeDownloadAction],
   );
 
   const gameViewUrl = `/library/${game.id}`;
 
-  const handleOpenSettings = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setSettingsOpen(true);
-    },
-    [],
-  );
+  const handleOpenSettings = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSettingsOpen(true);
+  }, []);
 
   return (
     <>
-    <Link
-      to={gameViewUrl}
-      className={clsx(
-        "group flex flex-col rounded-xl bg-zinc-100 dark:bg-zinc-800 shadow-sm ring-1 ring-zinc-950/10 dark:ring-white/5 overflow-hidden focus:outline-none focus:ring-2 focus:ring-indigo-500",
-        "transition-colors hover:bg-zinc-200/60 dark:hover:bg-zinc-700/70 cursor-pointer",
-      )}
-    >
-      <div className="relative aspect-[3/4] w-full bg-bg-muted flex items-center justify-center overflow-hidden">
-        {coverId ? (
-          <Media
-            media={{
-              id: typeof coverId === 'number' ? coverId : Number(coverId) || 0,
-              created_at: new Date(0),
-              entity_version: 0,
-            } as any}
-            size={300}
-            className="h-full w-full object-contain rounded-none"
-            square
-            alt={localGame.title}
-          />
-        ) : (
-          <div className="text-xs text-fg-muted">
-            No Cover
-          </div>
+      {/* Outer wrapper owns the shadow + lift. Lift uses `transform` (not
+          Tailwind's `translate`): will-change + translateZ make it one
+          pre-rasterized composited layer, so Chromium moves a texture instead
+          of re-rasterizing edges. The shadow NEVER changes on hover — a
+          box-shadow swap forces a repaint at the hover instant, flashing the
+          1px bottom seam when the card sits on a fractional scroll position. */}
+      <div
+        className={clsx(
+          "group/card relative rounded-3xl shadow-(--shadow-card)",
+          "transform-gpu will-change-transform backface-hidden",
+          "transition-transform duration-200 ease-out hover:[transform:translateY(-4px)_translateZ(0)]",
         )}
-        {/* Top-right bookmark toggle */}
-        <button
-          type="button"
-          onClick={toggleBookmark}
+      >
+      <Link
+        to={gameViewUrl}
+        className={clsx(
+          // No own layer here — rasterize into the wrapper's single composited
+          // layer so content + shadow move as one texture (a second layer
+          // misaligns 1px at the bottom during the transform move).
+          "relative flex flex-col overflow-hidden rounded-3xl bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)]",
+          "cursor-pointer select-none",
+          "focus:outline-none focus:ring-2 focus:ring-gv-accent-cool",
+        )}
+      >
+        {/* Cover art container. NO overflow-hidden here: the oversized Media is
+            clipped by the inner absolute wrapper, while the bottom fade below
+            is free to bleed 1px into the footer — an overflow-hidden on this
+            box would clip that bleed and leave a 1px open line at the bottom
+            of the artwork in Chromium. */}
+        <div
+          className={clsx(
+            "relative flex aspect-3/4 w-full items-center justify-center",
+            coverId &&
+              "bg-[radial-gradient(circle_at_top,rgba(100,89,223,0.14),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0))]",
+          )}
+        >
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+          {coverId ? (
+            <Media
+              media={
+                {
+                  id:
+                    typeof coverId === "number"
+                      ? coverId
+                      : Number(coverId) || 0,
+                  created_at: new Date(0),
+                  entity_version: 0,
+                } as any
+              }
+              size={300}
+              className="h-full w-full object-contain rounded-none"
+              square
+              alt={localGame.title}
+              gameId={localGame.id}
+              mediaSlot="cover"
+              fallback={
+                <CoverPlaceholder
+                  title={localGame.metadata?.title || localGame.title || "Game"}
+                  size="large"
+                  className="h-full w-full"
+                />
+              }
+            />
+          ) : (
+            <CoverPlaceholder
+              title={localGame.metadata?.title || localGame.title || "Game"}
+              size="large"
+              className="h-full w-full"
+            />
+          )}
+          </div>
+
+          {/* Gradient fade at bottom for button contrast. Snapped on hover,
+              extended 1px below the cover bottom (`-bottom-px`) and NOT inside
+              the Media clip wrapper, so it bleeds 1px into the footer and the
+              bottom of the artwork never shows a 1px open line in Chromium. */}
+          <div className="pointer-events-none absolute inset-x-0 -bottom-px h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 group-hover/card:opacity-100! group-focus-within/card:opacity-100!" />
+
+          {/* Corner action buttons - hidden until hover */}
+          {/* Bookmark */}
+          <button
+            type="button"
+            onClick={toggleBookmark}
             aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
             aria-pressed={bookmarked}
-          disabled={!currentUserId || bookmarkBusy}
-          className={clsx(
-            "absolute top-1 right-1 h-8 w-8 flex items-center justify-center rounded-md border shadow-sm backdrop-blur-sm transition-colors",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-            bookmarked
-              ? "bg-yellow-400/20 border-yellow-400"
-              : "bg-zinc-900/40 dark:bg-zinc-700/50 border-white/20 hover:bg-zinc-800/60 dark:hover:bg-zinc-600/60",
-          )}
-        >
-          {bookmarked ? (
-            <StarSolid className="h-5 w-5 text-yellow-400" />
-          ) : (
-            <StarOutline className="h-5 w-5 text-white" />
-          )}
-        </button>
-        {/* Top-left settings button */}
-        <button
-          type="button"
-          onClick={handleOpenSettings}
-          aria-label="Settings"
-          className="absolute top-1 left-1 h-8 w-8 flex items-center justify-center rounded-md border shadow-sm backdrop-blur-sm transition-colors bg-zinc-900/40 dark:bg-zinc-700/50 border-white/20 hover:bg-zinc-800/60 dark:hover:bg-zinc-600/60"
-          title="Settings"
-        >
-          <Cog8ToothIcon className="h-5 w-5 text-white" />
-        </button>
-        {/* Bottom-right download actions */}
-        <div className="absolute bottom-0 right-0 p-1 z-10 flex justify-end opacity-85">
-          {isTauri ? (
-            <Button
-              color="zinc"
-              aria-label="Download"
-              className="flex justify-center h-8 text-md font-medium items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm"
-              onClick={handleTauriDownload}
+            disabled={!currentUserId || bookmarkBusy}
+            className={clsx(
+              "absolute top-2 right-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border backdrop-blur-xl transition-all duration-200",
+              "opacity-0 translate-y-1 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
+              "disabled:cursor-not-allowed disabled:opacity-50",
+              bookmarked
+                ? "border-gv-warning/40 bg-gv-warning/15"
+                : "border-gv-line bg-gv-panel-soft/80 hover:border-gv-line-strong hover:bg-gv-panel",
+              "active:scale-95",
+            )}
+          >
+            {bookmarked ? (
+              <StarSolid className="h-5 w-5 text-gv-warning" />
+            ) : (
+              <StarOutline className="h-5 w-5 text-gv-muted" />
+            )}
+          </button>
+
+          {/* Settings */}
+          <button
+            type="button"
+            onClick={handleOpenSettings}
+            aria-label="Settings"
+            className={clsx(
+              "absolute top-2 left-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border border-gv-line bg-gv-panel-soft/80 text-gv-muted backdrop-blur-xl transition-all duration-200",
+              "opacity-0 translate-y-1 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
+              "hover:border-gv-line-strong hover:bg-gv-panel hover:text-gv-text",
+              "active:scale-95",
+            )}
+            title="Settings"
+          >
+            <Cog8ToothIcon className="h-5 w-5" />
+          </button>
+
+          {/* Centered primary action: Download / Play */}
+          {isInstalled ? (
+            <button
+              type="button"
+              aria-label="Play"
+              onClick={handlePlayGame}
+              className={clsx(
+                "absolute bottom-3 left-1/2 -translate-x-1/2 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-indigo-400/40 bg-indigo-500/90 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/30 backdrop-blur-sm transition-all duration-200",
+                "opacity-0 translate-y-2 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
+                "hover:bg-indigo-400 active:scale-[0.97]",
+              )}
             >
-              <CloudArrowDownIcon className="w-6 h-6 fill-white" />
-            </Button>
-          ) : (
-            <Dropdown>
-              <DropdownButton
-                as={Button}
-                color="zinc"
-                aria-label="Download"
-                className="flex justify-center h-8 text-md font-medium items-center gap-1 shadow-md shadow-black/20 backdrop-blur-sm"
-                onClick={(e: React.MouseEvent) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                className="h-4 w-4 fill-current"
               >
-                <CloudArrowDownIcon className="w-6 h-6 fill-white" />
-              </DropdownButton>
-              <DropdownMenu className="min-w-48" anchor="top end">
-                <DropdownItem onClick={handleDirectDownload}>
-                  <DropdownLabel>Direct Download</DropdownLabel>
-                </DropdownItem>
-                <DropdownItem onClick={handleClientDownload}>
-                  <DropdownLabel>Download via GameVault Client</DropdownLabel>
-                </DropdownItem>
-              </DropdownMenu>
-            </Dropdown>
+                <path d="M8 17.175V6.825q0-.425.3-.713t.7-.287q.125 0 .263.037t.262.113l8.15 5.175q.225.15.338.375t.112.475t-.112.475t-.338.375l-8.15 5.175q-.125.075-.262.113T9 18.175q-.4 0-.7-.288t-.3-.712" />
+              </svg>
+              Play
+            </button>
+          ) : (
+            <div
+              className={clsx(
+                "absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center transition-all duration-200",
+                "opacity-0 translate-y-2 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
+              )}
+            >
+              {isTauri ? (
+                <Button
+                  color="indigo"
+                  aria-label={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
+                  className="h-9 px-3 gap-2 flex items-center justify-center"
+                  title={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
+                  onClick={handleTauriDownload}
+                >
+                  <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
+                  {formattedSize ? (
+                    <span className="text-xs font-medium whitespace-nowrap">
+                      {formattedSize}
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium whitespace-nowrap">
+                      Download
+                    </span>
+                  )}
+                </Button>
+              ) : (
+                <Dropdown>
+                  <DropdownButton
+                    as={Button}
+                    color="indigo"
+                    aria-label={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
+                    className="h-9 px-3 gap-2 flex items-center justify-center"
+                    onClick={(e: React.MouseEvent) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                  >
+                    <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
+                    {formattedSize ? (
+                      <span className="text-xs font-medium whitespace-nowrap">
+                        {formattedSize}
+                      </span>
+                    ) : (
+                      <span className="text-xs font-medium whitespace-nowrap">
+                        Download
+                      </span>
+                    )}
+                  </DropdownButton>
+                  <DropdownMenu className="min-w-48" anchor="top end">
+                    <DropdownItem
+                      onClick={(e: React.MouseEvent) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void handleDirectDownload();
+                      }}
+                    >
+                      <DropdownLabel>Direct Download</DropdownLabel>
+                    </DropdownItem>
+                    <DropdownItem
+                      onClick={(e: React.MouseEvent) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void handleClientDownload();
+                      }}
+                    >
+                      <DropdownLabel>
+                        Download via GameVault Client
+                      </DropdownLabel>
+                    </DropdownItem>
+                  </DropdownMenu>
+                </Dropdown>
+              )}
+            </div>
           )}
         </div>
-      </div>
-      <div className="p-2 pt-2">
-        <h3 className="text-sm font-medium truncate" title={localGame.title}>
-          {localGame.metadata?.title || localGame.title}
-        </h3>
-        {(localGame as any).sort_title && (localGame as any).sort_title !== localGame.title && (
-          <p
-            className="mt-0.5 text-xs text-fg-muted truncate"
-            title={localGame.title}
+
+        {/* Metadata footer */}
+        <div className="flex flex-col gap-0.5 px-3 pb-3 pt-2.5">
+          <h3
+            className="truncate text-sm font-semibold tracking-[-0.02em] text-gv-text"
+            title={localGame.metadata?.title || localGame.title}
           >
-            {localGame.title}
-          </p>
-        )}
-        {formattedSize && (
-          <p className="mt-0.5 text-xs text-fg-muted" title={formattedSize}>
-            {formattedSize}
-          </p>
-        )}
+            {localGame.metadata?.title || localGame.title}
+          </h3>
+          {sortMetric && (
+            <p className="truncate text-xs text-gv-muted">{sortMetric}</p>
+          )}
+        </div>
+      </Link>
       </div>
-    </Link>
       {settingsOpen && (
         <GameSettings
           game={game}
           onClose={() => setSettingsOpen(false)}
           onGameUpdated={(updatedGame) => setLocalGame(updatedGame)}
+          onUninstalled={onUninstalledCallback}
         />
       )}
+      <RootPathSelectDialog
+        open={rootSelectOpen}
+        gameTitle={localGame.metadata?.title || localGame.title || "Game"}
+        rootPaths={(() => {
+          try {
+            return getRootPaths();
+          } catch {
+            return [];
+          }
+        })()}
+        onSelect={handleRootPathSelect}
+        onClose={() => setRootSelectOpen(false)}
+        onGoToSettings={handleGoToSettingsFromRootSelect}
+      />
+      <VersionSelectDialog
+        open={versionDialogOpen}
+        gameTitle={localGame.metadata?.title || localGame.title || "Game"}
+        versions={selectableVersions}
+        onClose={() => {
+          setVersionDialogOpen(false);
+          setPendingDownloadAction(null);
+          setPendingRootPath(null);
+          setSelectableVersions([]);
+        }}
+        onSelect={handleVersionSelect}
+      />
     </>
   );
-}
+});
 
 export default GameCard;

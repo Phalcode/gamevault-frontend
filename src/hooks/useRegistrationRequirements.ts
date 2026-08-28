@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useAuth } from '@/context/AuthContext';
+import { useEffect, useState } from "react";
+import { useAuth } from "@/context/AuthContext";
 
 interface ServerInfo {
   status?: string;
@@ -18,19 +18,25 @@ interface RegistrationRequirements {
   isMandatory: (field: string) => boolean;
 }
 
-export function useRegistrationRequirements(serverOverride?: string): RegistrationRequirements {
+export function useRegistrationRequirements(
+  serverOverride?: string,
+): RegistrationRequirements {
   const { serverUrl } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [required, setRequired] = useState<Set<string>>(new Set());
-  const [registrationEnabled, setRegistrationEnabled] = useState<boolean | null>(null);
-  const [availableAuthenticationMethods, setAvailableAuthenticationMethods] = useState<string[]>([]);
+  const [registrationEnabled, setRegistrationEnabled] = useState<
+    boolean | null
+  >(null);
+  const [availableAuthenticationMethods, setAvailableAuthenticationMethods] =
+    useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     async function run() {
       const chosen = (serverOverride ?? serverUrl) || "";
-      if (!chosen.trim()) { // nothing to fetch yet
+      if (!chosen.trim()) {
+        // nothing to fetch yet
         setLoading(false);
         setError(null);
         setRequired(new Set());
@@ -43,33 +49,44 @@ export function useRegistrationRequirements(serverOverride?: string): Registrati
         setError(null);
         // Ensure protocol; default to https if missing.
         let base = chosen.trim();
-        if (!/^https?:\/\//i.test(base)) base = 'https://' + base;
-        base = base.replace(/\/+$/, '');
-        const res = await fetch(`${base}/api/status`, { method: 'GET' });
+        if (!/^https?:\/\//i.test(base)) base = "https://" + base;
+        base = base.replace(/\/+$/, "");
+        const res = await fetch(`${base}/api/status`, { method: "GET" });
         if (!res.ok) throw new Error(`Status ${res.status}`);
         const info: ServerInfo = await res.json();
         if (!cancelled) {
           setRegistrationEnabled(info.registration_enabled ?? true);
           // Default to basic if missing (backward compatibility), otherwise use provided list
-          setAvailableAuthenticationMethods(info.available_authentication_methods ?? ['basic']);
+          setAvailableAuthenticationMethods(
+            info.available_authentication_methods ?? ["basic"],
+          );
         }
         const fields = new Set(info.required_registration_fields ?? []);
-        fields.add('username');
-        fields.add('password');
+        fields.add("username");
+        fields.add("password");
         if (!cancelled) setRequired(fields);
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Failed to load server status');
+        if (!cancelled) setError(e?.message || "Failed to load server status");
         if (!cancelled) setRegistrationEnabled(true); // optimistic default
-        if (!cancelled) setAvailableAuthenticationMethods(['basic']); // match optimistic default
+        if (!cancelled) setAvailableAuthenticationMethods(["basic"]); // match optimistic default
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     run();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [serverUrl, serverOverride]);
 
   const isMandatory = (field: string) => required.has(field);
 
-  return { loading, error, required, registrationEnabled, availableAuthenticationMethods, isMandatory };
+  return {
+    loading,
+    error,
+    required,
+    registrationEnabled,
+    availableAuthenticationMethods,
+    isMandatory,
+  };
 }

@@ -1,3 +1,7 @@
+allowBuilds:
+  '@openapitools/openapi-generator-cli': true
+  esbuild: true
 onlyBuiltDependencies:
-  - '@nestjs/core'
-  - '@openapitools/openapi-generator-cli'
+  - "@nestjs/core"
+  - "@openapitools/openapi-generator-cli"
+optimisticRepeatInstall: false

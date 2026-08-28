@@ -9,6 +9,14 @@ import { Field, Label } from "@/components/tailwind/fieldset";
 import { Input } from "@/components/tailwind/input";
 import { Text } from "@/components/tailwind/text";
 import { useAuth } from "@/context/AuthContext";
+import { resolveApiMediaBlob } from "@/utils/mediaCache";
+import { isTauriApp } from "@/utils/tauri";
+import {
+  applyDroppedSources,
+  isProbablyImageUrl,
+  extractImageCandidatesFromDataTransfer,
+  pickBestImageUrl,
+} from "@/utils/droppedImage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GamevaultUser } from "../../api";
 
@@ -48,6 +56,7 @@ export function UserEditorModal({
   self = false,
 }: Props) {
   const { serverUrl, authFetch, refreshCurrentUser } = useAuth() as any;
+  const isTauri = isTauriApp();
   const [activeTab, setActiveTab] = useState<TabKey>("images");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -162,6 +171,10 @@ export function UserEditorModal({
   const [savingImages, setSavingImages] = useState(false);
   const [imagesMsg, setImagesMsg] = useState<string | null>(null);
   const revokeRef = useRef<string[]>([]);
+  const dragTargetRef = useRef<"avatar" | "bg" | null>(null);
+  const nativeDragHandledRef = useRef(false);
+  const avatarZoneRef = useRef<HTMLDivElement | null>(null);
+  const bgZoneRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(
     () => () => {
@@ -181,10 +194,11 @@ export function UserEditorModal({
     async (id: number): Promise<string | null> => {
       if (!serverUrl || !id) return null;
       try {
-        const base = serverUrl.replace(/\/+$/, "");
-        const res = await authFetch(`${base}/api/media/${id}`);
-        if (!res.ok) throw new Error(`media ${id} ${res.status}`);
-        const blob = await res.blob();
+        const blob = await resolveApiMediaBlob({
+          serverUrl,
+          mediaId: id,
+          authFetch,
+        });
         const url = URL.createObjectURL(blob);
         revokeRef.current.push(url);
         return url;
@@ -230,8 +244,6 @@ export function UserEditorModal({
     bgImg.original,
   ]);
 
-  const isProbablyImageUrl = (v: string) =>
-    /^https?:\/\/.+\.(png|jpe?g|gif|webp|avif|svg)(\?.*)?$/i.test(v.trim());
   const loadFile = (
     file: File,
     target: "avatar" | "bg",
@@ -274,12 +286,89 @@ export function UserEditorModal({
   };
   const handleDrop = (e: React.DragEvent, target: "avatar" | "bg") => {
     e.preventDefault();
+    dragTargetRef.current = null;
+    // In Tauri, external drags are handled by the native onDragDropEvent
+    // listener; skip here so we don't double-load.
+    if (isTauri && nativeDragHandledRef.current) return;
     const f = e.dataTransfer.files?.[0];
-    if (f) loadFile(f, target, "drag");
+    if (f) {
+      if (isTauri) nativeDragHandledRef.current = true;
+      loadFile(f, target, "drag");
+      return;
+    }
+    // Browser image drags expose multiple URLs (page URL first, image link
+    // second) and `<img src>` in text/html — prefer the direct image link.
+    const best = pickBestImageUrl(
+      extractImageCandidatesFromDataTransfer(e.dataTransfer),
+    );
+    if (best && isProbablyImageUrl(best)) {
+      loadUrl(best, target);
+    }
   };
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = (e: React.DragEvent, target: "avatar" | "bg") => {
     e.preventDefault();
+    dragTargetRef.current = target;
+    nativeDragHandledRef.current = false;
   };
+  const loadDroppedPath = async (paths: string[], target: "avatar" | "bg") => {
+    await applyDroppedSources(paths, {
+      onUrl: (url) => loadUrl(url, target),
+      onFile: (file) => {
+        if (file.type.startsWith("image/")) loadFile(file, target, "drag");
+      },
+    });
+  };
+  const resolveDropTargetByPosition = (position: {
+    x: number;
+    y: number;
+  }): "avatar" | "bg" | null => {
+    const dpr = window.devicePixelRatio || 1;
+    const x = position.x / dpr;
+    const y = position.y / dpr;
+    for (const [ref, target] of [
+      [avatarZoneRef, "avatar"],
+      [bgZoneRef, "bg"],
+    ] as const) {
+      const el = ref.current;
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)
+        return target;
+    }
+    return null;
+  };
+  useEffect(() => {
+    if (!isTauri) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        unlisten = await getCurrentWindow().onDragDropEvent((event) => {
+          const payload = event.payload;
+          if (payload.type === "enter" || payload.type === "over") {
+            nativeDragHandledRef.current = false;
+            return;
+          }
+          if (payload.type !== "drop") return;
+          const target =
+            dragTargetRef.current ??
+            resolveDropTargetByPosition(payload.position);
+          const paths = payload.paths ?? [];
+          if (!target || !paths.length) return;
+          nativeDragHandledRef.current = true;
+          void loadDroppedPath(paths, target);
+        });
+      } catch (err) {
+        console.error("Failed to init native drag-drop listener:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTauri]);
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
   const bgFileInputRef = useRef<HTMLInputElement | null>(null);
   const imagesDirty =
@@ -292,6 +381,16 @@ export function UserEditorModal({
     if (state.file) return state.file;
     if (state.via === "url" && state.preview) {
       try {
+        if (isTauri) {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const res = (await invoke("fetch_url_bytes", {
+            url: state.preview,
+          })) as { bytes: number[]; content_type: string };
+          const bytes = new Uint8Array(res.bytes);
+          const mime = res.content_type || "image/png";
+          const ext = (mime.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+          return new File([bytes], `${fallbackName}.${ext}`, { type: mime });
+        }
         const r = await fetch(state.preview);
         if (!r.ok) throw new Error("url fetch failed");
         const b = await r.blob();
@@ -401,36 +500,16 @@ export function UserEditorModal({
   };
 
   return (
-    <Dialog open onClose={onClose} size="3xl" className="">
-      <DialogTitle className="flex items-center justify-between gap-4 pb-1">
-        <span>User Settings</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300/40 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700/60 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800"
-          aria-label="Close"
-          disabled={saving || savingImages}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            fill="none"
-          >
-            <path strokeWidth="2" strokeLinecap="round" d="M6 6 18 18" />
-            <path strokeWidth="2" strokeLinecap="round" d="M18 6 6 18" />
-          </svg>
-        </button>
-      </DialogTitle>
-      <div className="px-6 mt-1 flex gap-2 border-b border-zinc-200 dark:border-zinc-700 text-sm">
+    <Dialog open onClose={onClose} size="3xl" className="!h-[min(85vh,850px)] flex flex-col">
+      <DialogTitle>User Settings</DialogTitle>
+      <div className="px-6 mt-1 flex gap-2 border-b border-gv-line text-sm">
         <button
           onClick={() => setActiveTab("images")}
           className={
             "px-3 py-2 border-b-2 transition-colors " +
             (activeTab === "images"
-              ? "border-indigo-500 text-indigo-500"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200")
+              ? "border-gv-accent text-gv-accent"
+              : "border-transparent text-gv-muted hover:text-gv-text")
           }
         >
           Images
@@ -440,32 +519,33 @@ export function UserEditorModal({
           className={
             "px-3 py-2 border-b-2 transition-colors " +
             (activeTab === "details"
-              ? "border-indigo-500 text-indigo-500"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200")
+              ? "border-gv-accent text-gv-accent"
+              : "border-transparent text-gv-muted hover:text-gv-text")
           }
         >
           Details
         </button>
       </div>
-      {/* Added a min height so switching tabs does not visually resize the dialog */}
-      <DialogBody className="pt-4 max-h-[70vh] overflow-y-auto space-y-8 min-h-[420px]">
+      {/* Fixed panel height so switching tabs does not visually resize the dialog */}
+      <DialogBody className="pt-4 overflow-y-auto space-y-8 flex-1 min-h-0">
         {activeTab === "images" && (
           <div className="grid gap-8 md:grid-cols-2">
             {/* Avatar zone */}
             <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-gv-muted">
                 <span>Avatar</span>
                 {avatarImg.via !== "none" && (
-                  <span className="rounded-full bg-zinc-200/60 dark:bg-zinc-700/60 px-2 py-0.5 text-[10px] font-semibold">
+                  <span className="rounded-full bg-gv-panel px-2 py-0.5 text-[10px] font-semibold text-gv-muted">
                     {avatarImg.via}
                   </span>
                 )}
               </div>
               <div
+                ref={avatarZoneRef}
                 onPaste={(e) => handlePaste(e, "avatar")}
                 onDrop={(e) => handleDrop(e, "avatar")}
-                onDragOver={handleDragOver}
-                className="relative rounded-xl border border-dashed border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800/50 h-56 flex items-center justify-center cursor-pointer overflow-hidden"
+                onDragOver={(e) => handleDragOver(e, "avatar")}
+                className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                 onClick={() => avatarFileInputRef.current?.click()}
               >
                 {avatarImg.preview ? (
@@ -476,7 +556,7 @@ export function UserEditorModal({
                     draggable={false}
                   />
                 ) : (
-                  <div className="text-[11px] text-zinc-500 text-center px-4">
+                  <div className="text-xs text-gv-muted text-center px-4">
                     {avatarMediaId ? "Loading…" : "Drag & Drop / Click / Paste"}
                   </div>
                 )}
@@ -489,6 +569,13 @@ export function UserEditorModal({
                   onChange={(e) =>
                     setAvatarImg((p) => ({ ...p, urlInput: e.target.value }))
                   }
+                  onPaste={(e) => {
+                    const text = e.clipboardData?.getData("text");
+                    if (text && isProbablyImageUrl(text)) {
+                      loadUrl(text, "avatar");
+                      e.preventDefault();
+                    }
+                  }}
                 />
                 {avatarImg.preview &&
                   avatarImg.preview !== avatarImg.original && (
@@ -523,19 +610,20 @@ export function UserEditorModal({
             </div>
             {/* Background zone */}
             <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-gv-muted">
                 <span>Background</span>
                 {bgImg.via !== "none" && (
-                  <span className="rounded-full bg-zinc-200/60 dark:bg-zinc-700/60 px-2 py-0.5 text-[10px] font-semibold">
+                  <span className="rounded-full bg-gv-panel px-2 py-0.5 text-[10px] font-semibold text-gv-muted">
                     {bgImg.via}
                   </span>
                 )}
               </div>
               <div
+                ref={bgZoneRef}
                 onPaste={(e) => handlePaste(e, "bg")}
                 onDrop={(e) => handleDrop(e, "bg")}
-                onDragOver={handleDragOver}
-                className="relative rounded-xl border border-dashed border-zinc-300 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800/50 h-56 flex items-center justify-center cursor-pointer overflow-hidden"
+                onDragOver={(e) => handleDragOver(e, "bg")}
+                className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                 onClick={() => bgFileInputRef.current?.click()}
               >
                 {bgImg.preview ? (
@@ -546,7 +634,7 @@ export function UserEditorModal({
                     draggable={false}
                   />
                 ) : (
-                  <div className="text-[11px] text-zinc-500 text-center px-4">
+                  <div className="text-xs text-gv-muted text-center px-4">
                     {backgroundMediaId
                       ? "Loading…"
                       : "Drag & Drop / Click / Paste"}
@@ -561,6 +649,13 @@ export function UserEditorModal({
                   onChange={(e) =>
                     setBgImg((p) => ({ ...p, urlInput: e.target.value }))
                   }
+                  onPaste={(e) => {
+                    const text = e.clipboardData?.getData("text");
+                    if (text && isProbablyImageUrl(text)) {
+                      loadUrl(text, "bg");
+                      e.preventDefault();
+                    }
+                  }}
                 />
                 {bgImg.preview && bgImg.preview !== bgImg.original && (
                   <Button

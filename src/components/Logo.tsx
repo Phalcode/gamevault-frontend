@@ -1,4 +1,4 @@
-import useDarkMode from "use-dark-mode";
+import { useIsDark } from "@/utils/theme";
 import { SidebarItem } from "./tailwind/sidebar";
 
 type LogoVariant = "logo" | "plus" | "text" | "sidebar";
@@ -20,19 +20,23 @@ export function Logo({
   height = "h-8",
   gap = "gap-2",
 }: LogoProps) {
-  const darkMode = useDarkMode();
+  const isDark = useIsDark();
 
-  const srcText = `/logo-text-${darkMode.value ? "dark" : "light"}.svg`;
+  const srcText = `/logo-text-${isDark ? "dark" : "light"}.svg`;
 
   if (variant === "sidebar") {
     return (
       <SidebarItem href="/">
-        <img src="/logo.svg" alt={alt} className={`${height} ${className}`} />
+        <img
+          src="/logo.svg"
+          alt={alt}
+          className={`gv-logo-image ${height} ${className}`}
+        />
         <img
           key={srcText}
           src={srcText}
           alt={`${alt} text`}
-          className={`${height} ${className}`}
+          className={`gv-logo-image ${height} ${className}`}
         />
       </SidebarItem>
     );
@@ -51,6 +55,11 @@ export function Logo({
   }
 
   return (
-    <img key={src} src={src} alt={alt} className={`${height} ${className}`} />
+    <img
+      key={src}
+      src={src}
+      alt={alt}
+      className={`gv-logo-image ${height} ${className}`}
+    />
   );
 }

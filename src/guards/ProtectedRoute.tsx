@@ -1,6 +1,7 @@
 import { Navigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
 import { GamevaultUserRoleEnum } from "../api";
+import { Spinner } from "@/components/Spinner";
 
 export default function ProtectedRoute({
   children,
@@ -18,12 +19,12 @@ export default function ProtectedRoute({
     return children;
   }
 
-  if (bootstrapping) return <div className="p-6 text-center">Loading…</div>;
+  if (bootstrapping) return <Spinner label="Loading…" />;
   if (!auth) return <Navigate to="/" replace />;
 
   if (requiredRole !== undefined) {
-  const roleVal = user?.role;
-    if (roleVal == null || roleVal < requiredRole) {
+    const roleVal = Number(user?.role);
+    if (Number.isNaN(roleVal) || roleVal < Number(requiredRole)) {
       return <Navigate to="/library" replace />;
     }
   }

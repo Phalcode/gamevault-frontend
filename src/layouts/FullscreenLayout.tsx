@@ -1,4 +1,6 @@
 import { AuthLayout } from "@tw/auth-layout";
+import { PageLoader } from "@/components/PageLoader";
+import { Suspense } from "react";
 import { Outlet } from "react-router";
 import RedirectIfAuth from "../guards/RedirectIfAuth";
 
@@ -12,7 +14,9 @@ export default function FullscreenLayout({
   return (
     <RedirectIfAuth guarded={guarded}>
       <AuthLayout>
-        <Outlet />
+        <Suspense fallback={<PageLoader />}>
+          <Outlet />
+        </Suspense>
       </AuthLayout>
     </RedirectIfAuth>
   );

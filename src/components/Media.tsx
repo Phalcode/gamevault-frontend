@@ -1,5 +1,7 @@
-import { useAuth } from "@/context/AuthContext";
-import React, { useEffect, useRef, useState } from "react";
+import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
+import { useInView } from "@/hooks/useInView";
+import { GameMediaSlot } from "@/utils/mediaCache";
+import React, { useEffect, useState } from "react";
 import { Media as MediaType } from "../api";
 
 interface Props {
@@ -10,8 +12,11 @@ interface Props {
   className?: string;
   alt?: string;
   square?: boolean;
+  fit?: "contain" | "cover";
   fallback?: React.ReactNode;
   onClick?: React.MouseEventHandler;
+  gameId?: number;
+  mediaSlot?: GameMediaSlot;
 }
 
 export function Media({
@@ -22,68 +27,57 @@ export function Media({
   className,
   alt = "",
   square = false,
+  fit = "contain",
   fallback,
   onClick = () => {},
+  gameId,
+  mediaSlot,
 }: Props) {
   const imageId = media?.id;
-  const { authFetch, serverUrl } = useAuth();
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const revokeRef = useRef<string | null>(null);
-
-  useEffect(
-    () => () => {
-      if (revokeRef.current) URL.revokeObjectURL(revokeRef.current);
-    },
-    [],
+  const [stalled, setStalled] = useState(false);
+  // Only start fetching the blob when the image is near the viewport, so a
+  // long/infinite list doesn't fire a burst of requests for off-screen covers.
+  const { ref: viewRef, inView } = useInView<HTMLDivElement>();
+  const {
+    url: blobUrl,
+    error,
+    loading,
+    retryAfterDecodeError,
+  } = useAuthMediaUrl(
+    imageId,
+    gameId && mediaSlot ? { gameId, slot: mediaSlot } : undefined,
+    inView,
   );
 
   useEffect(() => {
-    if (revokeRef.current) {
-      URL.revokeObjectURL(revokeRef.current);
-      revokeRef.current = null;
-    }
-    setBlobUrl(null);
-    setError(null);
-    if (!imageId || !serverUrl) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const base = serverUrl.replace(/\/+$/, "");
-        const mediaUrl = `${base}/api/media/${imageId}`;
-        const res = await authFetch(mediaUrl);
-        if (!res.ok) throw new Error(`Media fetch failed (${res.status})`);
-        const blob = await res.blob();
-        if (cancelled) return;
-        const url = URL.createObjectURL(blob);
-        revokeRef.current = url;
-        setBlobUrl(url);
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Failed to load image");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [imageId, serverUrl, authFetch]);
+    setStalled(false);
+    if (!loading || blobUrl || error) return;
+    const stallTimer = window.setTimeout(() => {
+      setStalled(true);
+    }, 1200);
+    return () => window.clearTimeout(stallTimer);
+  }, [imageId, loading, blobUrl, error]);
 
   const dimW = (width ?? size) + "px";
   const dimH = (height ?? size) + "px";
+  const showFallback =
+    Boolean(fallback) && (!imageId || !!error || (stalled && !blobUrl));
+
   return (
     <div
+      ref={viewRef}
       className={className}
       style={{
         position: "relative",
         width: dimW,
         height: dimH,
-        borderRadius: square ? 12 : "50%",
+        borderRadius: square ? 0 : "50%",
         overflow: "hidden",
         background:
           "linear-gradient(110deg,#232230 8%,#2d2c3a 18%,#232230 33%)",
       }}
-      title={error || (imageId ? `Media ID: ${imageId}` : "No avatar")}
     >
-      {!blobUrl && !error && (
+      {imageId && !blobUrl && !error && (
         <div
           style={{
             position: "absolute",
@@ -95,7 +89,7 @@ export function Media({
           }}
         />
       )}
-      {error && (
+      {error && !fallback && (
         <div
           style={{
             position: "absolute",
@@ -116,12 +110,20 @@ export function Media({
         <img
           src={blobUrl}
           alt={alt}
-          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: fit,
+            animation: "media-fade-in 0.2s var(--ease-out)",
+          }}
+          loading="lazy"
+          decoding="async"
           draggable={false}
           onClick={onClick}
+          onError={retryAfterDecodeError}
         />
       )}
-      {fallback && !blobUrl && !error && (
+      {showFallback && (
         <div
           style={{
             position: "absolute",

@@ -50,7 +50,7 @@ const base = [
   // Basic layout
   "relative isolate flex size-4.5 items-center justify-center rounded-[0.3125rem] sm:size-4",
   // Background color + shadow applied to inset pseudo element, so shadow blends with border in light mode
-  "before:absolute before:inset-0 before:-z-10 before:rounded-[calc(0.3125rem-1px)] before:bg-white before:shadow-sm",
+  "before:absolute before:inset-0 before:-z-10 before:rounded-[calc(0.3125rem-1px)] before:bg-gv-panel before:shadow-[var(--shadow-card)]",
   // Background color when checked
   "group-data-checked:before:bg-(--checkbox-checked-bg)",
   // Background color is moved to control and shadow is removed in dark mode so hide `before` pseudo
@@ -58,13 +58,13 @@ const base = [
   // Background color applied to control in dark mode
   "dark:bg-white/5 dark:group-data-checked:bg-(--checkbox-checked-bg)",
   // Border
-  "border border-zinc-950/15 group-data-checked:border-transparent group-data-hover:group-data-checked:border-transparent group-data-hover:border-zinc-950/30 group-data-checked:bg-(--checkbox-checked-border)",
-  "dark:border-white/15 dark:group-data-checked:border-white/5 dark:group-data-hover:group-data-checked:border-white/5 dark:group-data-hover:border-white/30",
+  "border border-gv-line group-data-checked:border-transparent group-data-hover:group-data-checked:border-transparent group-data-hover:border-gv-line-strong group-data-checked:bg-(--checkbox-checked-border)",
+  "dark:border-gv-line dark:group-data-checked:border-gv-line dark:group-data-hover:group-data-checked:border-gv-line dark:group-data-hover:border-gv-line-strong",
   // Inner highlight shadow
   "after:absolute after:inset-0 after:rounded-[calc(0.3125rem-1px)] after:shadow-[inset_0_1px_--theme(--color-white/15%)]",
   "dark:after:-inset-px dark:after:hidden dark:after:rounded-[0.3125rem] dark:group-data-checked:after:block",
   // Focus ring
-  "group-data-focus:outline-2 group-data-focus:outline-offset-2 group-data-focus:outline-blue-500",
+  "group-data-focus:outline-2 group-data-focus:outline-offset-2 group-data-focus:outline-gv-accent-cool",
   // Disabled state
   "group-data-disabled:opacity-50",
   "group-data-disabled:border-zinc-950/25 group-data-disabled:bg-zinc-950/5 group-data-disabled:[--checkbox-check:var(--color-zinc-950)]/50 group-data-disabled:before:bg-transparent",
@@ -104,7 +104,7 @@ const colors = {
   sky: "[--checkbox-check:var(--color-white)] [--checkbox-checked-bg:var(--color-sky-500)] [--checkbox-checked-border:var(--color-sky-600)]/80",
   blue: "[--checkbox-check:var(--color-white)] [--checkbox-checked-bg:var(--color-blue-600)] [--checkbox-checked-border:var(--color-blue-700)]/90",
   indigo:
-    "[--checkbox-check:var(--color-white)] [--checkbox-checked-bg:var(--color-indigo-500)] [--checkbox-checked-border:var(--color-indigo-600)]/90",
+    "[--checkbox-check:var(--color-white)] [--checkbox-checked-bg:var(--color-gv-accent)] [--checkbox-checked-border:var(--color-gv-accent-strong)]/90",
   violet:
     "[--checkbox-check:var(--color-white)] [--checkbox-checked-bg:var(--color-violet-500)] [--checkbox-checked-border:var(--color-violet-600)]/90",
   purple:

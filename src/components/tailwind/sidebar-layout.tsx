@@ -3,6 +3,8 @@
 import * as Headless from "@headlessui/react";
 import React, { useState } from "react";
 import { NavbarItem } from "./navbar";
+import WindowTitlebar from "../WindowTitlebar";
+import { isTauriApp } from "@/utils/tauri";
 
 function OpenMenuIcon() {
   return (
@@ -29,18 +31,18 @@ function MobileSidebar({
     <Headless.Dialog open={open} onClose={close} className="lg:hidden">
       <Headless.DialogBackdrop
         transition
-        className="fixed inset-0 bg-black/30 transition data-closed:opacity-0 data-enter:duration-300 data-enter:ease-out data-leave:duration-200 data-leave:ease-in"
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm transition data-closed:opacity-0 data-enter:duration-300 data-enter:ease-out data-leave:duration-200 data-leave:ease-in"
       />
       <Headless.DialogPanel
         transition
-        className="fixed inset-y-0 w-full max-w-80 p-2 transition duration-300 ease-in-out data-closed:-translate-x-full"
+        className="fixed inset-y-0 w-full max-w-88 p-3 transition duration-300 ease-out data-closed:-translate-x-full"
       >
-        <div className="flex h-full flex-col rounded-lg bg-white shadow-xs ring-1 ring-zinc-950/5 dark:bg-zinc-900 dark:ring-white/10">
-          <div className="-mb-3 px-4 pt-3">
+        <div className="relative h-full">
+          <span className="absolute top-5 right-2 z-10">
             <Headless.CloseButton as={NavbarItem} aria-label="Close navigation">
               <CloseMenuIcon />
             </Headless.CloseButton>
-          </div>
+          </span>
           {children}
         </div>
       </Headless.DialogPanel>
@@ -49,44 +51,79 @@ function MobileSidebar({
 }
 
 export function SidebarLayout({
-  navbar,
+  navbar: _navbar,
   sidebar,
+  fullWidth = false,
+  fullBleed = false,
   children,
 }: React.PropsWithChildren<{
   navbar: React.ReactNode;
   sidebar: React.ReactNode;
+  fullWidth?: boolean;
+  fullBleed?: boolean;
 }>) {
   let [showSidebar, setShowSidebar] = useState(false);
 
+  // In the desktop app the custom window titlebar owns the top edge, so the
+  // dashboard and sidebar should sit flush against it (no top margin).
+  const hasTitlebar = isTauriApp();
+
+  const mainClassName =
+    "flex min-h-0 flex-1 flex-col lg:min-w-0 lg:pb-4 lg:pl-72 lg:pr-4" +
+    (hasTitlebar ? "" : " lg:pt-4");
+  const contentClassName = fullBleed
+    ? "surface-shell flex min-h-0 grow flex-col overflow-hidden max-lg:overflow-visible max-lg:rounded-none max-lg:border-0 max-lg:shadow-none lg:rounded-[1.75rem]"
+    : "surface-shell flex min-h-0 grow flex-col overflow-hidden max-lg:overflow-visible max-lg:rounded-none max-lg:border-0 max-lg:shadow-none lg:rounded-[1.75rem] lg:p-3";
+  const scrollAreaClassName = fullBleed
+    ? "min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+    : "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-5 sm:py-6 lg:px-8 lg:py-8";
+
   return (
-    <div className="relative isolate flex min-h-svh w-full bg-white max-lg:flex-col lg:bg-zinc-100 dark:bg-zinc-900 dark:lg:bg-zinc-950">
-      {/* Sidebar on desktop */}
-      <div className="fixed inset-y-0 left-0 w-64 max-lg:hidden">{sidebar}</div>
-
-      {/* Sidebar on mobile */}
-      <MobileSidebar open={showSidebar} close={() => setShowSidebar(false)}>
-        {sidebar}
-      </MobileSidebar>
-
-      {/* Navbar on mobile */}
-      <header className="flex items-center px-4 lg:hidden">
-        <div className="py-2.5">
-          <NavbarItem
-            onClick={() => setShowSidebar(true)}
-            aria-label="Open navigation"
-          >
-            <OpenMenuIcon />
-          </NavbarItem>
+    <div className="flex h-full min-h-0 w-full flex-col bg-gv-bg text-gv-text">
+      <WindowTitlebar />
+      <div className="relative isolate flex min-h-0 flex-1 w-full max-lg:flex-col">
+        {/* Sidebar on desktop */}
+        <div
+          className={
+            "absolute inset-y-0 left-0 z-20 w-72 max-lg:hidden " +
+            (hasTitlebar ? "px-4 pb-4" : "p-4")
+          }
+        >
+          {sidebar}
         </div>
-        <div className="min-w-0 flex-1">{navbar}</div>
-      </header>
 
-      {/* Content */}
-      <main className="flex flex-1 flex-col pb-2 lg:min-w-0 lg:pt-2 lg:pr-2 lg:pl-64">
-        <div className="grow p-6 lg:rounded-lg lg:bg-white lg:p-10 lg:shadow-xs lg:ring-1 lg:ring-zinc-950/5 dark:lg:bg-zinc-900 dark:lg:ring-white/10">
-          <div className="mx-auto max-w-6xl h-full">{children}</div>
-        </div>
-      </main>
+        {/* Sidebar on mobile */}
+        <MobileSidebar open={showSidebar} close={() => setShowSidebar(false)}>
+          {sidebar}
+        </MobileSidebar>
+
+        {/* Navbar on mobile — hamburger only; full nav (incl. logo) is in the slide-out sidebar */}
+        <header className="sticky top-0 z-30 flex items-center gap-3 bg-gv-shell/90 px-3 backdrop-blur-xl lg:hidden">
+          <div className="py-3">
+            <NavbarItem
+              onClick={() => setShowSidebar(true)}
+              aria-label="Open navigation"
+            >
+              <OpenMenuIcon />
+            </NavbarItem>
+          </div>
+        </header>
+
+        {/* Content */}
+        <main className={mainClassName}>
+          <div className={contentClassName}>
+            <div className={scrollAreaClassName} data-scroll-container="">
+              <div
+                className={
+                  fullWidth ? "h-full w-full" : "mx-auto min-h-full max-w-7xl"
+                }
+              >
+                {children}
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

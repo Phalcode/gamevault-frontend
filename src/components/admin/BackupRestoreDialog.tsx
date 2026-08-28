@@ -200,13 +200,13 @@ export function BackupRestoreDialog({ onClose }: BackupRestoreDialogProps) {
   const [tab, setTab] = useState<TabKey>("backup");
 
   return (
-    <Dialog open onClose={onClose} size="3xl">
+    <Dialog open onClose={onClose} size="3xl" className="!h-[min(70vh,650px)] flex flex-col">
       <DialogTitle className="flex items-center justify-between gap-4 pb-1">
         <span>Backup & Restore Database</span>
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300/40 text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700/60 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gv-line text-gv-muted hover:text-gv-text hover:bg-gv-panel-soft"
           aria-label="Close"
         >
           <svg
@@ -221,14 +221,14 @@ export function BackupRestoreDialog({ onClose }: BackupRestoreDialogProps) {
           </svg>
         </button>
       </DialogTitle>
-      <div className="px-6 mt-1 flex gap-2 border-b border-zinc-200 dark:border-zinc-700 text-sm">
+      <div className="px-6 mt-1 flex gap-2 border-b border-gv-line text-sm">
         <button
           onClick={() => setTab("backup")}
           className={
             "px-3 py-2 border-b-2 transition-colors " +
             (tab === "backup"
-              ? "border-indigo-500 text-indigo-500"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200")
+              ? "border-gv-accent text-gv-accent"
+              : "border-transparent text-gv-muted hover:text-gv-text")
           }
         >
           Backup
@@ -238,14 +238,14 @@ export function BackupRestoreDialog({ onClose }: BackupRestoreDialogProps) {
           className={
             "px-3 py-2 border-b-2 transition-colors " +
             (tab === "restore"
-              ? "border-indigo-500 text-indigo-500"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200")
+              ? "border-gv-accent text-gv-accent"
+              : "border-transparent text-gv-muted hover:text-gv-text")
           }
         >
           Restore
         </button>
       </div>
-      <DialogBody className="pt-4 max-h-[70vh] overflow-y-auto min-h-[200px]">
+      <DialogBody className="pt-4 overflow-y-auto flex-1 min-h-0">
         {tab === "backup" ? <Backup /> : <Restore />}
       </DialogBody>
     </Dialog>

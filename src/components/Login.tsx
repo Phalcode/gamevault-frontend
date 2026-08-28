@@ -1,4 +1,13 @@
 import { useAuth } from "@/context/AuthContext";
+import {
+  AUTH_SERVER_STORAGE_KEY,
+  DEMO_PASSWORD,
+  DEMO_SERVER_URL,
+  DEMO_USERNAME,
+  detectBackendServedWebUi,
+  getDevAutologinConfig,
+  normalizeServerUrl,
+} from "@/utils/authConfig";
 import { Logo } from "@components/Logo";
 import { Button } from "@tw/button";
 import { Checkbox, CheckboxField } from "@tw/checkbox";
@@ -6,22 +15,41 @@ import { Field, Label } from "@tw/fieldset";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Strong, Text, TextLink } from "@tw/text";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { useNavigate } from "react-router";
-import ThemeSwitch from "./ThemeSwitch";
 import { Status } from "../api";
+import { applyTheme, getStoredTheme } from "@/utils/theme";
 
 export function Login() {
   const { loginBasic, loginWithTokens, loading, error } = useAuth();
   const navigate = useNavigate();
-  const [server, setServer] = useState(window.location.origin);
-  const [confirmedServer, setConfirmedServer] = useState<string | null>(null);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const devAutologin = getDevAutologinConfig();
+  const [server, setServer] = useState(() => {
+    return (
+      localStorage.getItem(AUTH_SERVER_STORAGE_KEY) ||
+      devAutologin?.server ||
+      DEMO_SERVER_URL
+    );
+  });
+  const [confirmedServer, setConfirmedServer] = useState<string | null>(() => {
+    const initialServer =
+      localStorage.getItem(AUTH_SERVER_STORAGE_KEY) || devAutologin?.server;
+    return initialServer ? normalizeServerUrl(initialServer) : null;
+  });
+  const [username, setUsername] = useState(() => devAutologin?.username || "");
+  const [password, setPassword] = useState(() => devAutologin?.password || "");
   const [useSso, setUseSso] = useState(false);
   const [serverStatus, setServerStatus] = useState<Status | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusError, setStatusError] = useState(false);
+  const [backendServed, setBackendServed] = useState(false);
+
+  // Force device theme on login page; restore stored preference on leave
+  useEffect(() => {
+    const stored = getStoredTheme();
+    applyTheme("system");
+    return () => applyTheme(stored);
+  }, []);
 
   const basicAuthAvailable =
     serverStatus?.available_authentication_methods?.includes("basic") ?? true;
@@ -42,17 +70,30 @@ export function Login() {
     }
   }, [confirmedServer]);
 
-  const normalizeServer = useCallback((raw: string) => {
-    if (!raw) return raw;
-    let s = raw.trim();
-    // If user omitted protocol, assume https
-    if (!/^https?:\/\//i.test(s)) {
-      s = `https://${s}`;
-    }
-    // Remove trailing slashes
-    s = s.replace(/\/+$/, "");
-    return s;
+  useEffect(() => {
+    let cancelled = false;
+    detectBackendServedWebUi().then((served) => {
+      if (cancelled) return;
+      setBackendServed(served);
+      if (served) {
+        const origin = window.location.origin;
+        setServer(origin);
+        setConfirmedServer(normalizeServerUrl(origin));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    // Prefill demo credentials when the demo server is selected.
+    if (!confirmedServer) return;
+    if (normalizeServerUrl(confirmedServer) === DEMO_SERVER_URL) {
+      setUsername((u) => (u ? u : DEMO_USERNAME));
+      setPassword((p) => (p ? p : DEMO_PASSWORD));
+    }
+  }, [confirmedServer]);
 
   useEffect(() => {
     if (!confirmedServer) {
@@ -60,7 +101,7 @@ export function Login() {
       setStatusError(false);
       return;
     }
-    const normalized = normalizeServer(confirmedServer);
+    const normalized = normalizeServerUrl(confirmedServer);
     if (!normalized) {
       setServerStatus(null);
       return;
@@ -98,7 +139,7 @@ export function Login() {
     return () => {
       controller.abort();
     };
-  }, [confirmedServer, normalizeServer]);
+  }, [confirmedServer]);
 
   useEffect(() => {
     if (serverStatus) {
@@ -154,11 +195,10 @@ export function Login() {
     }
   }, [loginWithTokens, navigate]);
 
-  const handleContinue = (e: React.FormEvent) => {
+  const handleContinue = (e: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
     e.preventDefault();
     if (!server.trim()) return;
-    let normalized = server.trim();
-    if (!/^https?:\/\//i.test(normalized)) normalized = `https://${normalized}`;
+    const normalized = normalizeServerUrl(server);
     setServer(normalized);
     setConfirmedServer(normalized);
   };
@@ -168,10 +208,10 @@ export function Login() {
     setServerStatus(null);
   };
 
-  const onSubmit = async (e: FormEvent) => {
+  const onSubmit = async (e: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
     e.preventDefault();
     try {
-      const normalized = normalizeServer(confirmedServer || server);
+      const normalized = normalizeServerUrl(confirmedServer || server);
       if (useSso) {
         window.location.href = `${normalized}/api/auth/oauth2/login`;
         return;
@@ -221,15 +261,20 @@ export function Login() {
     <form
       onSubmit={confirmedServer ? onSubmit : handleContinue}
       onKeyDown={handleTrapKey}
-      className="grid w-full max-w-sm grid-cols-1 gap-8"
+      className="grid w-full max-w-sm grid-cols-1 gap-6"
     >
       <div tabIndex={-1} aria-hidden="true">
         <Logo variant="text" className="w-full" height="h-full" />
       </div>
-      <Heading tabIndex={-1}>Sign in to your account</Heading>
+      <div className="space-y-3">
+        <Heading tabIndex={-1}>Sign in to your account</Heading>
+        <Text>
+          Connect to your GameVault node, then enter with local auth or SSO.
+        </Text>
+      </div>
 
-      {!confirmedServer && (
-        <>
+      {!confirmedServer && !backendServed && (
+        <div className="grid grid-cols-1 gap-6 animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none">
           <Field>
             <Label>Server</Label>
             <Input
@@ -249,11 +294,11 @@ export function Login() {
           <Button type="submit" className="w-full">
             Continue
           </Button>
-        </>
+        </div>
       )}
 
       {confirmedServer && (
-        <>
+        <div className="grid grid-cols-1 gap-6 animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none">
           <Field>
             <Label>Server</Label>
             <div data-slot="control" className="flex gap-2">
@@ -263,13 +308,16 @@ export function Login() {
                 disabled
                 className="flex-1"
               />
-              <Button
-                type="button"
-                onClick={handleChangeServer}
-                className="shrink-0 bg-gray-200 text-gray-800 hover:bg-gray-300"
-              >
-                Change
-              </Button>
+              {!backendServed && (
+                <Button
+                  type="button"
+                  outline
+                  onClick={handleChangeServer}
+                  className="shrink-0"
+                >
+                  Change
+                </Button>
+              )}
             </div>
           </Field>
 
@@ -328,12 +376,19 @@ export function Login() {
                 </CheckboxField>
               )}
               {noAuthAvailable && (
-                <div className="text-sm text-rose-500" role="alert">
-                  No authentication methods are currently available on this server.
+                <div
+                  className="rounded-2xl bg-rose-500/10 px-3 py-2 text-sm text-rose-500"
+                  role="alert"
+                >
+                  No authentication methods are currently available on this
+                  server.
                 </div>
               )}
               {error && (
-                <div className="text-sm text-red-500 -mt-4" role="alert">
+                <div
+                  className="-mt-2 rounded-2xl bg-red-500/10 px-3 py-2 text-sm text-red-500"
+                  role="alert"
+                >
                   {error}
                 </div>
               )}
@@ -356,7 +411,7 @@ export function Login() {
               )}
             </>
           )}
-        </>
+        </div>
       )}
 
       <Text tabIndex={-1} aria-hidden="true">
@@ -365,9 +420,6 @@ export function Login() {
           <Strong>Sign up</Strong>
         </TextLink>
       </Text>
-      <div tabIndex={-1} aria-hidden="true">
-        <ThemeSwitch />
-      </div>
     </form>
   );
 }

@@ -2,11 +2,15 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
 } from "react";
+import { AnimatePresence } from "motion/react";
 import { Alert, AlertTitle, AlertDescription, AlertActions } from "@tw/alert";
 import { Button } from "@tw/button";
+import { Toast, type ToastTone } from "@tw/toast";
+import { isTauriApp } from "@/utils/tauri";
 
 // Shape of a queued alert request
 export interface AlertDialogRequest {
@@ -15,6 +19,7 @@ export interface AlertDialogRequest {
   description?: string;
   affirmativeText?: string;
   negativeText?: string;
+  tone?: ToastTone;
   resolve: (value: boolean) => void;
 }
 
@@ -24,6 +29,7 @@ interface AlertDialogContextValue {
     description?: string;
     affirmativeText?: string;
     negativeText?: string;
+    tone?: ToastTone;
   }) => Promise<boolean>;
 }
 
@@ -57,7 +63,7 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
     const next = queueRef.current.shift() || null;
     activeRef.current = next;
     forceRerender({});
-    
+
     // Auto-close after 4 seconds for toast notifications only
     if (next && !next.description && !next.negativeText) {
       if (autoCloseTimerRef.current) {
@@ -71,22 +77,31 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-  const handleClose = useCallback((result: boolean) => {
-    if (activeRef.current) {
-      activeRef.current.resolve(result);
-      activeRef.current = null;
-      if (autoCloseTimerRef.current) {
-        window.clearTimeout(autoCloseTimerRef.current);
-        autoCloseTimerRef.current = null;
+  const handleClose = useCallback(
+    (result: boolean) => {
+      if (activeRef.current) {
+        activeRef.current.resolve(result);
+        activeRef.current = null;
+        if (autoCloseTimerRef.current) {
+          window.clearTimeout(autoCloseTimerRef.current);
+          autoCloseTimerRef.current = null;
+        }
+        forceRerender({});
+        // small timeout ensures state commit before pulling next
+        setTimeout(() => dequeue(), 0);
       }
-      forceRerender({});
-      // small timeout ensures state commit before pulling next
-      setTimeout(() => dequeue(), 0);
-    }
-  }, [dequeue]);
+    },
+    [dequeue],
+  );
 
   const showAlert = useCallback<AlertDialogContextValue["showAlert"]>(
-    ({ title, description, affirmativeText = "Confirm", negativeText }) => {
+    ({
+      title,
+      description,
+      affirmativeText = "Confirm",
+      negativeText,
+      tone,
+    }) => {
       return new Promise<boolean>((resolve) => {
         const request: AlertDialogRequest = {
           id: ++idRef.current,
@@ -94,6 +109,7 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
           description,
           affirmativeText,
           negativeText,
+          tone,
           resolve,
         };
         queueRef.current.push(request);
@@ -106,23 +122,27 @@ export const AlertDialogProvider: React.FC<{ children: React.ReactNode }> = ({
   const value: AlertDialogContextValue = { showAlert };
 
   const active = activeRef.current;
-  
+
   // Use modal variant for confirmation dialogs (with description/negativeText), toast for simple notifications
-  const isConfirmationDialog = active && (active.description || active.negativeText);
+  const isConfirmationDialog =
+    active && (active.description || active.negativeText);
   const variant = isConfirmationDialog ? "modal" : "toast";
 
   return (
     <AlertDialogContext.Provider value={value}>
       {children}
       {variant === "toast" ? (
-        // Toast notifications - render without Dialog to avoid blocking interactions
-        active && (
-          <div className="fixed top-4 right-4 z-50 w-[220px] sm:w-auto rounded-md bg-white px-4 py-2 shadow-lg ring-1 ring-zinc-950/10 text-sm flex items-center gap-2 dark:bg-zinc-900 dark:ring-white/10 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-150">
-            <div className="font-semibold text-zinc-950 dark:text-white">
-              {active.title}
-            </div>
-          </div>
-        )
+        // Toast notifications - render outside Dialog to avoid blocking interactions
+        <AnimatePresence>
+          {active && (
+            <Toast
+              tone={active.tone}
+              title={active.title}
+              description={active.description}
+              onDismiss={() => handleClose(true)}
+            />
+          )}
+        </AnimatePresence>
       ) : (
         // Modal dialogs - use Alert component
         <Alert
@@ -169,6 +189,39 @@ export const GlobalAlertDialogBridge: React.FC = () => {
   const { showAlert } = useAlertDialog();
   // Assign once per render (idempotent)
   window.showAlertDialog = showAlert;
+
+  // Surface game launch failures captured in the Tauri backend (a game that
+  // exits immediately with console output, e.g. a missing prerequisite) as a
+  // clear error dialog instead of silently doing nothing.
+  useEffect(() => {
+    if (!isTauriApp()) return;
+    let unlisten: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        unlisten = await listen<{
+          gameTitle: string;
+          exitCode?: number | null;
+          message: string;
+        }>("game-launch-failed", (event) => {
+          const { gameTitle, message } = event.payload;
+          showAlert({
+            title: `Failed to launch "${gameTitle}"`,
+            description: message,
+            affirmativeText: "OK",
+          });
+        });
+      } catch {
+        // Non-Tauri environments won't have the IPC bridge; ignore.
+      }
+    })();
+
+    return () => {
+      unlisten?.();
+    };
+  }, [showAlert]);
+
   return null;
 };
 
