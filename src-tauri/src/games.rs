@@ -651,20 +651,24 @@ fn restore_main_window(app: &tauri::AppHandle) {
 /// can wait on even across the UAC elevation boundary.
 #[cfg(windows)]
 fn spawn_admin_launch_monitor(app: tauri::AppHandle, handle: winapi::um::winnt::HANDLE) {
-  use std::os::windows::io::FromRawHandle;
+  use std::os::windows::io::{AsRawHandle, FromRawHandle};
+
+  // Take ownership of the raw process handle up front: `OwnedHandle` is
+  // `Send`, so it can cross into the spawned thread (raw pointers cannot),
+  // and it closes the handle once the monitor thread is done with it.
+  let owned = unsafe {
+    std::os::windows::io::OwnedHandle::from_raw_handle(handle as std::os::windows::io::RawHandle)
+  };
 
   thread::spawn(move || {
-    // Own the handle so it is closed when the thread is done watching.
-    let _owned =
-      unsafe { std::os::windows::io::OwnedHandle::from_raw_handle(handle as std::os::windows::io::RawHandle) };
-
     // This monitor is only spawned when "minimize on launch" is enabled, so
     // hide the window up front and restore it once the game quits.
     hide_main_window(&app);
 
     // Poll until the elevated process exits.
     loop {
-      let wait = unsafe { winapi::um::synchapi::WaitForSingleObject(handle, 200) };
+      let wait =
+        unsafe { winapi::um::synchapi::WaitForSingleObject(owned.as_raw_handle() as winapi::um::winnt::HANDLE, 200) };
       if wait != winapi::shared::winerror::WAIT_TIMEOUT {
         break;
       }
