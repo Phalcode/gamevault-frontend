@@ -68,6 +68,7 @@ import {
 
 const RETAIN_KEY = "app_retain_library_prefs";
 const AUTOSTART_MINIMIZED_KEY = "tauri_start_minimized";
+const MINIMIZE_ON_GAME_LAUNCH_KEY = "tauri_minimize_on_game_launch";
 const AUTO_EXTRACT_KEY = "tauri_auto_extract";
 const AUTO_INSTALL_KEY = "tauri_auto_install";
 const AUTO_DELETE_SOURCE_KEY = "tauri_auto_delete_source";
@@ -368,6 +369,15 @@ export default function Settings() {
       return false;
     }
   });
+  const [minimizeOnGameLaunch, setMinimizeOnGameLaunch] = useState<boolean>(
+    () => {
+      try {
+        return localStorage.getItem(MINIMIZE_ON_GAME_LAUNCH_KEY) === "1";
+      } catch {
+        return false;
+      }
+    },
+  );
   const [autoExtract, setAutoExtract] = useState<boolean>(() => {
     try {
       return localStorage.getItem(AUTO_EXTRACT_KEY) === "1";
@@ -483,6 +493,33 @@ export default function Settings() {
       console.warn("Failed to persist start minimized preference");
     }
   }, [startMinimized]);
+
+  // Sync minimizeOnGameLaunch to the Rust backend config file
+  useEffect(() => {
+    if (!isTauri) return;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("set_minimize_on_game_launch", {
+          minimizeOnLaunch: minimizeOnGameLaunch,
+        });
+      } catch (e) {
+        console.error("Failed to sync minimize on game launch preference:", e);
+      }
+    })();
+  }, [minimizeOnGameLaunch, isTauri]);
+
+  // Persist minimizeOnGameLaunch to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        MINIMIZE_ON_GAME_LAUNCH_KEY,
+        minimizeOnGameLaunch ? "1" : "0",
+      );
+    } catch {
+      console.warn("Failed to persist minimize on game launch preference");
+    }
+  }, [minimizeOnGameLaunch]);
 
   // Persist auto-flow settings to localStorage
   useEffect(() => {
@@ -1227,6 +1264,22 @@ export default function Settings() {
                           checked={startMinimized}
                           disabled={!autostartEnabled}
                           onChange={(v: boolean) => setStartMinimized(v)}
+                        />
+                      </SettingsRow>
+                    </SettingsGroup>
+
+                    <SettingsGroup caption="When playing">
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Minimize GameVault when launching a game"
+                          description="Hide GameVault to the system tray while a game is running and bring it back when the game quits."
+                        />
+                        <Switch
+                          name="minimizeOnGameLaunch"
+                          color="indigo"
+                          aria-label="Minimize GameVault when launching a game"
+                          checked={minimizeOnGameLaunch}
+                          onChange={(v: boolean) => setMinimizeOnGameLaunch(v)}
                         />
                       </SettingsRow>
                     </SettingsGroup>

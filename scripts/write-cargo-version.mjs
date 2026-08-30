@@ -23,7 +23,15 @@ const nextPackageSection = packageSection.replace(
   `$1${version}$2`,
 );
 
+const currentVersion = packageSection.match(/^version\s*=\s*"([^"]*)"/m)?.[1];
+
 if (packageSection === nextPackageSection) {
+  if (currentVersion === version) {
+    console.log(
+      `Cargo package version is already ${version}; nothing to update.`,
+    );
+    process.exit(0);
+  }
   throw new Error(`Could not update package version in ${cargoTomlPath}.`);
 }
 

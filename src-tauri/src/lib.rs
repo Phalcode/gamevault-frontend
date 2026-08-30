@@ -436,6 +436,8 @@ pub fn run() {
       time_tracker::sync_offline_time,
       settings::get_start_minimized,
       settings::set_start_minimized,
+      settings::get_minimize_on_game_launch,
+      settings::set_minimize_on_game_launch,
       settings::get_ignore_list,
       settings::set_ignore_list,
       is_updater_enabled,

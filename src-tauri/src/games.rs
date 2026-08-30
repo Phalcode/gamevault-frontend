@@ -7,6 +7,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
+use tauri::Manager;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -437,34 +438,12 @@ pub(crate) fn launch_game(
   }
 
   let working_dir = exe_path.parent().unwrap_or(&root);
+  let restore_on_exit = load_settings(&app).minimize_on_game_launch;
 
   #[cfg(windows)]
   if run_as_admin.unwrap_or(false) {
-    use std::os::windows::ffi::OsStrExt;
-    use std::ffi::OsStr;
-
-    let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(std::iter::once(0)).collect();
-    let file: Vec<u16> = exe_path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
     let params_str = launch_parameters.as_deref().unwrap_or("");
-    let params_w: Vec<u16> = OsStr::new(params_str).encode_wide().chain(std::iter::once(0)).collect();
-    let dir_str = working_dir.as_os_str();
-    let dir_w: Vec<u16> = dir_str.encode_wide().chain(std::iter::once(0)).collect();
-
-    let result = unsafe {
-      winapi::um::shellapi::ShellExecuteW(
-        std::ptr::null_mut(),
-        verb.as_ptr(),
-        file.as_ptr(),
-        params_w.as_ptr(),
-        dir_w.as_ptr(),
-        winapi::um::winuser::SW_SHOWNORMAL,
-      )
-    };
-
-    if (result as isize) <= 32 {
-      return Err(format!("Failed to launch game as admin (ShellExecute error code: {})", result as isize));
-    }
-    return Ok(());
+    return launch_windows_admin(app, &exe_path, &working_dir, Some(params_str), restore_on_exit);
   }
 
   // Linux has no UAC equivalent; elevate via polkit's pkexec (graphical auth
@@ -501,6 +480,7 @@ pub(crate) fn launch_game(
           out_path,
           err_path,
           ADMIN_LAUNCH_GRACE,
+          restore_on_exit,
         );
         return Ok(());
       }
@@ -529,6 +509,7 @@ pub(crate) fn launch_game(
           out_path,
           err_path,
           ADMIN_LAUNCH_GRACE,
+          restore_on_exit,
         );
         Ok(())
       }
@@ -581,38 +562,23 @@ pub(crate) fn launch_game(
 
   match command.spawn() {
     Ok(child) => {
-      spawn_launch_monitor(app, game_title, child, out_path, err_path, LAUNCH_GRACE);
+      spawn_launch_monitor(
+        app,
+        game_title,
+        child,
+        out_path,
+        err_path,
+        LAUNCH_GRACE,
+        restore_on_exit,
+      );
       Ok(())
     }
     #[cfg(windows)]
     Err(ref e) if e.raw_os_error() == Some(740) => {
       let _ = fs::remove_file(&out_path);
       let _ = fs::remove_file(&err_path);
-      use std::os::windows::ffi::OsStrExt;
-      use std::ffi::OsStr;
-
-      let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(std::iter::once(0)).collect();
-      let file: Vec<u16> = exe_path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
       let params_str = launch_parameters.as_deref().unwrap_or("");
-      let params_w: Vec<u16> = OsStr::new(params_str).encode_wide().chain(std::iter::once(0)).collect();
-      let dir_str = working_dir.as_os_str();
-      let dir_w: Vec<u16> = dir_str.encode_wide().chain(std::iter::once(0)).collect();
-
-      let result = unsafe {
-        winapi::um::shellapi::ShellExecuteW(
-          std::ptr::null_mut(),
-          verb.as_ptr(),
-          file.as_ptr(),
-          params_w.as_ptr(),
-          dir_w.as_ptr(),
-          winapi::um::winuser::SW_SHOWNORMAL,
-        )
-      };
-
-      if (result as isize) <= 32 {
-        return Err(format!("Failed to launch game as admin (ShellExecute error code: {})", result as isize));
-      }
-      Ok(())
+      launch_windows_admin(app, &exe_path, &working_dir, Some(params_str), restore_on_exit)
     }
     Err(e) => {
       let _ = fs::remove_file(&out_path);
@@ -665,6 +631,96 @@ fn format_launch_output(stderr: &str, stdout: &str) -> String {
   }
 }
 
+fn hide_main_window(app: &tauri::AppHandle) {
+  if let Some(window) = app.get_webview_window("main") {
+    let _ = window.hide();
+  }
+}
+
+fn restore_main_window(app: &tauri::AppHandle) {
+  if let Some(window) = app.get_webview_window("main") {
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+  }
+}
+
+/// Watches an elevated Windows game process (launched via UAC) so we can
+/// restore the gamevault window once the game quits. `ShellExecuteExW` with
+/// `SEE_MASK_NOCLOSEPROCESS` hands us a handle to the elevated process that we
+/// can wait on even across the UAC elevation boundary.
+#[cfg(windows)]
+fn spawn_admin_launch_monitor(app: tauri::AppHandle, handle: winapi::um::winnt::HANDLE) {
+  use std::os::windows::io::FromRawHandle;
+
+  thread::spawn(move || {
+    // Own the handle so it is closed when the thread is done watching.
+    let _owned =
+      unsafe { std::os::windows::io::OwnedHandle::from_raw_handle(handle as std::os::windows::io::RawHandle) };
+
+    // This monitor is only spawned when "minimize on launch" is enabled, so
+    // hide the window up front and restore it once the game quits.
+    hide_main_window(&app);
+
+    // Poll until the elevated process exits.
+    loop {
+      let wait = unsafe { winapi::um::synchapi::WaitForSingleObject(handle, 200) };
+      if wait != winapi::um::winnt::WAIT_TIMEOUT {
+        break;
+      }
+    }
+
+    restore_main_window(&app);
+  });
+}
+
+/// Launches a game elevated on Windows via UAC and, when the "minimize on
+/// launch" setting is enabled, keeps a handle to the process so the gamevault
+/// window can be restored when the game quits.
+#[cfg(windows)]
+fn launch_windows_admin(
+  app: tauri::AppHandle,
+  exe_path: &Path,
+  working_dir: &Path,
+  launch_parameters: Option<&str>,
+  restore_on_exit: bool,
+) -> Result<(), String> {
+  use std::ffi::OsStr;
+  use std::os::windows::ffi::OsStrExt;
+  use winapi::um::shellapi::{ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_NOCLOSEPROCESS};
+
+  let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(std::iter::once(0)).collect();
+  let file: Vec<u16> = exe_path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+  let params_str = launch_parameters.unwrap_or("");
+  let params_w: Vec<u16> = OsStr::new(params_str).encode_wide().chain(std::iter::once(0)).collect();
+  let dir_w: Vec<u16> = working_dir.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+
+  let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+  info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+  info.fMask = SEE_MASK_NOCLOSEPROCESS;
+  info.lpVerb = verb.as_ptr();
+  info.lpFile = file.as_ptr();
+  info.lpParameters = params_w.as_ptr();
+  info.lpDirectory = dir_w.as_ptr();
+  info.nShow = winapi::um::winuser::SW_SHOWNORMAL;
+
+  let ok = unsafe { ShellExecuteExW(&mut info) };
+  if ok == 0 {
+    // `hInstApp` holds the error code when the call fails.
+    return Err(format!(
+      "Failed to launch game as admin (ShellExecute error code: {})",
+      info.hInstApp as isize
+    ));
+  }
+
+  if restore_on_exit {
+    spawn_admin_launch_monitor(app, info.hProcess);
+  } else {
+    unsafe { winapi::um::handleapi::CloseHandle(info.hProcess) };
+  }
+  Ok(())
+}
+
 fn spawn_launch_monitor(
   app: tauri::AppHandle,
   game_title: String,
@@ -672,8 +728,15 @@ fn spawn_launch_monitor(
   out_path: PathBuf,
   err_path: PathBuf,
   grace: Duration,
+  restore_on_exit: bool,
 ) {
   thread::spawn(move || {
+    // When the user has enabled "minimize on launch", tuck the gamevault
+    // window away while the game runs and bring it back once it quits.
+    if restore_on_exit {
+      hide_main_window(&app);
+    }
+
     let start = Instant::now();
 
     let status = loop {
@@ -682,14 +745,19 @@ fn spawn_launch_monitor(
         Ok(None) => {
           if start.elapsed() >= grace {
             // Still running after the grace window — treat the launch as
-            // successful and stop watching; the process is already detached.
-            clean_up_launch_logs(&out_path, &err_path);
-            return;
+            // successful. If we are restoring on exit, keep watching until
+            // the process actually quits so we can bring the window back;
+            // otherwise stop watching (the process is already detached).
+            if !restore_on_exit {
+              clean_up_launch_logs(&out_path, &err_path);
+              return;
+            }
           }
           thread::sleep(Duration::from_millis(50));
         }
         Err(_) => {
           clean_up_launch_logs(&out_path, &err_path);
+          restore_main_window(&app);
           return;
         }
       }
@@ -701,6 +769,10 @@ fn spawn_launch_monitor(
 
     let exit_code = status.code();
     let message = format_launch_output(&stderr, &stdout);
+
+    // Restore the window regardless of whether the game exited cleanly, so
+    // the user is never left with a hidden gamevault window.
+    restore_main_window(&app);
 
     // An immediate exit with console output (or a non-zero exit code) almost
     // always means the game failed to start (e.g. a missing prerequisite).

@@ -8,6 +8,8 @@ pub(crate) struct AppSettings {
   #[serde(default)]
   pub start_minimized: bool,
   #[serde(default)]
+  pub minimize_on_game_launch: bool,
+  #[serde(default)]
   pub ignored_executables: Vec<String>,
   #[serde(default)]
   pub ignore_list_initialized: bool,
@@ -53,6 +55,21 @@ pub(crate) fn get_start_minimized(app: tauri::AppHandle) -> bool {
 pub(crate) fn set_start_minimized(app: tauri::AppHandle, minimized: bool) -> Result<(), String> {
   let mut settings = load_settings(&app);
   settings.start_minimized = minimized;
+  save_settings(&app, &settings)
+}
+
+#[tauri::command]
+pub(crate) fn get_minimize_on_game_launch(app: tauri::AppHandle) -> bool {
+  load_settings(&app).minimize_on_game_launch
+}
+
+#[tauri::command]
+pub(crate) fn set_minimize_on_game_launch(
+  app: tauri::AppHandle,
+  minimize_on_launch: bool,
+) -> Result<(), String> {
+  let mut settings = load_settings(&app);
+  settings.minimize_on_game_launch = minimize_on_launch;
   save_settings(&app, &settings)
 }
 

@@ -25,7 +25,6 @@ jobs:
       build_commit: ${{ steps.build-info.outputs.build_commit }}
       build_id: ${{ steps.build-info.outputs.build_id }}
       release_ref: ${{ steps.build-info.outputs.release_ref }}
-      upload_url: ${{ steps.release.outputs.upload_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,18 +83,12 @@ jobs:
       - name: Create Github Tag & Release
         id: release
         if: github.ref == 'refs/heads/master'
-        uses: CupOfTea696/gh-action-auto-release@v1.0.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Release Artifact
-        if: github.ref == 'refs/heads/master'
-        uses: actions/upload-release-asset@v1
+        uses: softprops/action-gh-release@v2
         with:
-          asset_path: gamevault-frontend.zip
-          asset_name: gamevault-frontend.zip
-          asset_content_type: application/zip
-          upload_url: ${{ steps.release.outputs.upload_url }}
+          tag_name: ${{ steps.package-version.outputs.current-version }}
+          name: Version ${{ steps.package-version.outputs.current-version }}
+          generate_release_notes: true
+          files: gamevault-frontend.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
