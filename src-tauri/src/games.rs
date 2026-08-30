@@ -665,7 +665,7 @@ fn spawn_admin_launch_monitor(app: tauri::AppHandle, handle: winapi::um::winnt::
     // Poll until the elevated process exits.
     loop {
       let wait = unsafe { winapi::um::synchapi::WaitForSingleObject(handle, 200) };
-      if wait != winapi::um::winnt::WAIT_TIMEOUT {
+      if wait != winapi::um::winbase::WAIT_TIMEOUT {
         break;
       }
     }
