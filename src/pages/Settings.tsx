@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/tailwind/dialog";
 import { isAnalyticsEnabled, setAnalyticsEnabled } from "@/utils/analytics";
+import { clearImageCache } from "@/utils/mediaCache";
 import { playSound } from "@/utils/audio";
 import { VolumeControl } from "@/components/VolumeControl";
 import {
@@ -61,6 +62,7 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
   FolderIcon,
+  TrashIcon,
   SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
 
@@ -619,6 +621,36 @@ export default function Settings() {
     await setIgnoreList(ignoreList.filter((existing) => existing !== name));
   };
 
+  const handleClearImageCache = async () => {
+    const confirmed = await showAlert({
+      title: "Clear image cache?",
+      description:
+        "This removes all cached game covers and background images. They will be re-downloaded from your server the next time they're shown.",
+      affirmativeText: "Clear cache",
+      negativeText: "Cancel",
+      tone: "warning",
+    });
+    if (!confirmed) return;
+
+    try {
+      const removed = await clearImageCache();
+      await showAlert({
+        title: "Image cache cleared",
+        description:
+          removed > 0
+            ? `Removed ${removed} cached image${removed === 1 ? "" : "s"}.`
+            : "No cached images were found.",
+        tone: "success",
+      });
+    } catch {
+      await showAlert({
+        title: "Failed to clear cache",
+        description: "Something went wrong while clearing the image cache.",
+        tone: "danger",
+      });
+    }
+  };
+
   const handleCopySettingsDump = async () => {
     const settings: Record<string, string | null> = {};
     try {
@@ -1034,6 +1066,19 @@ export default function Settings() {
                           checked={retainLibraryPrefs}
                           onChange={(v: boolean) => setRetainLibraryPrefs(v)}
                         />
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Clear image cache"
+                          description="Remove all cached game covers and background images so they're re-downloaded from your server."
+                        />
+                        <Button
+                          outline
+                          onClick={() => void handleClearImageCache()}
+                        >
+                          <TrashIcon className="size-4" />
+                          Clear cache
+                        </Button>
                       </SettingsRow>
                     </SettingsGroup>
                   </>

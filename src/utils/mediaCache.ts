@@ -510,6 +510,53 @@ export async function startMediaCacheMaintenance(): Promise<void> {
   }
 }
 
+/**
+ * Clears all cached images and their media bindings.
+ *
+ * In a browser this wipes the IndexedDB `gamevault-media-cache` database. On
+ * the Tauri desktop app it also removes the native offline image cache for all
+ * servers. Returns the number of cached media records removed.
+ */
+export async function clearImageCache(): Promise<number> {
+  let removed = 0;
+
+  // Clear the browser/IndexedDB media cache.
+  if (typeof indexedDB !== "undefined") {
+    try {
+      const database = await getDatabase();
+      if (database) {
+        const transaction = database.transaction(
+          ["media", "gameMediaBindings"],
+          "readwrite",
+        );
+        const mediaStore = transaction.objectStore("media");
+        const bindingStore = transaction.objectStore("gameMediaBindings");
+
+        removed += await mediaStore.count();
+        await mediaStore.clear();
+        await bindingStore.clear();
+        await transaction.done;
+      }
+    } catch {
+      // Best-effort: a clear failure must not prevent the native cache clear.
+    }
+  }
+
+  // Clear the native Tauri offline image cache (all servers).
+  if (isTauriApp()) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const deleted = await invoke<number>("clear_all_cached_images");
+      removed += deleted ?? 0;
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  inFlightRequests.clear();
+  return removed;
+}
+
 export async function resetMediaCacheForTests(): Promise<void> {
   const database = await databasePromise;
   database?.close();

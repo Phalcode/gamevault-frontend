@@ -192,6 +192,41 @@ pub(crate) fn delete_cached_image(
     Ok(())
 }
 
+/// Removes every cached image across all server namespaces from the native
+/// offline image cache. Returns the number of files deleted.
+#[tauri::command]
+pub(crate) fn clear_all_cached_images(app: tauri::AppHandle) -> Result<u64, String> {
+    let images_root = cache_root(&app).join("images");
+    if !images_root.exists() {
+        return Ok(0);
+    }
+
+    let mut deleted = 0u64;
+    for namespace_entry in fs::read_dir(&images_root)
+        .map_err(|e| format!("Failed to read images cache dir: {e}"))?
+        .flatten()
+    {
+        let namespace_path = namespace_entry.path();
+        if !namespace_path.is_dir() {
+            continue;
+        }
+        for image_entry in fs::read_dir(&namespace_path)
+            .map_err(|e| format!("Failed to read namespace images dir: {e}"))?
+            .flatten()
+        {
+            let image_path = image_entry.path();
+            if image_path.is_file() {
+                fs::remove_file(&image_path)
+                    .map_err(|e| format!("Failed to delete cached image: {e}"))?;
+                deleted += 1;
+            }
+        }
+        // Remove the now-empty per-namespace directory.
+        let _ = fs::remove_dir(&namespace_path);
+    }
+    Ok(deleted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::validate_server_namespace;

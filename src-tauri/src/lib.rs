@@ -430,6 +430,7 @@ pub fn run() {
       cache::list_cached_game_ids,
       cache::delete_cached_game,
       cache::delete_cached_image,
+      cache::clear_all_cached_images,
       time_tracker::get_offline_time_files,
       time_tracker::delete_offline_time_file,
       time_tracker::sync_offline_time,
