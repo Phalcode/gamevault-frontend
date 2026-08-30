@@ -633,17 +633,18 @@ fn read_magic(path: &PathBuf) -> Result<[u8; 8], String> {
   Ok(magic)
 }
 
-#[tauri::command]
-pub(crate) fn extract_archive(
+/// Runs the actual synchronous extraction work off the main thread.
+///
+/// The heavy decompression and file I/O are blocking, so they must not run on
+/// the main thread (which would freeze the UI) nor on an async runtime worker.
+/// This helper is invoked via `tauri::async_runtime::spawn_blocking`.
+fn run_extraction(
   app: tauri::AppHandle,
   game_id: i64,
-  archive_path: String,
-  destination_path: String,
+  archive: PathBuf,
+  destination: PathBuf,
   password: Option<String>,
 ) -> Result<ExtractArchiveResponse, String> {
-  let archive = PathBuf::from(archive_path);
-  let destination = PathBuf::from(destination_path);
-
   if !archive.exists() {
     return Err("Archive does not exist".to_string());
   }
@@ -763,4 +764,25 @@ pub(crate) fn extract_archive(
       }
     }
   }
+}
+
+#[tauri::command]
+pub(crate) async fn extract_archive(
+  app: tauri::AppHandle,
+  game_id: i64,
+  archive_path: String,
+  destination_path: String,
+  password: Option<String>,
+) -> Result<ExtractArchiveResponse, String> {
+  let archive = PathBuf::from(archive_path);
+  let destination = PathBuf::from(destination_path);
+
+  // Extraction is CPU- and I/O-bound blocking work. Offload it to a dedicated
+  // blocking thread so the event loop / main thread stays responsive and the
+  // UI does not freeze while large archives are being extracted.
+  tauri::async_runtime::spawn_blocking(move || {
+    run_extraction(app, game_id, archive, destination, password)
+  })
+  .await
+  .map_err(|e| format!("Extraction task failed: {e}"))?
 }
