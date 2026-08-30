@@ -5,6 +5,26 @@ use std::path::{Path, PathBuf};
 #[cfg(windows)]
 use std::process::Command;
 
+/// Returns the free (available) disk space, in bytes, on the volume that
+/// contains the given path. Returns `None` if the free space could not be
+/// determined.
+pub(crate) fn free_space_on(path: &Path) -> Option<u64> {
+  use sysinfo::Disks;
+
+  let disks = Disks::new_with_refreshed_list();
+  let mut best: Option<(usize, &sysinfo::Disk)> = None;
+  for disk in disks.list() {
+    let mount = disk.mount_point();
+    if path.starts_with(mount) {
+      let depth = mount.components().count();
+      if best.map(|(d, _)| depth > d).unwrap_or(true) {
+        best = Some((depth, disk));
+      }
+    }
+  }
+  best.map(|(_, disk)| disk.available_space() as u64)
+}
+
 pub(crate) fn parse_version_folder(folder_name: &str) -> (i64, String) {
   if let Some(rest) = folder_name.strip_prefix('(') {
     if let Some((id_part, name_part)) = rest.split_once(')') {

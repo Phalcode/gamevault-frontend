@@ -654,6 +654,24 @@ fn run_extraction(
       .map_err(|e| format!("Failed to create extraction directory: {e}"))?;
   }
 
+  // Avoid wasting the user's time extracting onto an obviously-full disk.
+  // The extracted content is generally larger than the compressed archive, so
+  // requiring at least the archive's own size of free space is a conservative
+  // lower bound that still catches the common "disk nearly full" case.
+  let archive_size = fs::metadata(&archive)
+    .map(|m| m.len())
+    .unwrap_or(0);
+  if archive_size > 0 {
+    if let Some(free) = crate::util::free_space_on(&destination) {
+      if archive_size > free {
+        return Err(format!(
+          "Not enough disk space to extract this archive (needs at least {} bytes, only {} bytes free).",
+          archive_size, free
+        ));
+      }
+    }
+  }
+
   let magic = read_magic(&archive)?;
   let is_zip = magic[0] == 0x50 && magic[1] == 0x4B;
   let is_rar = magic[0] == 0x52

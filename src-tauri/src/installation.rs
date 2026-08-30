@@ -199,6 +199,25 @@ pub(crate) fn copy_installation_files(
       }
     };
 
+    // Avoid wasting the user's time copying onto an obviously-full disk.
+    if let Some(free) = crate::util::free_space_on(&destination) {
+      if total > free {
+        emit_install_copy_progress(
+          &app,
+          game_id,
+          "error",
+          0,
+          Some(total),
+          None,
+          Some(format!(
+            "Not enough disk space to install (needs about {} bytes, only {} bytes free).",
+            total, free
+          )),
+        );
+        return;
+      }
+    }
+
     emit_install_copy_progress(&app, game_id, "copying", 0, Some(total), None, None);
 
     let mut processed = 0u64;

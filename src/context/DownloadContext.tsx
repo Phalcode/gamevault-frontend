@@ -14,6 +14,7 @@ import { isTauriApp } from "@/utils/tauri";
 import { onGameUpdated } from "@/utils/gameUpdates";
 import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
 import { getRootPaths } from "@/utils/rootPaths";
+import { pickPreferredInstaller } from "@/components/downloads/install-utils";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import type { GameMetadata } from "@/api/models/GameMetadata";
 import type {
@@ -1537,9 +1538,14 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                 const candidates =
                   (await listInstallExecutablesRef.current?.(gameId)) ?? [];
                 if (candidates.length > 0) {
+                  const preferredInstaller = pickPreferredInstaller(
+                    candidates,
+                    (d.gameMetadata as GameMetadata | undefined)
+                      ?.installer_executable,
+                  );
                   await launchInstallationExecutableRef.current?.(
                     gameId,
-                    candidates[0],
+                    preferredInstaller,
                   );
                 }
               }
@@ -1809,6 +1815,46 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             }
 
             if (payload.status === "completed") {
+              // The installer reported exit code 0, but that is not a reliable
+              // success signal: many installers (e.g. NSIS-based ones) return 0
+              // even when the user cancels the setup. Verify the install
+              // directory actually got populated with launchable executables
+              // before treating the install as successful.
+              let installVerified = false;
+              try {
+                const { invoke } = await import("@tauri-apps/api/core");
+                const { executables: installedExecutables } = await invoke<{
+                  executables: string[];
+                }>("list_launch_executables", {
+                  installationPath: d.installationDirectory,
+                });
+                installVerified = installedExecutables.length > 0;
+              } catch {
+                installVerified = false;
+              }
+
+              if (!installVerified) {
+                updateDownload(gameId, {
+                  installationStatus: "error",
+                  installationCurrentFile: undefined,
+                  installationError:
+                    "The installer appeared to exit successfully but no game " +
+                    "executable was found in the installation folder. The " +
+                    "install may have been canceled or failed, so no source " +
+                    "files were deleted.",
+                  installationExitCode:
+                    typeof payload.exitCode === "number"
+                      ? payload.exitCode
+                      : null,
+                });
+                const stop = tauriInstallerUnlistenRef.current[gameId];
+                if (stop) {
+                  stop();
+                  delete tauriInstallerUnlistenRef.current[gameId];
+                }
+                return;
+              }
+
               if (d.versionDirectory) {
                 await writeVersionConfig(d.versionDirectory, {
                   installationfinished: true,

@@ -375,6 +375,34 @@ pub(crate) fn download_game_version(
       total = response.content_length().map(|remaining| remaining + resume_position);
     }
 
+    // Don't let the user waste time downloading a file that will not fit on
+    // the target disk. Compare the expected download size against the free
+    // space on the destination volume (only when we know the size in advance).
+    if let (Some(needed), Some(free)) = (total, crate::util::free_space_on(&file_path)) {
+      if needed > free {
+        let _ = app.emit(
+          "download-progress",
+          DownloadProgressEvent {
+            game_id,
+            status: "error".to_string(),
+            received: 0,
+            total,
+            error: Some(format!(
+              "Not enough disk space to download this file (needs about {} bytes, only {} bytes free).",
+              needed, free
+            )),
+            filename: Some(sanitized_filename.clone()),
+            file_path: Some(file_path_string.clone()),
+          },
+        );
+        let mut guard = control_flags().lock().ok();
+        if let Some(ref mut map) = guard {
+          map.remove(&game_id);
+        }
+        return;
+      }
+    }
+
     let mut file = match if resume_position > 0 {
       OpenOptions::new()
         .create(true)
