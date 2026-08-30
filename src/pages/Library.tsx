@@ -81,7 +81,6 @@ const BOOKMARK_OPTIONS: { label: string; value: BookmarkFilter }[] = [
   { label: "Bookmarked by Others", value: "others" },
 ];
 
-const RETAIN_KEY = "app_retain_library_prefs";
 const LIB_SORT_KEY = "app_library_sort";
 const LIB_ORDER_KEY = "app_library_order";
 
@@ -95,13 +94,10 @@ export default function Library() {
 
   const urlInitializedRef = useRef(false);
   const [search, setSearch] = useState("");
-  // Initialize sort/order from localStorage if retention is enabled
+  // Sort/order preferences are always retained (they're the default behaviour).
   const [sortBy, setSortBy] = useState(() => {
     try {
-      if (
-        typeof window !== "undefined" &&
-        localStorage.getItem(RETAIN_KEY) === "1"
-      ) {
+      if (typeof window !== "undefined") {
         const saved = localStorage.getItem(LIB_SORT_KEY);
         if (saved && SORT_BY.some((o) => o.value === saved)) return saved;
       }
@@ -110,10 +106,7 @@ export default function Library() {
   });
   const [order, setOrder] = useState<"ASC" | "DESC">(() => {
     try {
-      if (
-        typeof window !== "undefined" &&
-        localStorage.getItem(RETAIN_KEY) === "1"
-      ) {
+      if (typeof window !== "undefined") {
         const saved = localStorage.getItem(LIB_ORDER_KEY) as
           "ASC" | "DESC" | null;
         if (saved === "ASC" || saved === "DESC") return saved;
@@ -266,15 +259,12 @@ export default function Library() {
     earlyAccess,
   });
 
-  // Persist sort/order if retention enabled
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (localStorage.getItem(RETAIN_KEY) === "1") {
-      try {
-        localStorage.setItem(LIB_SORT_KEY, sortBy);
-        localStorage.setItem(LIB_ORDER_KEY, order);
-      } catch {}
-    }
+    try {
+      localStorage.setItem(LIB_SORT_KEY, sortBy);
+      localStorage.setItem(LIB_ORDER_KEY, order);
+    } catch {}
   }, [sortBy, order]);
 
   const getParamValues = useCallback((params: URLSearchParams, key: string) => {
