@@ -14,7 +14,6 @@ import { getGameCoverMediaId } from "@/hooks/useGames";
 import { getRoleLabel } from "@/utils/roles";
 import clsx from "clsx";
 import {
-  ArrowLeftIcon,
   ArrowRightIcon,
   BookmarkIcon,
   CheckCircleIcon,

@@ -8,6 +8,7 @@ import { Text } from "@tw/text";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Media } from "@/components/Media";
 import CoverPlaceholder from "@/components/CoverPlaceholder";
+import BackButton from "@/components/BackButton";
 import { UserEditorModal } from "@/components/admin/UserEditorModal";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
@@ -17,7 +18,6 @@ import { getRoleLabel } from "@/utils/roles";
 import { GamevaultUserRoleEnum } from "@/api";
 import clsx from "clsx";
 import {
-  ChevronLeftIcon,
   BookmarkIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -28,7 +28,7 @@ import {
   UserGroupIcon,
 } from "@heroicons/react/24/outline";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import type { GamevaultGame, GamevaultUser, Progress } from "../api";
 
 type ProfileProgressSort = "last" | "time" | "title" | "state";
@@ -286,19 +286,6 @@ function GamePoster({
   );
 }
 
-function BackButton({ navigate }: { navigate: (delta: number) => void }) {
-  return (
-    <button
-      onClick={() => navigate(-1)}
-      aria-label="Go back"
-      className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm/5 text-gv-muted transition-colors hover:text-gv-text"
-    >
-      <ChevronLeftIcon className="size-4 shrink-0 transition-transform group-hover:-translate-x-0.5" />
-      Back
-    </button>
-  );
-}
-
 function ProfileProgressCard({
   progress,
   onDelete,
@@ -387,7 +374,6 @@ export default function UserProfile() {
   const [progressFilter, setProgressFilter] = useState<string>("all");
   const [progressSort, setProgressSort] = useState<ProfileProgressSort>("last");
 
-  const navigate = useNavigate();
   const userId = id ? Number(id) : null;
   const currentUserId = (loggedIn as any)?.id ?? (loggedIn as any)?.ID ?? null;
   const currentUserRole = Number((loggedIn as any)?.role ?? 0);
@@ -531,9 +517,9 @@ export default function UserProfile() {
   if (!userId || Number.isNaN(userId)) {
     return (
       <div className="flex min-h-full flex-col gap-6">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-4">
+          <BackButton />
           <Heading>Community</Heading>
-          <BackButton navigate={navigate} />
         </div>
         <Divider className="border-gv-line/80" />
         <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
@@ -546,9 +532,9 @@ export default function UserProfile() {
   if (loading) {
     return (
       <div className="flex min-h-full flex-col gap-6">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-4">
+          <BackButton />
           <Heading>Community</Heading>
-          <BackButton navigate={navigate} />
         </div>
         <Divider className="border-gv-line/80" />
         <div className="surface-panel h-96 animate-pulse rounded-[1.75rem]" />
@@ -559,9 +545,9 @@ export default function UserProfile() {
   if (error || !user) {
     return (
       <div className="flex min-h-full flex-col gap-6">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-4">
+          <BackButton />
           <Heading>Community</Heading>
-          <BackButton navigate={navigate} />
         </div>
         <Divider className="border-gv-line/80" />
         <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
@@ -573,21 +559,21 @@ export default function UserProfile() {
 
   return (
     <div className="flex min-h-full flex-col gap-6 overflow-x-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0">
-          <Heading>Community</Heading>
-          <Text>
-            Browse player profiles, stats, and shared library history.
-          </Text>
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-4">
+        <BackButton />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
+            <Heading>Community</Heading>
+            <Text>
+              Browse player profiles, stats, and shared library history.
+            </Text>
+          </div>
           {canEdit && (
             <Button outline onClick={() => setShowEditProfile(true)}>
               <PencilSquareIcon className="size-4" />
               Edit profile
             </Button>
           )}
-          <BackButton navigate={navigate} />
         </div>
       </div>
       <Divider className="border-gv-line/80" />

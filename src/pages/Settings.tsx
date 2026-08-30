@@ -24,6 +24,7 @@ import { Button } from "@/components/tailwind/button";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
 import ThemeSelect from "@/components/ThemeSelect";
 import ZoomControl from "@/components/ZoomControl";
+import BackButton from "@/components/BackButton";
 import {
   Dialog,
   DialogBody,
@@ -53,7 +54,6 @@ import {
   WrenchIcon,
   EyeSlashIcon,
   InformationCircleIcon,
-  ChevronLeftIcon,
   ChevronRightIcon,
   ClipboardDocumentIcon,
   PlusIcon,
@@ -815,6 +815,9 @@ export default function Settings() {
   return (
     <MotionConfig reducedMotion="user">
       <div className="flex min-h-full flex-col gap-6">
+        {activeCategory !== null && (
+          <BackButton onClick={() => setActiveCategory(null)} />
+        )}
         <div className="space-y-2">
           <Heading>Settings</Heading>
           <Text className="max-w-2xl">
@@ -847,15 +850,6 @@ export default function Settings() {
                 transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
                 className="space-y-6"
               >
-                {/* Back to the settings overview (iOS drill-down) */}
-                <button
-                  type="button"
-                  onClick={() => setActiveCategory(null)}
-                  className="inline-flex cursor-pointer items-center gap-1 rounded-lg py-1 pr-2 text-sm font-medium text-gv-accent transition-colors hover:text-gv-accent-strong"
-                >
-                  <ChevronLeftIcon className="size-4" />
-                  Settings
-                </button>
                 {activeCategory === "downloads" && (
                   <>
                     <SettingsSectionHeader

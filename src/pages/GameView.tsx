@@ -5,6 +5,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Media } from "@/components/Media";
 import MediaSlider from "@/components/MediaSlider";
 import MarkdownContent from "@/components/MarkdownContent";
+import BackButton from "@/components/BackButton";
 import { Spinner } from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
@@ -40,7 +41,6 @@ import {
   CalendarDaysIcon,
   GlobeAltIcon,
   HashtagIcon,
-  ChevronLeftIcon,
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
 import {
@@ -699,15 +699,8 @@ export default function GameView() {
 
       <div className="relative z-10 flex w-full flex-1 flex-col">
         {/* Back button — always visible so users can leave at any state */}
-        <div className="px-2 pt-4 pb-1">
-          <button
-            onClick={() => navigate(-1)}
-            aria-label="Go back"
-            className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm/5 text-gv-muted transition-colors hover:text-gv-text"
-          >
-            <ChevronLeftIcon className="size-4 shrink-0 transition-transform group-hover:-translate-x-0.5" />
-            Back
-          </button>
+        <div className="mx-auto w-full max-w-350 px-2 pt-4 pb-1">
+          <BackButton />
         </div>
         {loading && (
           <div className="flex flex-1 items-center justify-center py-20">
