@@ -48,4 +48,4 @@ zstd = "0.13.3"
 iso9660_simple = "0.2.7"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["fileapi", "shellapi", "winnt", "winuser", "synchapi", "handleapi", "winbase"] }
+winapi = { version = "0.3", features = ["fileapi", "shellapi", "winnt", "winuser", "synchapi", "handleapi", "winbase", "winerror"] }
