@@ -1,4 +1,4 @@
-import { MinusIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon, MinusIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { isTauriApp } from "@/utils/tauri";
 
 async function minimizeWindow() {
@@ -16,6 +16,11 @@ async function closeWindow() {
   await getCurrentWindow().close();
 }
 
+function reloadWindow() {
+  // Reload the current page like F5 (the Tauri webview has no native F5).
+  window.location.reload();
+}
+
 const controlButtonClassName =
   "flex w-11 cursor-pointer items-center justify-center text-gv-muted transition-colors hover:bg-white/5 hover:text-gv-text focus:outline-none";
 
@@ -31,6 +36,15 @@ export default function WindowTitlebar() {
       className="relative z-40 flex h-9 shrink-0 select-none items-stretch justify-end bg-gv-bg"
     >
       <div className="flex items-stretch">
+        <button
+          type="button"
+          aria-label="Refresh"
+          onClick={() => reloadWindow()}
+          className={controlButtonClassName}
+        >
+          <ArrowPathIcon className="size-4" />
+        </button>
+        <div className="my-2 w-px bg-gv-line" aria-hidden="true" />
         <button
           type="button"
           aria-label="Minimize"
