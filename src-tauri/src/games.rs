@@ -9,6 +9,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::Manager;
 
+/// Returns true once `path` exists and contains at least one entry.
+fn directory_has_entries(path: &Path) -> bool {
+  fs::read_dir(path)
+    .map(|mut entries| entries.next().is_some())
+    .unwrap_or(false)
+}
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -20,7 +27,6 @@ pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<Installe
   } else {
     PathBuf::from(&selected_root)
   };
-
   if !root.exists() || !root.is_dir() {
     return Ok(Vec::new());
   }
@@ -79,7 +85,14 @@ pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<Installe
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-      if !installation_finished {
+      let installations_dir = resolve_version_subdir(&version_path, "Installation", "Installations");
+
+      // Relying only on the `installationfinished` flag is fragile: an install
+      // can complete successfully without the flag ever being written (e.g.
+      // self-extracting installers that never report a clean "completed"), so
+      // the game would be missing from this list. Fall back to checking that
+      // the installation directory actually contains files.
+      if !installation_finished && !directory_has_entries(&installations_dir) {
         continue;
       }
 
@@ -100,8 +113,6 @@ pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<Installe
         .or(metadata_game_id)
         .filter(|id| *id > 0)
         .unwrap_or_else(|| stable_id_from_path(&version_path_str));
-
-      let installations_dir = resolve_version_subdir(&version_path, "Installation", "Installations");
 
       let cache_dir = root.join(".cache").join("games");
       let cache_file = cache_dir.join(format!("{}.json", resolved_game_id));

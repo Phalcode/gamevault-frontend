@@ -61,6 +61,7 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
   FolderIcon,
+  FolderOpenIcon,
   TrashIcon,
   SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
@@ -910,6 +911,16 @@ export default function Settings() {
     setRootPaths(updated);
   };
 
+  const handleOpenRootPath = async (root: RootPathEntry) => {
+    if (!isTauri) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_in_file_explorer", { path: root.path });
+    } catch (error) {
+      console.error("Failed to open download folder:", error);
+    }
+  };
+
   const handleLabelChange = (id: string, label: string) => {
     const updated = updateRootPathLabel(id, label);
     setRootPaths(updated);
@@ -1389,6 +1400,16 @@ export default function Settings() {
                                 </p>
                               </div>
                               <div className="flex shrink-0 items-center gap-1">
+                                <Button
+                                  type="button"
+                                  color="zinc"
+                                  className="text-xs"
+                                  onClick={() => void handleOpenRootPath(root)}
+                                  title="Open this folder"
+                                >
+                                  <FolderOpenIcon className="size-3.5" />
+                                  Open
+                                </Button>
                                 <Button
                                   type="button"
                                   color="zinc"

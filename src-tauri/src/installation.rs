@@ -7,6 +7,8 @@ use std::fs::File as StdFile;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -307,6 +309,36 @@ pub(crate) fn copy_installation_files(
   Ok(())
 }
 
+/// How long to keep polling the installation directory after the installer
+/// process exits before deciding the install actually failed. Some
+/// self-extracting installers (notably GOG/NSIS wrappers) spawn a child
+/// installer and their wrapper exits immediately with a non-zero code — e.g.
+/// `0xC000041D` / `-1073740771` — even though the real installation continues
+/// in the detached child and succeeds. Rather than trusting the exit code,
+/// verify the install directory actually got populated.
+const INSTALLER_VERIFY_GRACE: Duration = Duration::from_secs(90);
+
+/// Returns true once the installation directory contains at least one entry,
+/// meaning the installer (or its detached child) has written into it.
+fn installation_directory_populated(path: &Path) -> bool {
+  fs::read_dir(path)
+    .map(|mut entries| entries.next().is_some())
+    .unwrap_or(false)
+}
+
+/// Polls the installation directory for `INSTALLER_VERIFY_GRACE`, returning
+/// true as soon as it is populated (or immediately if it already is).
+fn wait_for_installation_populated(path: &Path) -> bool {
+  let start = Instant::now();
+  while start.elapsed() < INSTALLER_VERIFY_GRACE {
+    if installation_directory_populated(path) {
+      return true;
+    }
+    thread::sleep(Duration::from_millis(500));
+  }
+  installation_directory_populated(path)
+}
+
 #[tauri::command]
 pub(crate) fn launch_installation_executable(
   app: tauri::AppHandle,
@@ -463,17 +495,33 @@ pub(crate) fn launch_installation_executable(
             None,
           );
         } else {
-          emit_installer_status(
-            &app,
-            game_id,
-            "error",
-            Some(installer_relative),
-            exit_code,
-            Some(format!(
-              "Installer exited with code {}.",
-              exit_code.unwrap_or(-1)
-            )),
-          );
+          // A non-zero exit code is not a reliable failure signal. Some
+          // self-extracting installers (GOG/NSIS wrappers) spawn a child and
+          // their wrapper exits right away (e.g. -1073740771 / 0xC000041D)
+          // while the real install continues and succeeds. Verify the install
+          // directory actually got populated before reporting an error.
+          if wait_for_installation_populated(Path::new(&installation_path_resolved)) {
+            emit_installer_status(
+              &app,
+              game_id,
+              "completed",
+              Some(installer_relative),
+              exit_code,
+              None,
+            );
+          } else {
+            emit_installer_status(
+              &app,
+              game_id,
+              "error",
+              Some(installer_relative),
+              exit_code,
+              Some(format!(
+                "Installer exited with code {}.",
+                exit_code.unwrap_or(-1)
+              )),
+            );
+          }
         }
       }
       Err(error) => emit_installer_status(

@@ -111,6 +111,34 @@ function isPortableInstallType(gameType?: string) {
   );
 }
 
+/**
+ * Removes now-empty per-version and per-game folders after an uninstall,
+ * walking up from the version directory to the configured root location.
+ */
+async function pruneEmptyVersionFolders(versionDirectory: string) {
+  if (!versionDirectory) return;
+  for (const root of getRootPaths()) {
+    const rootPath = root.path;
+    if (
+      rootPath &&
+      (versionDirectory === rootPath ||
+        versionDirectory.startsWith(`${rootPath}/`) ||
+        versionDirectory.startsWith(`${rootPath}\\`))
+    ) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("remove_empty_directories", {
+          path: versionDirectory,
+          stopAt: rootPath,
+        });
+      } catch {
+        // Best-effort cleanup; never block the uninstall.
+      }
+      return;
+    }
+  }
+}
+
 interface ImageState {
   file: File | null;
   via: "none" | "file" | "url" | "paste" | "drag";
@@ -588,6 +616,8 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
           installedGame.versionDirectory,
           false,
         );
+        // Clean up the empty per-version / per-game folders left behind.
+        await pruneEmptyVersionFolders(installedGame.versionDirectory);
         setInstalledGame(await findInstalledGame());
         onUninstalled?.();
         await showAlert({

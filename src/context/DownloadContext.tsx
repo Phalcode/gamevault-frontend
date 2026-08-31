@@ -1365,6 +1365,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               recursive: true,
             });
           }
+          // Clean up the empty per-version / per-game folders left behind.
+          if (d.versionDirectory && d.downloadRootPath) {
+            await invokeFsCleanup("remove_empty_directories", {
+              path: d.versionDirectory,
+              stopAt: d.downloadRootPath,
+            }).catch(() => {});
+          }
         } catch (error) {
           console.warn("Failed to delete download/extraction folders:", error);
         }
