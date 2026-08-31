@@ -176,70 +176,82 @@ pub(crate) fn read_saved_installer_preferences(start_path: &Path) -> (Option<Str
   (installer_executable, installer_parameters)
 }
 
-#[cfg(windows)]
-pub(crate) fn escape_powershell_single_quoted(value: &str) -> String {
-  value.replace('\'', "''")
-}
-
-/// Launches the installer elevated (UAC) while keeping the executable and
-/// working-directory paths completely literal.
+/// Launches the installer elevated (UAC) via `ShellExecuteExW` directly.
 ///
-/// `Start-Process -FilePath` performs PowerShell wildcard resolution, so any
-/// folder/file name containing wildcard metacharacters (`[`, `]`, `*`, `?` —
-/// e.g. repack folder names like "… [Vanya Repack]") makes it fail with
-/// "wildcard path … did not resolve to a file". We instead build an explicit
-/// `ProcessStartInfo` and call `[System.Diagnostics.Process]::Start`, which
-/// never globs the path, so bracket- and space-containing paths work.
+/// This bypasses PowerShell entirely. `Start-Process -FilePath` performs
+/// PowerShell wildcard resolution, so folder/file names containing wildcard
+/// metacharacters (`[`, `]`, `*`, `?` — e.g. repack folder names like
+/// "… [Vanya Repack]") make it fail with "wildcard path … did not resolve to
+/// a file". `ShellExecuteExW` passes `lpFile`/`lpDirectory` literally — no
+/// globbing, no quoting layer — so bracket- and space-containing paths work.
 #[cfg(windows)]
 pub(crate) fn run_elevated_installer_and_wait(
   executable: &str,
   argument_list: Option<&str>,
   working_directory: Option<&str>,
 ) -> Result<Option<i32>, String> {
-  let file_path = escape_powershell_single_quoted(executable);
+  use std::ffi::OsStr;
+  use std::iter::once;
+  use std::os::windows::ffi::OsStrExt;
+  use winapi::um::handleapi::CloseHandle;
+  use winapi::um::processthreadsapi::GetExitCodeProcess;
+  use winapi::um::shellapi::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+  use winapi::um::synchapi::WaitForSingleObject;
+  use winapi::um::winbase::INFINITE;
+  use winapi::um::winuser::SW_SHOWNORMAL;
 
-  let mut script = String::from("$psi = New-Object System.Diagnostics.ProcessStartInfo\n");
-  script.push_str(&format!("$psi.FileName = '{file_path}'\n"));
-
-  if let Some(arguments) = argument_list.filter(|value| !value.trim().is_empty()) {
-    let escaped_arguments = escape_powershell_single_quoted(arguments);
-    script.push_str(&format!("$psi.Arguments = '{escaped_arguments}'\n"));
-  }
-  if let Some(working_directory) = working_directory.filter(|value| !value.trim().is_empty()) {
-    let escaped_working_directory = escape_powershell_single_quoted(working_directory);
-    script.push_str(&format!("$psi.WorkingDirectory = '{escaped_working_directory}'\n"));
-  }
-  script.push_str("$psi.UseShellExecute = $true\n");
-  script.push_str("$psi.Verb = 'runas'\n");
-  script.push_str("$process = [System.Diagnostics.Process]::Start($psi)\n");
-  script.push_str("$process.WaitForExit()\n");
-  script.push_str("exit $process.ExitCode");
-
-  let output = Command::new("powershell")
-    .arg("-NoProfile")
-    .arg("-Command")
-    .arg(script)
-    .output()
-    .map_err(|error| format!("Failed to start elevated installer: {error}"))?;
-
-  if output.status.success() {
-    return Ok(output.status.code());
+  fn to_wide(value: &str) -> Vec<u16> {
+    OsStr::new(value).encode_wide().chain(once(0)).collect()
   }
 
-  let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-  let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-  let message = if !stderr.is_empty() {
-    stderr
-  } else if !stdout.is_empty() {
-    stdout
-  } else {
-    format!(
-      "Elevated installer exited with code {}.",
-      output.status.code().unwrap_or(-1)
-    )
-  };
+  let executable = to_wide(executable);
+  let verb = to_wide("runas");
+  let arguments = argument_list
+    .filter(|value| !value.trim().is_empty())
+    .map(|value| to_wide(value));
+  let directory = working_directory
+    .filter(|value| !value.trim().is_empty())
+    .map(|value| to_wide(value));
 
-  Err(message)
+  let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+  info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+  // NOCLOSEPROCESS gives us a handle we can wait on and read the exit code
+  // from. All paths are passed literally — no PowerShell, no wildcard
+  // resolution, so bracket paths just work.
+  info.fMask = SEE_MASK_NOCLOSEPROCESS;
+  info.lpVerb = verb.as_ptr();
+  info.lpFile = executable.as_ptr();
+  info.lpParameters = arguments
+    .as_ref()
+    .map_or(std::ptr::null(), |value| value.as_ptr());
+  info.lpDirectory = directory
+    .as_ref()
+    .map_or(std::ptr::null(), |value| value.as_ptr());
+  info.nShow = SW_SHOWNORMAL;
+
+  let launched = unsafe { ShellExecuteExW(&mut info) };
+  if launched == 0 {
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(1223) {
+      return Err("Installation canceled by user (UAC prompt declined).".to_string());
+    }
+    return Err(format!("Failed to launch elevated installer: {error}"));
+  }
+
+  if info.hProcess.is_null() {
+    return Ok(None);
+  }
+
+  unsafe {
+    WaitForSingleObject(info.hProcess, INFINITE);
+    let mut exit_code: u32 = 0;
+    let valid = GetExitCodeProcess(info.hProcess, &mut exit_code);
+    CloseHandle(info.hProcess);
+    if valid == 0 {
+      return Ok(None);
+    }
+    Ok(Some(exit_code as i32))
+  }
 }
 
 /// Compare two paths for equality.
