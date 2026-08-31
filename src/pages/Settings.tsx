@@ -203,15 +203,16 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
   {
     id: "downloads-auto-install",
     title: "Auto-Install Games",
-    description: "Start installers or copy portable files automatically",
+    description:
+      "Start installers or copy game files automatically after extraction, and make any files that need it executable",
     category: "downloads",
-    keywords: ["install", "installer", "setup", "portable"],
+    keywords: ["install", "installer", "setup", "portable", "executable"],
     desktopOnly: true,
   },
   {
     id: "downloads-auto-delete-source",
     title: "Auto-Delete Source Files",
-    description: "Clean up downloads after installation to free space",
+    description: "Clean up downloaded and extracted files after installation to free space",
     category: "downloads",
     keywords: ["delete", "cleanup", "space", "source", "files"],
     desktopOnly: true,
@@ -1459,7 +1460,7 @@ export default function Settings() {
                         >
                           <SettingsLabel
                             title="Auto-Install Games"
-                            description="Start installers or copy portable files automatically."
+                            description="Start installers or copy game files automatically after extraction, and make any files that need it executable."
                           />
                           <Switch
                             name="autoInstall"
@@ -1477,12 +1478,12 @@ export default function Settings() {
                         >
                           <SettingsLabel
                             title="Auto-Delete Source Files"
-                            description="Clean up downloads after installation to free up space."
+                            description="Clean up downloaded and extracted files after installation to free up space."
                           />
                           <Switch
                             name="autoDeleteSource"
                             color="indigo"
-                            aria-label="Delete downloaded and extracted files after portable game install"
+                            aria-label="Delete downloaded and extracted files after game installation"
                             checked={autoDeleteSource}
                             onChange={(v: boolean) => setAutoDeleteSource(v)}
                           />

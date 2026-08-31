@@ -64,6 +64,49 @@ fn compute_directory_size(path: &Path) -> Result<u64, String> {
   Ok(total)
 }
 
+// Recursively applies `chmod +x` to `.sh` shell scripts in the installation
+// directory. Copying files does not preserve the original executable bit, so
+// on Linux we restore it automatically for extracted shell scripts.
+#[cfg(unix)]
+fn make_sh_scripts_executable(root: &Path) -> Result<(), String> {
+  use std::os::unix::fs::PermissionsExt;
+
+  let entries = fs::read_dir(root).map_err(|e| format!("Failed to read installation folder: {e}"))?;
+
+  for entry in entries {
+    let entry = entry.map_err(|e| format!("Failed to read installation folder entry: {e}"))?;
+    let path = entry.path();
+
+    if path.is_dir() {
+      make_sh_scripts_executable(&path)?;
+      continue;
+    }
+
+    let ext = path
+      .extension()
+      .and_then(|v| v.to_str())
+      .map(|v| v.to_ascii_lowercase())
+      .unwrap_or_default();
+    if !matches!(ext.as_str(), "sh" | "bash" | "zsh" | "run" | "command") {
+      continue;
+    }
+
+    let mut permissions = fs::metadata(&path)
+      .map_err(|e| format!("Failed to read permissions: {e}"))?
+      .permissions();
+    permissions.set_mode(permissions.mode() | 0o111);
+    fs::set_permissions(&path, permissions)
+      .map_err(|e| format!("Failed to make script executable: {e}"))?;
+  }
+
+  Ok(())
+}
+
+#[cfg(not(unix))]
+fn make_sh_scripts_executable(_root: &Path) -> Result<(), String> {
+  Ok(())
+}
+
 fn copy_path_with_progress(
   app: &tauri::AppHandle,
   game_id: i64,
@@ -232,15 +275,23 @@ pub(crate) fn copy_installation_files(
     );
 
     match result {
-      Ok(_) => emit_install_copy_progress(
-        &app,
-        game_id,
-        "completed",
-        total,
-        Some(total),
-        None,
-        None,
-      ),
+      Ok(_) => {
+        // On Linux, restore the executable bit on copied shell scripts so
+        // portable games can be launched right after auto-install.
+        if let Err(error) = make_sh_scripts_executable(&destination) {
+          emit_install_copy_progress(
+            &app,
+            game_id,
+            "error",
+            processed,
+            Some(total),
+            None,
+            Some(error),
+          );
+          return;
+        }
+        emit_install_copy_progress(&app, game_id, "completed", total, Some(total), None, None)
+      }
       Err(error) => emit_install_copy_progress(
         &app,
         game_id,
