@@ -242,15 +242,23 @@ fn parse_total_from_content_range(
 }
 
 fn sanitize_filename(name: &str) -> String {
-  let sanitized = name
-    .chars()
-    .map(|c| match c {
-      '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
-      _ => c,
-    })
-    .collect::<String>()
-    .trim()
-    .to_string();
+  let mut sanitized = String::with_capacity(name.len());
+  for c in name.chars() {
+    match c {
+      '<' | '>' | '"' | '/' | '\\' | '|' | '?' | '*' => sanitized.push('_'),
+      // A colon becomes " - " so that "Game: Edition" -> "Game - Edition",
+      // matching the folder-name sanitization used for the install path.
+      ':' => sanitized.push_str(" - "),
+      _ => sanitized.push(c),
+    }
+  }
+
+  // Collapse whitespace runs and trim, so "Game: Edition" -> "Game - Edition"
+  // rather than "Game -  Edition".
+  let sanitized = sanitized
+    .split_whitespace()
+    .collect::<Vec<_>>()
+    .join(" ");
 
   if sanitized.is_empty() {
     "download.bin".to_string()
