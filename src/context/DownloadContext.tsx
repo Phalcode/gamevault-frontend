@@ -734,6 +734,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             downloadRootPath ||
             (() => {
               try {
+                const paths = getRootPaths();
+                if (paths.length > 0) {
+                  return paths[0].path;
+                }
                 return localStorage.getItem("tauri_download_path");
               } catch {
                 return null;
@@ -1269,6 +1273,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         gameType: d.gameType,
         filename: d.filename,
         resumePosition: d.received > 0 ? d.received : 0,
+        downloadRootPath: d.downloadRootPath,
       });
     },
     [downloads, startDownload, startSimulatedProgress, updateDownload],
