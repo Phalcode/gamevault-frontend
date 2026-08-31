@@ -181,40 +181,39 @@ pub(crate) fn escape_powershell_single_quoted(value: &str) -> String {
   value.replace('\'', "''")
 }
 
-/// Escapes a value for use as a **path** inside a single-quoted PowerShell
-/// string. In addition to doubling single quotes, it escapes PowerShell
-/// wildcard metacharacters (`` ` ``, `[`, `]`, `*`, `?`) so that cmdlets such
-/// as `Start-Process -FilePath` treat the path literally instead of globbing
-/// it. Without this, folder names containing brackets (e.g. "ReStory Chill
-/// Electronics Repairs [Vanya Repack]") make `Start-Process` fail with
-/// "wildcard path ... did not resolve to a file".
+/// Launches the installer elevated (UAC) while keeping the executable and
+/// working-directory paths completely literal.
+///
+/// `Start-Process -FilePath` performs PowerShell wildcard resolution, so any
+/// folder/file name containing wildcard metacharacters (`[`, `]`, `*`, `?` —
+/// e.g. repack folder names like "… [Vanya Repack]") makes it fail with
+/// "wildcard path … did not resolve to a file". We instead build an explicit
+/// `ProcessStartInfo` and call `[System.Diagnostics.Process]::Start`, which
+/// never globs the path, so bracket- and space-containing paths work.
 #[cfg(windows)]
 pub(crate) fn run_elevated_installer_and_wait(
   executable: &str,
   argument_list: Option<&str>,
   working_directory: Option<&str>,
 ) -> Result<Option<i32>, String> {
-  // The installer path may contain PowerShell wildcard metacharacters
-  // ([, ], *, ?) inside folder/file names (e.g. "… [Vanya Repack]").
-  // Start-Process -FilePath globs the path, so we escape it with
-  // [WildcardPattern]::Escape() to make sure it is treated literally —
-  // otherwise we get "wildcard path … did not resolve to a file".
   let file_path = escape_powershell_single_quoted(executable);
-  let working_directory_segment = working_directory
-    .filter(|value| !value.trim().is_empty())
-    .map(escape_powershell_single_quoted)
-    .map(|value| format!(" -WorkingDirectory '{value}'"))
-    .unwrap_or_default();
-  let script = if let Some(arguments) = argument_list.filter(|value| !value.trim().is_empty()) {
+
+  let mut script = String::from("$psi = New-Object System.Diagnostics.ProcessStartInfo\n");
+  script.push_str(&format!("$psi.FileName = '{file_path}'\n"));
+
+  if let Some(arguments) = argument_list.filter(|value| !value.trim().is_empty()) {
     let escaped_arguments = escape_powershell_single_quoted(arguments);
-    format!(
-      "$path = [WildcardPattern]::Escape('{file_path}'); $process = Start-Process -FilePath $path -ArgumentList '{escaped_arguments}'{working_directory_segment} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
-    )
-  } else {
-    format!(
-      "$path = [WildcardPattern]::Escape('{file_path}'); $process = Start-Process -FilePath $path{working_directory_segment} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
-    )
-  };
+    script.push_str(&format!("$psi.Arguments = '{escaped_arguments}'\n"));
+  }
+  if let Some(working_directory) = working_directory.filter(|value| !value.trim().is_empty()) {
+    let escaped_working_directory = escape_powershell_single_quoted(working_directory);
+    script.push_str(&format!("$psi.WorkingDirectory = '{escaped_working_directory}'\n"));
+  }
+  script.push_str("$psi.UseShellExecute = $true\n");
+  script.push_str("$psi.Verb = 'runas'\n");
+  script.push_str("$process = [System.Diagnostics.Process]::Start($psi)\n");
+  script.push_str("$process.WaitForExit()\n");
+  script.push_str("exit $process.ExitCode");
 
   let output = Command::new("powershell")
     .arg("-NoProfile")
