@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { pickPreferredExecutable, pickPreferredInstaller } from "./install-utils";
+import {
+  isWindowsExecutablePath,
+  pickPreferredExecutable,
+  pickPreferredInstaller,
+} from "./install-utils";
 
 describe("pickPreferredExecutable", () => {
   const executables = ["Game/Game.exe", "Game/run.sh", "setup/Setup.exe"];
@@ -43,5 +47,24 @@ describe("pickPreferredInstaller", () => {
 
   it("auto-selects the first installer when no preferred is configured", () => {
     expect(pickPreferredInstaller(installers)).toBe("setup/Setup.exe");
+  });
+});
+
+describe("isWindowsExecutablePath", () => {
+  it("detects Windows executables case-insensitively", () => {
+    expect(isWindowsExecutablePath("Game/Game.exe")).toBe(true);
+    expect(isWindowsExecutablePath("Game/Game.EXE")).toBe(true);
+    expect(isWindowsExecutablePath("setup/installer.msi")).toBe(true);
+    expect(isWindowsExecutablePath("Game/run.bat")).toBe(true);
+    expect(isWindowsExecutablePath("Game/launch.cmd")).toBe(true);
+    expect(isWindowsExecutablePath("Game/run.com")).toBe(true);
+  });
+
+  it("rejects non-Windows executables and missing paths", () => {
+    expect(isWindowsExecutablePath("Game/run.sh")).toBe(false);
+    expect(isWindowsExecutablePath("Game/run.appimage")).toBe(false);
+    expect(isWindowsExecutablePath("Game/run")).toBe(false);
+    expect(isWindowsExecutablePath("")).toBe(false);
+    expect(isWindowsExecutablePath(undefined)).toBe(false);
   });
 });

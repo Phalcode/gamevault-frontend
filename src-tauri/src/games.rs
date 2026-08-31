@@ -229,7 +229,17 @@ pub(crate) fn collect_launch_candidates(root: &Path, current: &Path, results: &m
       let Ok(metadata) = fs::metadata(&path) else { continue };
       let mode = metadata.permissions().mode();
       if mode & 0o111 == 0 {
-        continue;
+        // Not natively executable on Unix — but still offer Windows
+        // executables: on Linux they can be run through umu-launcher
+        // (Proton/Wine), so list them as launch candidates too.
+        let ext = path
+          .extension()
+          .and_then(|v| v.to_str())
+          .map(|v| v.to_ascii_lowercase())
+          .unwrap_or_default();
+        if !matches!(ext.as_str(), "exe" | "bat" | "cmd" | "com") {
+          continue;
+        }
       }
     }
 
@@ -382,6 +392,22 @@ pub(crate) fn launch_game(
 
   let working_dir = exe_path.parent().unwrap_or(&root);
   let restore_on_exit = load_settings(&app).minimize_on_game_launch;
+
+  // On Linux a Windows executable cannot run natively; run it through
+  // umu-launcher (Proton/Wine), auto-installing it when missing. This comes
+  // before the admin branch: elevating a Windows exe (e.g. running wine as
+  // root) is wrong, so umu takes precedence and ignores run_as_admin.
+  #[cfg(target_os = "linux")]
+  if crate::umu::is_windows_executable(&exe_path) {
+    crate::umu::ensure_umu_installed(&app, Some(&game_title))?;
+    return crate::umu::launch_with_umu(
+      app,
+      game_title,
+      &exe_path,
+      launch_parameters.as_deref(),
+      restore_on_exit,
+    );
+  }
 
   #[cfg(windows)]
   if run_as_admin.unwrap_or(false) {
@@ -574,13 +600,13 @@ fn format_launch_output(stderr: &str, stdout: &str) -> String {
   }
 }
 
-fn hide_main_window(app: &tauri::AppHandle) {
+pub(crate) fn hide_main_window(app: &tauri::AppHandle) {
   if let Some(window) = app.get_webview_window("main") {
     let _ = window.hide();
   }
 }
 
-fn restore_main_window(app: &tauri::AppHandle) {
+pub(crate) fn restore_main_window(app: &tauri::AppHandle) {
   if let Some(window) = app.get_webview_window("main") {
     let _ = window.show();
     let _ = window.unminimize();

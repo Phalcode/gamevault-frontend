@@ -49,6 +49,20 @@ export function normalizeRelativePath(value?: string) {
   return (value || "").replace(/\\/g, "/").toLowerCase();
 }
 
+const WINDOWS_EXECUTABLE_EXTENSIONS = ["exe", "bat", "cmd", "com", "msi"];
+
+/**
+ * True when the relative path points to a Windows executable that needs
+ * Proton/Wine (umu-launcher) to run on Linux.
+ */
+export function isWindowsExecutablePath(value?: string) {
+  if (!value) return false;
+  const lower = value.toLowerCase();
+  return WINDOWS_EXECUTABLE_EXTENSIONS.some(
+    (ext) => lower.endsWith(`.${ext}`),
+  );
+}
+
 export function pickPreferredInstaller(options: string[], preferred?: string) {
   if (!options.length) return "";
   if (!preferred) return options[0];

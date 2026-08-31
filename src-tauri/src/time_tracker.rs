@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use sysinfo::System;
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::sync::watch;
 
 #[tauri::command]
@@ -161,7 +161,14 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     }
 
     let mut sys = System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    // `refresh_processes` alone does not load `cmd()` in sysinfo 0.33 — the
+    // process argv (which is what matches a running game) stays empty. Use
+    // the explicit "everything" refresh kind so cmdlines are populated.
+    sys.refresh_processes_specifics(
+      ProcessesToUpdate::All,
+      true,
+      ProcessRefreshKind::everything(),
+    );
 
     let processes: Vec<&sysinfo::Process> = sys.processes().values().collect();
 
@@ -202,7 +209,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
   }
 }
 
-fn process_matches_game(process: &sysinfo::Process, game_exe: &Path) -> bool {
+pub(crate) fn process_matches_game(process: &sysinfo::Process, game_exe: &Path) -> bool {
   // Direct binary: the process exe path resolves to the game executable.
   if let Some(exe) = process.exe() {
     if paths_match(game_exe, exe) {
@@ -222,7 +229,7 @@ fn process_matches_game(process: &sysinfo::Process, game_exe: &Path) -> bool {
   })
 }
 
-fn matches_game_file_name(game_exe: &Path, arg: &Path) -> bool {
+pub(crate) fn matches_game_file_name(game_exe: &Path, arg: &Path) -> bool {
   match (game_exe.file_name(), arg.file_name()) {
     (Some(a), Some(b)) => a == b,
     _ => false,
@@ -357,4 +364,157 @@ pub(crate) async fn sync_offline_time(
     .await
     .map_err(|e| format!("Sync request failed: {e}"))?;
   Ok(resp.status().is_success())
+}
+
+// ── Debug diagnostics ────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DebugTrackerReport {
+  pub tracker_running: bool,
+  pub roots: Vec<String>,
+  pub total_processes: usize,
+  pub all_processes: Vec<DebugProcess>,
+  pub games: Vec<DebugGameEntry>,
+  pub process_matches: Vec<DebugProcessMatch>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DebugProcess {
+  pub pid: u32,
+  pub exe: Option<String>,
+  pub cmd: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DebugGameEntry {
+  pub game_id: i64,
+  pub game_title: String,
+  pub installation_directory: String,
+  pub version_directory: String,
+  pub exe_candidates: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DebugProcessMatch {
+  pub game_id: i64,
+  pub matched: bool,
+  pub matching_processes: Vec<String>,
+}
+
+/// Debug helper: replays the exact scan the time tracker performs and reports
+/// which installed games, executable candidates and process matches it finds.
+#[tauri::command]
+pub(crate) fn debug_tracker_scan(
+  _app: tauri::AppHandle,
+  selected_root: Option<String>,
+) -> Result<DebugTrackerReport, String> {
+  let tracker_running = tracker_config().lock().map(|g| g.is_some()).unwrap_or(false);
+
+  let mut roots: Vec<String> = Vec::new();
+  if let Some(root) = selected_root.filter(|r| !r.trim().is_empty()) {
+    roots.push(root);
+  } else if let Ok(guard) = tracker_config().lock() {
+    if let Some(config) = guard.as_ref() {
+      roots = config.download_paths.clone();
+    }
+  }
+  if roots.is_empty() {
+    roots.push(std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default());
+  }
+
+  let mut installed = Vec::new();
+  for root in &roots {
+    if let Ok(games) = list_installed_games(root.clone()) {
+      installed.extend(games);
+    }
+  }
+
+  let mut system = System::new();
+  system.refresh_processes_specifics(
+    ProcessesToUpdate::All,
+    true,
+    ProcessRefreshKind::everything(),
+  );
+  let processes: Vec<&sysinfo::Process> = system.processes().values().collect();
+
+  // Dump everything sysinfo sees so we can verify the wine/umu processes are
+  // present at all (and with their cmdlines) when a game is running.
+  let total_processes = processes.len();
+  let mut all_processes: Vec<DebugProcess> = processes
+    .iter()
+    .take(400)
+    .map(|p| {
+      let cmd: Vec<String> = p.cmd().iter().map(|c| c.to_string_lossy().to_string()).collect();
+      let mut joined = cmd.join(" ");
+      if joined.len() > 160 {
+        joined.truncate(160);
+      }
+      DebugProcess {
+        pid: p.pid().as_u32(),
+        exe: p.exe().map(|e| e.to_string_lossy().to_string()),
+        cmd: joined,
+      }
+    })
+    .collect();
+  all_processes.sort_by(|a, b| a.pid.cmp(&b.pid));
+
+  let mut games = Vec::new();
+  let mut process_matches = Vec::new();
+
+  for game in &installed {
+    let configured_install = PathBuf::from(&game.installation_directory);
+    let mut scan_dir = configured_install.clone();
+    if !scan_dir.exists() || !scan_dir.is_dir() {
+      scan_dir = PathBuf::from(&game.version_directory);
+    }
+
+    let mut abs_paths: Vec<PathBuf> = Vec::new();
+    if let Some(rel_exe) = read_configured_launch_executable(Path::new(&game.version_directory)) {
+      let abs = scan_dir.join(rel_exe);
+      if abs.exists() {
+        abs_paths.push(abs);
+      }
+    }
+    let mut candidates = Vec::new();
+    if collect_launch_candidates(&scan_dir, &scan_dir, &mut candidates).is_ok() {
+      for rel in candidates {
+        abs_paths.push(scan_dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR)));
+      }
+    }
+
+    let matching: Vec<String> = processes
+      .iter()
+      .filter(|p| abs_paths.iter().any(|exe| process_matches_game(p, exe)))
+      .map(|p| {
+        let cmd: Vec<String> = p.cmd().iter().map(|c| c.to_string_lossy().to_string()).collect();
+        format!("[{}] {}", p.pid(), cmd.join(" "))
+      })
+      .collect();
+
+    process_matches.push(DebugProcessMatch {
+      game_id: game.game_id,
+      matched: !matching.is_empty(),
+      matching_processes: matching,
+    });
+    games.push(DebugGameEntry {
+      game_id: game.game_id,
+      game_title: game.game_title.clone(),
+      installation_directory: game.installation_directory.clone(),
+      version_directory: game.version_directory.clone(),
+      exe_candidates: abs_paths.iter().map(|p| p.to_string_lossy().to_string()).collect(),
+    });
+  }
+
+  Ok(DebugTrackerReport {
+    tracker_running,
+    roots,
+    total_processes,
+    all_processes,
+    games,
+    process_matches,
+  })
 }

@@ -193,3 +193,34 @@ pub(crate) fn emit_game_launch_failed(
     },
   );
 }
+
+/// Phases streamed while a Windows executable runs through umu-launcher:
+/// `installing` (umu-launcher itself is being installed), `setup` (umu's
+/// first-run setup: downloading UMU-Proton / steamrt3), `running` (the
+/// game/installer process was detected), `error` and `exit`.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UmuStatusEvent {
+  pub game_title: Option<String>,
+  pub phase: String,
+  pub line: Option<String>,
+  pub message: Option<String>,
+}
+
+pub(crate) fn emit_umu_status(
+  app: &tauri::AppHandle,
+  game_title: Option<&str>,
+  phase: &str,
+  line: Option<String>,
+  message: Option<String>,
+) {
+  let _ = app.emit(
+    "umu-status",
+    UmuStatusEvent {
+      game_title: game_title.map(String::from),
+      phase: phase.to_string(),
+      line,
+      message,
+    },
+  );
+}

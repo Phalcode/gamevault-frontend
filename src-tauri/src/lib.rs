@@ -12,6 +12,7 @@ mod settings;
 mod net;
 mod youtube;
 mod taskbar;
+mod umu;
 
 use crate::settings::AppSettings;
 use semver::Version;
@@ -449,6 +450,7 @@ pub fn run() {
       time_tracker::get_offline_time_files,
       time_tracker::delete_offline_time_file,
       time_tracker::sync_offline_time,
+      time_tracker::debug_tracker_scan,
       settings::get_start_minimized,
       settings::set_start_minimized,
       settings::get_minimize_on_game_launch,
@@ -457,6 +459,8 @@ pub fn run() {
       settings::set_ignore_list,
       taskbar::set_taskbar_progress,
       taskbar::clear_taskbar_progress,
+      umu::umu_status,
+      umu::install_umu_launcher,
       is_updater_enabled,
       check_for_app_update,
       download_and_install_app_update

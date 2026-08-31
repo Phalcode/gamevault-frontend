@@ -18,6 +18,8 @@ import { MapGameDto } from "@/api/models/MapGameDto";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
+import { useUmu, type UmuStatusInfo } from "@/context/UmuContext";
+import { isWindowsExecutablePath } from "@/components/downloads/install-utils";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { isTauriApp } from "@/utils/tauri";
 import {
@@ -254,6 +256,17 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   const [loadingLaunchOptions, setLoadingLaunchOptions] = useState(false);
   const launchOptionsLoadedRef = useRef(false);
 
+  // umu-launcher (Wine/Proton) status for Windows executables on Linux.
+  const [umuStatus, setUmuStatus] = useState<UmuStatusInfo | null>(null);
+  const [installingUmu, setInstallingUmu] = useState(false);
+  const { checkUmuStatus, installUmu } = useUmu();
+  const isLinux =
+    isTauri &&
+    typeof navigator !== "undefined" &&
+    navigator.userAgent.includes("Linux");
+  const isWindowsLaunchExe =
+    isLinux && isWindowsExecutablePath(selectedLaunchExe);
+
   // Fetch full game object on mount
   useEffect(() => {
     let cancelled = false;
@@ -431,6 +444,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         const { invoke } = await import("@tauri-apps/api/core");
         const { join } = await import("@tauri-apps/api/path");
 
+        const status = await checkUmuStatus();
+        if (!cancelled) setUmuStatus(status);
+
         // List executables from installation directory
         const result = await invoke<{
           executables: string[];
@@ -469,7 +485,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     return () => {
       cancelled = true;
     };
-  }, [activeTab, installedGame]);
+  }, [activeTab, installedGame, checkUmuStatus]);
 
   const handleMakeExecutable = useCallback(async () => {
     if (!installedGame) return;
@@ -495,6 +511,33 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       setMakingExecutable(false);
     }
   }, [installedGame, nonExecutableScripts]);
+
+  const handleInstallUmu = useCallback(async () => {
+    setInstallingUmu(true);
+    try {
+      const ok = await installUmu(
+        workingGame.metadata?.title || workingGame.title || "Game",
+      );
+      if (ok) {
+        setUmuStatus(await checkUmuStatus());
+      } else {
+        await showAlert({
+          title: "Failed to install umu-launcher",
+          description:
+            "umu-launcher could not be installed. Check your connection and try again.",
+          affirmativeText: "OK",
+        });
+      }
+    } finally {
+      setInstallingUmu(false);
+    }
+  }, [
+    installUmu,
+    checkUmuStatus,
+    showAlert,
+    workingGame.metadata?.title,
+    workingGame.title,
+  ]);
 
   const persistLaunchOptions = useCallback(async (
     exe: string,
@@ -3425,6 +3468,27 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                             </Listbox>
                           )}
                         </div>
+
+                        {isWindowsLaunchExe && (
+                          <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-3">
+                            <p className="text-sm text-indigo-700 dark:text-indigo-300">
+                              This is a Windows executable — it will be run
+                              with umu-launcher (Wine/Proton) on Linux.
+                            </p>
+                            {!umuStatus?.installed && (
+                              <Button
+                                color="indigo"
+                                onClick={() => void handleInstallUmu()}
+                                disabled={installingUmu}
+                                className="mt-3"
+                              >
+                                {installingUmu
+                                  ? "Installing umu-launcher…"
+                                  : "Install umu-launcher"}
+                              </Button>
+                            )}
+                          </div>
+                        )}
 
                         {/* Launch Parameters */}
                         <div>

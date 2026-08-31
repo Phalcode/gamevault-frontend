@@ -6,7 +6,8 @@ use std::fs;
 use std::fs::File as StdFile;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -339,6 +340,160 @@ fn wait_for_installation_populated(path: &Path) -> bool {
   installation_directory_populated(path)
 }
 
+/// Runs a Windows installer through `umu-run` on Linux. Auto-installs
+/// umu-launcher when missing, streams its setup output via `umu-status`
+/// events (drives the "Setting up umu launcher…" overlay) and keeps the
+/// regular `installer-status` protocol so the download card stays in sync.
+#[cfg(target_os = "linux")]
+fn run_installer_via_umu(
+  app: tauri::AppHandle,
+  game_id: i64,
+  installer_path: &Path,
+  installer_relative: &str,
+  installation_path_resolved: &str,
+  installer_parameters: Option<String>,
+  is_msi: bool,
+) {
+  if let Err(error) = crate::umu::ensure_umu_installed(&app, None) {
+    emit_installer_status(
+      &app,
+      game_id,
+      "error",
+      Some(installer_relative.to_string()),
+      None,
+      Some(error),
+    );
+    return;
+  }
+
+  let Some(umu_run) = crate::umu::find_umu_run() else {
+    let message = "umu-run was not found. Unable to launch Windows installer on Linux.".to_string();
+    crate::events::emit_umu_status(&app, None, "error", None, Some(message.clone()));
+    emit_installer_status(
+      &app,
+      game_id,
+      "error",
+      Some(installer_relative.to_string()),
+      None,
+      Some(message),
+    );
+    return;
+  };
+
+  let working_dir = installer_path
+    .parent()
+    .map(|parent| parent.to_path_buf())
+    .unwrap_or_default();
+
+  let mut command = Command::new(&umu_run);
+  if is_msi {
+    command.arg("msiexec").arg("/i");
+  }
+  command.arg(installer_path).current_dir(&working_dir);
+
+  if let Some(parameters) = installer_parameters {
+    let parameters = parameters.replace("%INSTALLDIR%", installation_path_resolved);
+    let parameters = parameters.trim();
+    if !parameters.is_empty() {
+      for arg in parameters.split_whitespace() {
+        command.arg(arg);
+      }
+    }
+  }
+
+  command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+  let mut child = match command.spawn() {
+    Ok(child) => child,
+    Err(error) => {
+      let message = format!("Failed to start installer: {error}");
+      crate::events::emit_umu_status(&app, None, "error", None, Some(message.clone()));
+      emit_installer_status(
+        &app,
+        game_id,
+        "error",
+        Some(installer_relative.to_string()),
+        None,
+        Some(message),
+      );
+      return;
+    }
+  };
+
+  let stdout = child.stdout.take();
+  let stderr = child.stderr.take();
+  let handle = crate::umu::spawn_umu_streamers(&app, None, stdout, stderr);
+
+  emit_installer_status(
+    &app,
+    game_id,
+    "running",
+    Some(installer_relative.to_string()),
+    None,
+    None,
+  );
+
+  // Let the umu overlay know once the installer window actually appears (umu
+  // emits "running" right when the wine container finishes setting up).
+  {
+    let exe_path = installer_path.to_path_buf();
+    let running_flag = handle.running.clone();
+    let overlay_app = app.clone();
+    thread::spawn(move || {
+      let started = Instant::now();
+      loop {
+        if running_flag.load(Ordering::SeqCst) || crate::umu::detect_process_running(&exe_path) {
+          crate::events::emit_umu_status(&overlay_app, None, "running", None, None);
+          break;
+        }
+        // Safety net: assume the installer started even if undetected.
+        if started.elapsed() >= Duration::from_secs(600) {
+          crate::events::emit_umu_status(&overlay_app, None, "running", None, None);
+          break;
+        }
+        thread::sleep(Duration::from_millis(500));
+      }
+    });
+  }
+
+  let status = child.wait();
+  let exit_code = status.as_ref().ok().and_then(|s| s.code());
+
+  if status.map(|s| s.success()).unwrap_or(false) {
+    emit_installer_status(
+      &app,
+      game_id,
+      "completed",
+      Some(installer_relative.to_string()),
+      exit_code,
+      None,
+    );
+  } else if wait_for_installation_populated(Path::new(installation_path_resolved)) {
+    // Non-zero exit is not a reliable failure (GOG/NSIS wrappers detach a
+    // child that keeps installing); verify the install dir got populated.
+    emit_installer_status(
+      &app,
+      game_id,
+      "completed",
+      Some(installer_relative.to_string()),
+      exit_code,
+      None,
+    );
+  } else {
+    emit_installer_status(
+      &app,
+      game_id,
+      "error",
+      Some(installer_relative.to_string()),
+      exit_code,
+      Some(format!(
+        "Installer exited with code {}.",
+        exit_code.unwrap_or(-1)
+      )),
+    );
+  }
+}
+
 #[tauri::command]
 pub(crate) fn launch_installation_executable(
   app: tauri::AppHandle,
@@ -376,6 +531,21 @@ pub(crate) fn launch_installation_executable(
       None,
       None,
     );
+
+    // On Linux, Windows installers run through umu-launcher (Proton/Wine).
+    #[cfg(target_os = "linux")]
+    if crate::umu::is_windows_executable(&installer_path) {
+      run_installer_via_umu(
+        app,
+        game_id,
+        &installer_path,
+        &installer_relative,
+        &installation_path_resolved,
+        installer_parameters.clone(),
+        is_msi,
+      );
+      return;
+    }
 
     let mut command = if is_msi {
       let mut cmd = Command::new("msiexec");
