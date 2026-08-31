@@ -64,3 +64,26 @@ export function pickPreferredInstaller(options: string[], preferred?: string) {
   );
   return suffixMatch || options[0];
 }
+
+/**
+ * Resolve the launch executable to auto-select after installation.
+ *
+ * Prefers the game's configured `launch_executable` when it matches a real
+ * candidate (case-insensitive, separator-normalized). When nothing is
+ * configured or nothing matches, falls back to auto-detecting the first
+ * available executable — restoring the legacy client's behavior of picking a
+ * default launch executable automatically.
+ */
+export function pickPreferredExecutable(options: string[], preferred?: string) {
+  if (!options.length) return "";
+
+  if (preferred && preferred.trim()) {
+    const normalizedPreferred = normalizeRelativePath(preferred);
+    const exactMatch = options.find(
+      (option) => normalizeRelativePath(option) === normalizedPreferred,
+    );
+    if (exactMatch) return exactMatch;
+  }
+
+  return options[0];
+}

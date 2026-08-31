@@ -14,7 +14,10 @@ import { isTauriApp } from "@/utils/tauri";
 import { onGameUpdated } from "@/utils/gameUpdates";
 import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
 import { getRootPaths } from "@/utils/rootPaths";
-import { pickPreferredInstaller } from "@/components/downloads/install-utils";
+import {
+  pickPreferredInstaller,
+  pickPreferredExecutable,
+} from "@/components/downloads/install-utils";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import type { GameMetadata } from "@/api/models/GameMetadata";
 import type {
@@ -334,30 +337,25 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     const metaParams = (d.gameMetadata as any)?.launch_parameters as
       string | undefined;
 
-    let resolvedExe: string | undefined;
-    if (metaExe && metaExe.trim()) {
-      // Normalize separators for comparison — list_launch_executables always returns forward slashes
-      const normalized = metaExe.trim().replace(/\\/g, "/").toLowerCase();
-      // Match against the actual executable list (same source as the Listbox)
-      const { executables: exeList } = await invoke<{ executables: string[] }>(
-        "list_launch_executables",
-        {
-          installationPath: d.installationDirectory,
-        },
-      );
-      // Case-insensitive match; use the exact casing from the list so it matches the UI
-      const match = exeList.find(
-        (e) => e.replace(/\\/g, "/").toLowerCase() === normalized,
-      );
-      if (match) resolvedExe = match;
-    }
+    // Same source as the launch-executable Listbox (already excludes ignored
+    // executables and is sorted), used to resolve and validate candidates.
+    const { executables: exeList } = await invoke<{ executables: string[] }>(
+      "list_launch_executables",
+      {
+        installationPath: d.installationDirectory,
+      },
+    );
+
+    // Prefer the metadata launch executable, falling back to auto-detecting the
+    // first available one (restoring the legacy client's auto-select behavior).
+    const resolvedExe = pickPreferredExecutable(exeList, metaExe);
 
     const resolvedParams =
       metaParams && metaParams.trim() ? metaParams.trim() : undefined;
 
     if (!resolvedExe && !resolvedParams) return;
 
-    if (resolvedExe !== undefined) current.launchexecutable = resolvedExe;
+    if (resolvedExe) current.launchexecutable = resolvedExe;
     if (resolvedParams !== undefined) current.launchparameters = resolvedParams;
     await invoke("fs_write_text_file", {
       path: configPath,
