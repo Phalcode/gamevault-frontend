@@ -25,6 +25,52 @@ pub(crate) fn free_space_on(path: &Path) -> Option<u64> {
   best.map(|(_, disk)| disk.available_space() as u64)
 }
 
+/// Returns `(total, available)` bytes on the volume that contains `path`.
+/// Returns `None` if the disk could not be determined.
+pub(crate) fn disk_space(path: &Path) -> Option<(u64, u64)> {
+  use sysinfo::Disks;
+
+  let disks = Disks::new_with_refreshed_list();
+  let mut best: Option<(usize, &sysinfo::Disk)> = None;
+  for disk in disks.list() {
+    let mount = disk.mount_point();
+    if path.starts_with(mount) {
+      let depth = mount.components().count();
+      if best.map(|(d, _)| depth > d).unwrap_or(true) {
+        best = Some((depth, disk));
+      }
+    }
+  }
+  best.map(|(_, disk)| (disk.total_space(), disk.available_space()))
+}
+
+/// Recursively sums the size (in bytes) of every regular file under `path`.
+/// Symlinks are skipped (to avoid following cycles) and unreadable entries are
+/// ignored, so this is best-effort.
+pub(crate) fn dir_size(path: &Path) -> u64 {
+  let mut total = 0u64;
+  if let Ok(entries) = fs::read_dir(path) {
+    for entry in entries.flatten() {
+      let entry_path = entry.path();
+      let file_type = match entry.file_type() {
+        Ok(ft) => ft,
+        Err(_) => continue,
+      };
+      if file_type.is_symlink() {
+        continue;
+      }
+      if file_type.is_dir() {
+        total = total.saturating_add(dir_size(&entry_path));
+      } else if file_type.is_file() {
+        if let Ok(metadata) = entry.metadata() {
+          total = total.saturating_add(metadata.len());
+        }
+      }
+    }
+  }
+  total
+}
+
 pub(crate) fn parse_version_folder(folder_name: &str) -> (i64, String) {
   if let Some(rest) = folder_name.strip_prefix('(') {
     if let Some((id_part, name_part)) = rest.split_once(')') {

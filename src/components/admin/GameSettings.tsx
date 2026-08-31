@@ -99,6 +99,8 @@ type InstalledGameInfo = {
 };
 
 import { getRootPaths } from "@/utils/rootPaths";
+import { useDiskUsage } from "@/hooks/useDiskUsage";
+import DiskUsageChart from "@/components/DiskUsageChart";
 
 function isSetupInstallType(gameType?: string) {
   return gameType === GamevaultGameTypeEnum.windows_setup;
@@ -299,6 +301,28 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   // Use fullGame if available, otherwise fallback to game prop
   const workingGame = fullGame || game;
   const installationTabsVisible = isTauri && !!installedGame;
+
+  // Resolve the download location (root path) that contains this installed
+  // game, so the disk-usage donut can show how much of that volume it uses.
+  const diskUsageRoot = useMemo(() => {
+    if (!installedGame?.versionDirectory) return null;
+    for (const root of getRootPaths()) {
+      const rootPath = root.path;
+      if (
+        rootPath &&
+        (installedGame.versionDirectory === rootPath ||
+          installedGame.versionDirectory.startsWith(`${rootPath}/`) ||
+          installedGame.versionDirectory.startsWith(`${rootPath}\\`))
+      ) {
+        return root;
+      }
+    }
+    return null;
+  }, [installedGame]);
+  const { data: diskUsageData, loading: diskUsageLoading } = useDiskUsage(
+    diskUsageRoot?.path,
+    installedGame?.versionDirectory,
+  );
 
   const openImageSearch = useCallback(
     async (searchTerms: string) => {
@@ -3427,6 +3451,17 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                         {uninstalling ? "Uninstalling..." : "Uninstall Game"}
                       </Button>
                     </div>
+
+                    <DiskUsageChart
+                      data={diskUsageData}
+                      loading={diskUsageLoading}
+                      gameTitle={
+                        workingGame.metadata?.title ||
+                        workingGame.title ||
+                        installedGame.gameTitle
+                      }
+                      rootPath={diskUsageRoot?.path}
+                    />
                   </div>
                 )}
 

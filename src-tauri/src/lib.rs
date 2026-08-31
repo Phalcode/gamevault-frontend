@@ -424,6 +424,7 @@ pub fn run() {
       downloads::pause_download_task,
       downloads::recover_download_cards,
       games::list_installed_games,
+      games::get_disk_usage,
       games::list_launch_executables,
       games::make_script_executable,
       games::launch_game,

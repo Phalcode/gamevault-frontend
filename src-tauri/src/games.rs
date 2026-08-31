@@ -1,6 +1,7 @@
 use crate::events::{emit_game_launch_failed, InstalledGameInfo};
 use crate::settings::load_settings;
 use crate::util::{is_ignored_executable, parse_version_folder, parse_i64_json, resolve_version_id, resolve_version_subdir, stable_id_from_path};
+use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -139,6 +140,99 @@ pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<Installe
   }
 
   Ok(results)
+}
+
+/// Disk-usage breakdown for a download location (root path), used to render the
+/// "Disk Usage" donut in the installed-game settings.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiskUsage {
+  pub total: u64,
+  pub free: u64,
+  pub current_game_size: u64,
+  pub other_games_size: u64,
+  pub unmanaged_data: u64,
+}
+
+#[tauri::command]
+pub(crate) fn get_disk_usage(
+  selected_root: String,
+  current_version_dir: Option<String>,
+) -> Result<DiskUsage, String> {
+  let candidate = PathBuf::from(&selected_root).join("GameVault");
+  let root = if candidate.exists() {
+    candidate
+  } else {
+    PathBuf::from(&selected_root)
+  };
+
+  let (total, free) = crate::util::disk_space(Path::new(&selected_root))
+    .ok_or_else(|| "Could not determine disk space for the selected root.".to_string())?;
+
+  // Sum the on-disk size of every installed GameVault version under this root.
+  let mut all_games_size: u64 = 0;
+  if root.exists() && root.is_dir() {
+    if let Ok(game_dirs) = fs::read_dir(&root) {
+      for game_entry in game_dirs.flatten() {
+        let game_path = game_entry.path();
+        if !game_path.is_dir() {
+          continue;
+        }
+
+        let versions_root = game_path.join("Versions");
+        if !versions_root.exists() || !versions_root.is_dir() {
+          continue;
+        }
+
+        if let Ok(version_dirs) = fs::read_dir(&versions_root) {
+          for version_entry in version_dirs.flatten() {
+            let version_path = version_entry.path();
+            if !version_path.is_dir() {
+              continue;
+            }
+
+            let config_path = version_path.join(".gamevault.game.config.json");
+            if !config_path.exists() {
+              continue;
+            }
+
+            let cfg_value = fs::read_to_string(&config_path)
+              .ok()
+              .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+              .unwrap_or_else(|| serde_json::json!({}));
+            let installation_finished = cfg_value
+              .get("installationfinished")
+              .and_then(|v| v.as_bool())
+              .unwrap_or(false);
+            let installations_dir = resolve_version_subdir(&version_path, "Installation", "Installations");
+
+            if !installation_finished && !directory_has_entries(&installations_dir) {
+              continue;
+            }
+
+            all_games_size = all_games_size.saturating_add(crate::util::dir_size(&version_path));
+          }
+        }
+      }
+    }
+  }
+
+  let current_game_size = current_version_dir
+    .as_deref()
+    .map(|p| crate::util::dir_size(Path::new(p)))
+    .unwrap_or(0);
+
+  let other_games_size = all_games_size.saturating_sub(current_game_size);
+  let used = total.saturating_sub(free);
+  let unmanaged_data = used.saturating_sub(all_games_size);
+
+  Ok(DiskUsage {
+    total,
+    free,
+    current_game_size,
+    other_games_size,
+    unmanaged_data,
+  })
 }
 
 #[tauri::command]
