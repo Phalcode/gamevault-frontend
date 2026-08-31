@@ -196,6 +196,29 @@ pub(crate) fn list_install_executables(extraction_path: String) -> Result<Vec<St
     .as_ref()
     .map(|value| value.replace('\\', "/").to_ascii_lowercase());
 
+  // Lower rank = more likely to be the real installer. Common setup names
+  // (setup.exe, install.exe, …) are preferred so the correct executable ends
+  // up at the top of the list when no preferred installer is configured.
+  fn installer_name_rank(relative: &str) -> u8 {
+    let normalized = relative.replace('\\', "/").to_ascii_lowercase();
+    let basename = normalized.rsplit('/').next().unwrap_or(&normalized);
+    let stem = basename
+      .rsplit_once('.')
+      .map(|(stem, _)| stem)
+      .unwrap_or(basename);
+    const COMMON: &[&str] = &[
+      "setup", "install", "installer", "autorun", "autoplay", "start",
+      "launcher", "setup64", "install64", "setup32", "install32",
+    ];
+    if COMMON.contains(&stem) {
+      0
+    } else if stem.contains("setup") || stem.contains("install") {
+      1
+    } else {
+      2
+    }
+  }
+
   results.sort_by(|left, right| {
     let left_normalized = left.replace('\\', "/").to_ascii_lowercase();
     let right_normalized = right.replace('\\', "/").to_ascii_lowercase();
@@ -214,6 +237,7 @@ pub(crate) fn list_install_executables(extraction_path: String) -> Result<Vec<St
 
     right_is_preferred
       .cmp(&left_is_preferred)
+      .then_with(|| installer_name_rank(left).cmp(&installer_name_rank(right)))
       .then_with(|| left_normalized.cmp(&right_normalized))
   });
   Ok(results)

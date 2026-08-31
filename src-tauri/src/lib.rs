@@ -436,7 +436,6 @@ pub fn run() {
       fs_commands::fs_create_dir_all,
       fs_commands::fs_path_exists,
       fs_commands::fs_remove,
-      fs_commands::delete_pending_directories,
       fs_commands::remove_empty_directories,
       net::fetch_url_bytes,
       net::fs_read_binary_file,

@@ -139,28 +139,6 @@ mod tests {
   fn falls_back_to_legacy_folder_version_id() {
     assert_eq!(resolve_version_id(&json!({}), 775), 775);
   }
-
-  #[cfg(windows)]
-  #[test]
-  fn escapes_wildcard_metacharacters_in_powershell_paths() {
-    // Folder names containing brackets must be passed literally to
-    // Start-Process -FilePath, otherwise PowerShell treats `[Vanya Repack]`
-    // as a wildcard character class and fails to resolve the path.
-    assert_eq!(
-      super::escape_powershell_literal_path(
-        r"D:\GameVault\ReStory_ Chill Electronics Repairs\Versions\Unknown Version\Extraction\ReStory Chill Electronics Repairs [Vanya Repack]\setup.exe"
-      ),
-      r"D:\GameVault\ReStory_ Chill Electronics Repairs\Versions\Unknown Version\Extraction\ReStory Chill Electronics Repairs `[Vanya Repack`]\setup.exe",
-    );
-    assert_eq!(
-      super::escape_powershell_literal_path("C:\\games\\T\\v1.0\\setup?*.exe"),
-      "C:\\games\\T\\v1.0\\setup`?`*.exe",
-    );
-    assert_eq!(
-      super::escape_powershell_literal_path(r"O'Brien's [setup].exe"),
-      r"O''Brien''s `[setup`].exe",
-    );
-  }
 }
 
 pub(crate) fn read_saved_game_metadata(start_path: &Path) -> Option<serde_json::Value> {
@@ -211,28 +189,17 @@ pub(crate) fn escape_powershell_single_quoted(value: &str) -> String {
 /// Electronics Repairs [Vanya Repack]") make `Start-Process` fail with
 /// "wildcard path ... did not resolve to a file".
 #[cfg(windows)]
-fn escape_powershell_literal_path(value: &str) -> String {
-  let mut escaped = String::with_capacity(value.len());
-  for c in value.chars() {
-    match c {
-      '\'' => escaped.push_str("''"),
-      '`' | '[' | ']' | '*' | '?' => {
-        escaped.push('`');
-        escaped.push(c);
-      }
-      _ => escaped.push(c),
-    }
-  }
-  escaped
-}
-
-#[cfg(windows)]
 pub(crate) fn run_elevated_installer_and_wait(
   executable: &str,
   argument_list: Option<&str>,
   working_directory: Option<&str>,
 ) -> Result<Option<i32>, String> {
-  let file_path = escape_powershell_literal_path(executable);
+  // The installer path may contain PowerShell wildcard metacharacters
+  // ([, ], *, ?) inside folder/file names (e.g. "… [Vanya Repack]").
+  // Start-Process -FilePath globs the path, so we escape it with
+  // [WildcardPattern]::Escape() to make sure it is treated literally —
+  // otherwise we get "wildcard path … did not resolve to a file".
+  let file_path = escape_powershell_single_quoted(executable);
   let working_directory_segment = working_directory
     .filter(|value| !value.trim().is_empty())
     .map(escape_powershell_single_quoted)
@@ -241,11 +208,11 @@ pub(crate) fn run_elevated_installer_and_wait(
   let script = if let Some(arguments) = argument_list.filter(|value| !value.trim().is_empty()) {
     let escaped_arguments = escape_powershell_single_quoted(arguments);
     format!(
-      "$process = Start-Process -FilePath '{file_path}' -ArgumentList '{escaped_arguments}'{working_directory_segment} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
+      "$path = [WildcardPattern]::Escape('{file_path}'); $process = Start-Process -FilePath $path -ArgumentList '{escaped_arguments}'{working_directory_segment} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
     )
   } else {
     format!(
-      "$process = Start-Process -FilePath '{file_path}'{working_directory_segment} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
+      "$path = [WildcardPattern]::Escape('{file_path}'); $process = Start-Process -FilePath $path{working_directory_segment} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
     )
   };
 

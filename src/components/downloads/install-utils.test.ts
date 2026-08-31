@@ -48,6 +48,18 @@ describe("pickPreferredInstaller", () => {
   it("auto-selects the first installer when no preferred is configured", () => {
     expect(pickPreferredInstaller(installers)).toBe("setup/Setup.exe");
   });
+
+  it("prefers a common setup name over other executables by default", () => {
+    const options = ["Game/Game.exe", "Game/setup.exe", "Game/readme.exe"];
+    expect(pickPreferredInstaller(options)).toBe("Game/setup.exe");
+  });
+
+  it("falls back to a common setup name when the preferred installer is missing", () => {
+    const options = ["Game/Game.exe", "Game/install.exe"];
+    expect(pickPreferredInstaller(options, "missing/setup.exe")).toBe(
+      "Game/install.exe",
+    );
+  });
 });
 
 describe("isWindowsExecutablePath", () => {

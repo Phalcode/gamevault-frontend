@@ -1674,56 +1674,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   );
   listInstallExecutablesRef.current = listInstallExecutables;
 
-  // Deletes the download + extraction folders after a successful install.
-  //
-  // Deletion is deferred and retried so that processes spawned by the
-  // installer (e.g. quicksfv.exe) aren't left pointing at files we are about
-  // to remove. The backend refuses to delete a folder while a running process
-  // has files open in it, so we poll until the folders are actually gone.
-  const autoDeleteSourceFiles = useCallback(
-    async (gameId: number, download: ActiveDownload) => {
-      if (
-        typeof localStorage === "undefined" ||
-        localStorage.getItem("tauri_auto_delete_source") !== "1"
-      ) {
-        return;
-      }
-
-      const dlDir = download.downloadDirectory;
-      const extDir = download.extractionDirectory;
-      if (!dlDir || !extDir) return;
-
-      const { invoke } = await import("@tauri-apps/api/core");
-      const sleep = (ms: number) =>
-        new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-      // Give installer-spawned post-processes time to start reading the
-      // extracted files before we remove them. Without this grace the files
-      // get deleted before the helper process even opens them.
-      await sleep(20_000);
-
-      // Only delete once nothing is still using the folders; the backend
-      // refuses to remove a directory that holds a running process or open
-      // files, so keep polling until the folders are gone.
-      for (let attempt = 0; attempt < 12; attempt++) {
-        try {
-          const done = await invoke<boolean>("delete_pending_directories", {
-            downloadDirectory: dlDir,
-            extractionDirectory: extDir,
-          });
-          if (done) {
-            updateDownload(gameId, { sourceFilesDeleted: true });
-            return;
-          }
-        } catch {
-          // Directory still in use; retry below.
-        }
-        await sleep(5_000);
-      }
-    },
-    [updateDownload],
-  );
-
   const copyInstallationFiles = useCallback(
     async (gameId: number) => {
       if (!isTauriApp()) return;
@@ -1791,11 +1741,36 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               // Cache game data for offline use
               cacheInstalledGameData(gameId);
 
-              // Auto-delete source files for portable games. Deletion is
-              // deferred and retried so that processes spawned by the
-              // installer (e.g. quicksfv.exe) aren't left pointing at files
-              // we are about to remove.
-              void autoDeleteSourceFiles(gameId, d);
+              // Auto-delete source files for portable games
+              try {
+                if (
+                  typeof localStorage !== "undefined" &&
+                  localStorage.getItem("tauri_auto_delete_source") === "1" &&
+                  d.downloadDirectory &&
+                  d.extractionDirectory
+                ) {
+                  const dlDir = d.downloadDirectory;
+                  const extDir = d.extractionDirectory;
+                  setTimeout(async () => {
+                    try {
+                      const { invoke } = await import("@tauri-apps/api/core");
+                      await invoke("fs_remove", {
+                        path: dlDir,
+                        recursive: true,
+                      }).catch(() => {});
+                      await invoke("fs_remove", {
+                        path: extDir,
+                        recursive: true,
+                      }).catch(() => {});
+                      updateDownload(gameId, { sourceFilesDeleted: true });
+                    } catch {
+                      // Best-effort cleanup
+                    }
+                  }, 500);
+                }
+              } catch {
+                // localStorage not available
+              }
             } else if (payload.status === "error") {
               updateDownload(gameId, {
                 installationStatus: "error",
@@ -1834,7 +1809,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [downloads, updateDownload, autoDeleteSourceFiles],
+    [downloads, updateDownload],
   );
   copyInstallationFilesRef.current = copyInstallationFiles;
 
@@ -1954,11 +1929,36 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               // Cache game data for offline use
               cacheInstalledGameData(gameId);
 
-              // Auto-delete source files for setup games. Deletion is deferred
-              // and retried so that processes spawned by the installer (e.g.
-              // quicksfv.exe) aren't left pointing at files we are about to
-              // remove.
-              void autoDeleteSourceFiles(gameId, d);
+              // Auto-delete source files for setup games (best-effort)
+              try {
+                if (
+                  typeof localStorage !== "undefined" &&
+                  localStorage.getItem("tauri_auto_delete_source") === "1" &&
+                  d.downloadDirectory &&
+                  d.extractionDirectory
+                ) {
+                  const dlDir = d.downloadDirectory;
+                  const extDir = d.extractionDirectory;
+                  setTimeout(async () => {
+                    try {
+                      const { invoke } = await import("@tauri-apps/api/core");
+                      await invoke("fs_remove", {
+                        path: dlDir,
+                        recursive: true,
+                      }).catch(() => {});
+                      await invoke("fs_remove", {
+                        path: extDir,
+                        recursive: true,
+                      }).catch(() => {});
+                      updateDownload(gameId, { sourceFilesDeleted: true });
+                    } catch {
+                      // Best-effort cleanup
+                    }
+                  }, 500);
+                }
+              } catch {
+                // localStorage not available
+              }
             } else if (payload.status === "error") {
               updateDownload(gameId, {
                 installationStatus: "error",
@@ -2002,7 +2002,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [downloads, updateDownload, autoDeleteSourceFiles],
+    [downloads, updateDownload],
   );
   launchInstallationExecutableRef.current = launchInstallationExecutable;
 
