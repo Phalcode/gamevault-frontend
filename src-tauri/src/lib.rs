@@ -11,6 +11,7 @@ mod cache;
 mod settings;
 mod net;
 mod youtube;
+mod taskbar;
 
 use crate::settings::AppSettings;
 use semver::Version;
@@ -454,6 +455,8 @@ pub fn run() {
       settings::set_minimize_on_game_launch,
       settings::get_ignore_list,
       settings::set_ignore_list,
+      taskbar::set_taskbar_progress,
+      taskbar::clear_taskbar_progress,
       is_updater_enabled,
       check_for_app_update,
       download_and_install_app_update

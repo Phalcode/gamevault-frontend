@@ -147,6 +147,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const speedSamplesRef = useRef<
     Record<number, { t: number; bytes: number }[]>
   >({});
+  /** Last taskbar indicator state sent to the native side (e.g. "normal:42"). */
+  const lastTaskbarRef = useRef<string | null>(null);
   const SPEED_WINDOW_MS = 5000;
   const UI_THROTTLE_MS = 500;
   const SAMPLE_INTERVAL_MS = 250;
@@ -2210,6 +2212,86 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     ]);
     return `${trimZeros(v.toFixed(precision(v)))} ${unit}`;
   }, []);
+
+  // ── OS taskbar / dock indicator (progress + attention) ────────────────
+  //
+  // Mirrors the legacy WPF app's `UpdateTaskbarProgress()`. Aggregates the
+  // active downloads and drives the native indicator so the user can see
+  // progress (and when something needs their attention) even when GameVault
+  // is in the background.
+  useEffect(() => {
+    if (!isTauriApp()) return;
+
+    let cancelled = false;
+    const send = async (command: string, args?: Record<string, unknown>) => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        if (cancelled) return;
+        await invoke(command, args);
+      } catch (error) {
+        // The native command may not be available in the web build; ignore.
+        console.debug("Taskbar indicator command failed:", command, error);
+      }
+    };
+
+    const active = Object.values(downloads).filter(
+      (d) => Number.isFinite(d.gameId) && d.gameId > 0,
+    );
+    if (active.length === 0) {
+      lastTaskbarRef.current = null;
+      void send("clear_taskbar_progress");
+      return;
+    }
+
+    const needsAction = active.some(
+      (d) =>
+        d.status === "error" ||
+        d.extractionStatus === "error" ||
+        d.extractionStatus === "needs-password" ||
+        d.extractionPasswordRequired ||
+        d.installationStatus === "error",
+    );
+    const paused = active.some((d) => d.status === "paused");
+
+    // Average progress across the currently-active phase of each download.
+    const progresses = active.map((d) => {
+      if (
+        d.extractionStatus === "extracting" &&
+        typeof d.extractionProgress === "number"
+      ) {
+        return d.extractionProgress;
+      }
+      if (
+        d.installationStatus === "copying" &&
+        typeof d.installationProgress === "number"
+      ) {
+        return d.installationProgress;
+      }
+      if (typeof d.progress === "number") return d.progress;
+      return 0;
+    });
+    const progress =
+      progresses.reduce((sum, p) => sum + p, 0) / progresses.length;
+
+    const status: "error" | "paused" | "normal" = needsAction
+      ? "error"
+      : paused
+        ? "paused"
+        : "normal";
+
+    // Only invoke when the indicator state actually changes (round progress
+    // to whole percent to avoid spamming the native command).
+    const rounded = Math.round(progress);
+    const key = `${status}:${rounded}`;
+    if (lastTaskbarRef.current === key) return;
+    lastTaskbarRef.current = key;
+
+    void send("set_taskbar_progress", { status, progress: rounded / 100 });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [downloads]);
 
   const value: DownloadContextValue = {
     downloads,
