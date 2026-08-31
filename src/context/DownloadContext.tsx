@@ -114,6 +114,51 @@ const DEFAULT_GAME_VAULT_CONFIG: GameVaultConfig = {
   downloadprogress: "",
 };
 
+// ── Auto-resume bookkeeping ─────────────────────────────────────────────────
+// The backend reports every non-completed download with progress as "paused",
+// so it cannot distinguish a user-initiated pause from a download interrupted
+// by the app exiting. We persist the set of game IDs the user intentionally
+// stopped (paused/cancelled) so only those stay paused after a restart; every
+// other recovered download auto-resumes.
+const SKIP_AUTO_RESUME_KEY = "skip_auto_resume_downloads";
+
+function getSkipAutoResumeIds(): Set<number> {
+  try {
+    const raw = localStorage.getItem(SKIP_AUTO_RESUME_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(
+      (Array.isArray(arr) ? arr : []).map(Number).filter((n) => n > 0),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function setSkipAutoResume(gameId: number, skip: boolean) {
+  if (gameId <= 0) return;
+  const ids = getSkipAutoResumeIds();
+  if (skip) ids.add(gameId);
+  else ids.delete(gameId);
+  try {
+    localStorage.setItem(SKIP_AUTO_RESUME_KEY, JSON.stringify([...ids]));
+  } catch {
+    /* ignore */
+  }
+}
+
+type StartDownloadParams = {
+  gameId: number;
+  versionId: number;
+  versionName?: string;
+  gameTitle: string;
+  gameMetadata?: GameMetadata;
+  gameType?: GamevaultGameTypeEnum;
+  filename: string;
+  resumePosition?: number;
+  downloadRootPath?: string;
+};
+
 export function DownloadProvider({ children }: { children: ReactNode }) {
   const { serverUrl, authFetch, auth } = useAuth();
   const { isOnline } = useOnlineStatus();
@@ -121,6 +166,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const [downloads, setDownloads] = useState<Record<number, ActiveDownload>>(
     {},
   );
+  const [autoResumeIds, setAutoResumeIds] = useState<number[]>([]);
   const downloadGameIdsKey = Object.keys(downloads)
     .map(Number)
     .filter((gameId) => Number.isFinite(gameId) && gameId > 0)
@@ -618,6 +664,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const cancelDownload = useCallback(
     (gameId: number) => {
       clearSimulatedTimer(gameId);
+      setSkipAutoResume(gameId, true);
       if (isTauriApp()) {
         import("@tauri-apps/api/core")
           .then(({ invoke }) => invoke("cancel_download_task", { gameId }))
@@ -669,6 +716,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const launchInstallationExecutableRef = useRef<
     ((gameId: number, installerRelativePath: string) => Promise<void>) | null
   >(null);
+  const pendingAutoResumeRef = useRef<ActiveDownload[]>([]);
 
   const startDownload = useCallback(
     async ({
@@ -681,17 +729,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       filename,
       resumePosition,
       downloadRootPath,
-    }: {
-      gameId: number;
-      versionId: number;
-      versionName?: string;
-      gameTitle: string;
-      gameMetadata?: GameMetadata;
-      gameType?: GamevaultGameTypeEnum;
-      filename: string;
-      resumePosition?: number;
-      downloadRootPath?: string;
-    }) => {
+    }: StartDownloadParams) => {
       if (!serverUrl) return;
       if (downloads[gameId]?.status === "downloading") return;
       const base = serverUrl.replace(/\/$/, "");
@@ -1234,6 +1272,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         updateDownload(gameId, { status: "paused", speedBps: undefined });
         return;
       }
+      setSkipAutoResume(gameId, true);
       if (isTauriApp()) {
         import("@tauri-apps/api/core")
           .then(({ invoke }) => invoke("pause_download_task", { gameId }))
@@ -1264,6 +1303,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         startSimulatedProgress(gameId, total);
         return;
       }
+      setSkipAutoResume(gameId, false);
       void startDownload({
         gameId: d.gameId,
         versionId: d.versionId,
@@ -1284,6 +1324,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       const d = downloads[gameId];
       if (!d) return;
 
+      setSkipAutoResume(gameId, false);
       clearSimulatedTimer(gameId);
 
       if (d.versionDirectory) {
@@ -2088,7 +2129,23 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         }
 
         if (!mounted || !Object.keys(recovered).length) return;
+
+        // Auto-resume any download interrupted by the app exiting, unless the
+        // user intentionally stopped it (paused/cancelled) before quitting.
+        const skipAutoResume = getSkipAutoResumeIds();
+        const toResume: ActiveDownload[] = [];
+        for (const dl of Object.values(recovered)) {
+          if (dl.status === "completed" || dl.status === "error") continue;
+          if (skipAutoResume.has(dl.gameId)) continue;
+          toResume.push(dl);
+        }
+
         setDownloads((prev) => ({ ...recovered, ...prev }));
+
+        if (toResume.length) {
+          pendingAutoResumeRef.current = toResume;
+          setAutoResumeIds(toResume.map((dl) => dl.gameId));
+        }
 
         // Load cached game data so recovered cards have full metadata (cover, etc.)
         for (const [idStr, dl] of Object.entries(recovered)) {
@@ -2126,6 +2183,28 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       mounted = false;
     };
   }, []);
+
+  // Resume downloads that were interrupted by the app exiting once the server
+  // is reachable (serverUrl is set asynchronously during bootstrap).
+  useEffect(() => {
+    if (!isTauriApp() || !serverUrl || !autoResumeIds.length) return;
+    const pending = pendingAutoResumeRef.current;
+    pendingAutoResumeRef.current = [];
+    setAutoResumeIds([]);
+    for (const d of pending) {
+      void startDownload({
+        gameId: d.gameId,
+        versionId: d.versionId,
+        versionName: d.versionName,
+        gameTitle: d.gameTitle,
+        gameMetadata: d.gameMetadata,
+        gameType: d.gameType,
+        filename: d.filename,
+        resumePosition: d.received > 0 ? d.received : 0,
+        downloadRootPath: d.downloadRootPath,
+      });
+    }
+  }, [serverUrl, autoResumeIds, startDownload]);
 
   // Cleanup orphaned offline caches on startup
   useEffect(() => {
