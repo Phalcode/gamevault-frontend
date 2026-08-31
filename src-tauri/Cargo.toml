@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "17.0.0"
+version = "17.1.0"
 description = "The self-hosted gaming platform for DRM-free games"
 authors = ["Phalcode"]
 license = "CC BY-NC-SA 4.0"

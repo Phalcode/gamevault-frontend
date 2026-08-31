@@ -208,9 +208,6 @@ jobs:
       - name: Write Cargo build version
         run: node scripts/write-cargo-version.mjs src-tauri/Cargo.toml ${{ needs.release.outputs.build_version }}
 
-      - name: Write Debian changelog
-        run: node scripts/write-debian-changelog.mjs ${{ needs.release.outputs.build_version }}
-
       - name: Write AppStream metainfo
         run: node scripts/write-tauri-metainfo.mjs
 

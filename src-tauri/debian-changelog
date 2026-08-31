@@ -1,8 +1,0 @@
-gamevault (17.0.0) unstable; urgency=medium
-
-  * Implemented Gamepad support for UI.
-  * Support for multiple game versions and version selection in the library.
-  * New installed games section in the library for tauri builds.
-  * Game time tracker.
-
- -- Phalcode <support@gamevau.lt>  Mon, 25 Aug 2026 00:00:00 +0000

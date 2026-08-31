@@ -1,5 +1,20 @@
 # GameVault Frontend Changelog
 
+## 17.1.0
+
+### Changes
+
+- Added a Refresh button to the window title bar that reloads the current page.
+- Auto-install on Linux now makes extracted shell scripts (`.sh`/`.bash`/`.run`/etc.) executable automatically.
+- Fixed "Open Folder" doing nothing on Linux: folder and URL opening now use the official `tauri-plugin-opener`, with WSL support preserved.
+- Added an "Open" button to each download location in Settings to open the folder in your file manager.
+- Installed games are now detected even when the `installationfinished` flag was never written (e.g. self-extracting installers), by verifying the installation directory has content.
+- Fixed GOG/self-extracting installers being reported as failed: a non-zero wrapper exit code no longer counts as failure if the installation directory actually got populated.
+- After installation the launch executable is now auto-detected (falling back to the first available one) when none is configured.
+- Uninstalling a game or deleting a download now cleans up the empty leftover folder structure, and the hidden `.gamevault.*` metadata files no longer block that cleanup.
+- Fixed a Wayland/Steam Deck startup crash (`Could not create default EGL display: EGL_BAD_PARAMETER`) by disabling WebKitGTK's dmabuf renderer on Linux.
+- Users can now delete their own progress entries, and administrators can delete progress entries of other users, with an improved confirmation UI that names the affected game.
+
 ## 17.0.0
 
 ### Changes
