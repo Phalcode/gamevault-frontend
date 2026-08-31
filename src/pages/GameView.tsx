@@ -768,15 +768,21 @@ export default function GameView() {
                   )}
                   {isTauri ? (
                     <Button
-                      color="indigo"
+                      {...(installedInfo
+                        ? { outline: true }
+                        : { color: "indigo" })}
                       aria-label={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
-                      className="h-9 px-3 gap-2 flex items-center justify-center"
+                      className={
+                        installedInfo
+                          ? floatingIconButtonClassName
+                          : "h-9 px-3 gap-2 flex items-center justify-center"
+                      }
                       title={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
                       onClick={handleTauriDownload}
                       disabled={isTauri && !isOnline}
                     >
                       <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
-                      {formattedSize && (
+                      {!installedInfo && formattedSize && (
                         <span className="text-xs font-medium whitespace-nowrap">
                           {formattedSize}
                         </span>
