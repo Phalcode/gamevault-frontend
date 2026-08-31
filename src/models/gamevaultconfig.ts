@@ -9,4 +9,8 @@ export interface GameVaultConfig {
   launchexecutable?: string;
   launchparameters?: string;
   launchasadmin?: boolean;
+  umugameid?: string;
+  umustore?: string;
+  umuprotonpath?: string;
+  umuwineprefix?: string;
 }

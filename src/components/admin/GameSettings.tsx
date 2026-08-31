@@ -253,6 +253,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   const [makingExecutable, setMakingExecutable] = useState(false);
   const [launchParams, setLaunchParams] = useState<string>("");
   const [launchAsAdmin, setLaunchAsAdmin] = useState<boolean>(false);
+  const [umuGameId, setUmuGameId] = useState<string>("");
+  const [umuStore, setUmuStore] = useState<string>("");
+  const [umuProtonPath, setUmuProtonPath] = useState<string>("");
+  const [umuWinePrefix, setUmuWinePrefix] = useState<string>("");
   const [loadingLaunchOptions, setLoadingLaunchOptions] = useState(false);
   const launchOptionsLoadedRef = useRef(false);
 
@@ -471,6 +475,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
               setSelectedLaunchExe(raw.launchexecutable || "");
               setLaunchParams(raw.launchparameters || "");
               setLaunchAsAdmin(!!raw.launchasadmin);
+              setUmuGameId(raw.umugameid || "");
+              setUmuStore(raw.umustore || "");
+              setUmuProtonPath(raw.umuprotonpath || "");
+              setUmuWinePrefix(raw.umuwineprefix || "");
             }
           } catch { }
         }
@@ -543,6 +551,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     exe: string,
     params: string,
     runAsAdmin: boolean,
+    umuGameId: string,
+    umuStore: string,
+    umuProtonPath: string,
+    umuWinePrefix: string,
   ) => {
     if (!installedGame) return;
     try {
@@ -566,6 +578,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       current.launchexecutable = exe || undefined;
       current.launchparameters = params.trim() || undefined;
       current.launchasadmin = runAsAdmin || undefined;
+      current.umugameid = umuGameId.trim() || undefined;
+      current.umustore = umuStore.trim() || undefined;
+      current.umuprotonpath = umuProtonPath.trim() || undefined;
+      current.umuwineprefix = umuWinePrefix.trim() || undefined;
 
       await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(current, null, 2) });
     } catch (err: any) {
@@ -577,10 +593,27 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   useEffect(() => {
     if (!launchOptionsLoadedRef.current) return;
     const timeout = setTimeout(() => {
-      persistLaunchOptions(selectedLaunchExe, launchParams, launchAsAdmin);
+      persistLaunchOptions(
+        selectedLaunchExe,
+        launchParams,
+        launchAsAdmin,
+        umuGameId,
+        umuStore,
+        umuProtonPath,
+        umuWinePrefix,
+      );
     }, 500);
     return () => clearTimeout(timeout);
-  }, [selectedLaunchExe, launchParams, launchAsAdmin, persistLaunchOptions]);
+  }, [
+    selectedLaunchExe,
+    launchParams,
+    launchAsAdmin,
+    umuGameId,
+    umuStore,
+    umuProtonPath,
+    umuWinePrefix,
+    persistLaunchOptions,
+  ]);
 
   const updateInstallationFinishedFlag = useCallback(
     async (versionDirectory: string, installationFinished: boolean) => {
@@ -3470,24 +3503,97 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                         </div>
 
                         {isWindowsLaunchExe && (
-                          <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-3">
-                            <p className="text-sm text-indigo-700 dark:text-indigo-300">
-                              This is a Windows executable — it will be run
-                              with umu-launcher (Wine/Proton) on Linux.
-                            </p>
-                            {!umuStatus?.installed && (
-                              <Button
-                                color="indigo"
-                                onClick={() => void handleInstallUmu()}
-                                disabled={installingUmu}
-                                className="mt-3"
-                              >
-                                {installingUmu
-                                  ? "Installing umu-launcher…"
-                                  : "Install umu-launcher"}
-                              </Button>
-                            )}
-                          </div>
+                          <>
+                            <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-3">
+                              <p className="text-sm text-indigo-700 dark:text-indigo-300">
+                                This is a Windows executable — it will be run
+                                with umu-launcher (Wine/Proton) on Linux.
+                              </p>
+                              {!umuStatus?.installed && (
+                                <Button
+                                  color="indigo"
+                                  onClick={() => void handleInstallUmu()}
+                                  disabled={installingUmu}
+                                  className="mt-3"
+                                >
+                                  {installingUmu
+                                    ? "Installing umu-launcher…"
+                                    : "Install umu-launcher"}
+                                </Button>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <div>
+                                <label className="block text-sm font-medium text-gv-muted mb-1">
+                                  Game ID (GAMEID)
+                                </label>
+                                <Input
+                                  name="umuGameId"
+                                  value={umuGameId}
+                                  onChange={(e: any) =>
+                                    setUmuGameId(e.target.value)
+                                  }
+                                  placeholder="umu-default"
+                                />
+                                <p className="mt-1 text-xs text-gv-muted">
+                                  Optional umu-database ID so protonfixes apply
+                                  automatically.
+                                </p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gv-muted mb-1">
+                                  Store (STORE)
+                                </label>
+                                <Input
+                                  name="umuStore"
+                                  value={umuStore}
+                                  onChange={(e: any) =>
+                                    setUmuStore(e.target.value)
+                                  }
+                                  placeholder="e.g. gog, epic, ubisoft-connect"
+                                />
+                                <p className="mt-1 text-xs text-gv-muted">
+                                  Storefront used together with GAMEID to look
+                                  up fixes.
+                                </p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gv-muted mb-1">
+                                  Proton (PROTONPATH)
+                                </label>
+                                <Input
+                                  name="umuProtonPath"
+                                  value={umuProtonPath}
+                                  onChange={(e: any) =>
+                                    setUmuProtonPath(e.target.value)
+                                  }
+                                  placeholder="UMU-Proton"
+                                />
+                                <p className="mt-1 text-xs text-gv-muted">
+                                  Proton directory, version name
+                                  (GE-Proton9-5) or codename (GE-Proton).
+                                </p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gv-muted mb-1">
+                                  Wine Prefix (WINEPREFIX)
+                                </label>
+                                <Input
+                                  name="umuWinePrefix"
+                                  value={umuWinePrefix}
+                                  onChange={(e: any) =>
+                                    setUmuWinePrefix(e.target.value)
+                                  }
+                                  placeholder="~/.local/share/GameVault/umu"
+                                />
+                                <p className="mt-1 text-xs text-gv-muted">
+                                  Where the Wine prefix lives. Defaults to
+                                  $HOME/Games/umu/&lt;GAMEID&gt;.
+                                </p>
+                              </div>
+                            </div>
+                          </>
                         )}
 
                         {/* Launch Parameters */}

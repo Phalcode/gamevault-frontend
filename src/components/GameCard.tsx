@@ -326,6 +326,10 @@ const GameCard = memo(function GameCard({
         let launchExe: string | undefined;
         let launchParams: string | undefined;
         let launchAsAdmin = false;
+        let umuGameId: string | undefined;
+        let umuStore: string | undefined;
+        let umuProtonPath: string | undefined;
+        let umuWinePrefix: string | undefined;
 
         if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
           try {
@@ -335,6 +339,10 @@ const GameCard = memo(function GameCard({
             launchExe = raw.launchexecutable;
             launchParams = raw.launchparameters;
             launchAsAdmin = !!raw.launchasadmin;
+            umuGameId = raw.umugameid;
+            umuStore = raw.umustore;
+            umuProtonPath = raw.umuprotonpath;
+            umuWinePrefix = raw.umuwineprefix;
           } catch {
             console.warn("Failed to parse game config:", configPath);
           }
@@ -355,6 +363,10 @@ const GameCard = memo(function GameCard({
           executableRelativePath: launchExe,
           launchParameters: launchParams || null,
           runAsAdmin: launchAsAdmin,
+          umuGameId: umuGameId || null,
+          umuStore: umuStore || null,
+          umuProtonPath: umuProtonPath || null,
+          umuWinePrefix: umuWinePrefix || null,
         });
       } catch (err: any) {
         showAlert({

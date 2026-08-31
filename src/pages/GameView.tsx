@@ -462,6 +462,10 @@ export default function GameView() {
         let launchExe: string | undefined;
         let launchParams: string | undefined;
         let launchAsAdmin = false;
+        let umuGameId: string | undefined;
+        let umuStore: string | undefined;
+        let umuProtonPath: string | undefined;
+        let umuWinePrefix: string | undefined;
 
         if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
           try {
@@ -471,6 +475,10 @@ export default function GameView() {
             launchExe = raw.launchexecutable;
             launchParams = raw.launchparameters;
             launchAsAdmin = !!raw.launchasadmin;
+            umuGameId = raw.umugameid;
+            umuStore = raw.umustore;
+            umuProtonPath = raw.umuprotonpath;
+            umuWinePrefix = raw.umuwineprefix;
           } catch {
             console.warn("Failed to parse game config:", configPath);
           }
@@ -491,6 +499,10 @@ export default function GameView() {
           executableRelativePath: launchExe,
           launchParameters: launchParams || null,
           runAsAdmin: launchAsAdmin,
+          umuGameId: umuGameId || null,
+          umuStore: umuStore || null,
+          umuProtonPath: umuProtonPath || null,
+          umuWinePrefix: umuWinePrefix || null,
         });
       } catch (err: any) {
         showAlert({

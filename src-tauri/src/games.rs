@@ -383,6 +383,10 @@ pub(crate) fn launch_game(
   executable_relative_path: String,
   launch_parameters: Option<String>,
   run_as_admin: Option<bool>,
+  umu_game_id: Option<String>,
+  umu_store: Option<String>,
+  umu_proton_path: Option<String>,
+  umu_wine_prefix: Option<String>,
 ) -> Result<(), String> {
   let root = PathBuf::from(&installation_path);
   let exe_path = root.join(executable_relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
@@ -405,6 +409,10 @@ pub(crate) fn launch_game(
       game_title,
       &exe_path,
       launch_parameters.as_deref(),
+      umu_game_id.as_deref(),
+      umu_store.as_deref(),
+      umu_proton_path.as_deref(),
+      umu_wine_prefix.as_deref(),
       restore_on_exit,
     );
   }

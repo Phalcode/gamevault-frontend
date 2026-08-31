@@ -434,12 +434,18 @@ pub(crate) fn detect_process_running(exe_path: &Path) -> bool {
 // ── Launching through umu-run ───────────────────────────────────────────────
 
 /// Spawn `umu-run <exe> [args]` and hand the child to the umu launch monitor.
+/// Optional umu environment overrides (GAMEID/STORE/PROTONPATH/WINEPREFIX) are
+/// forwarded when set; empty values are ignored so umu's defaults apply.
 #[cfg(target_os = "linux")]
 pub(crate) fn launch_with_umu(
   app: tauri::AppHandle,
   game_title: String,
   exe_path: &Path,
   launch_parameters: Option<&str>,
+  umu_game_id: Option<&str>,
+  umu_store: Option<&str>,
+  umu_proton_path: Option<&str>,
+  umu_wine_prefix: Option<&str>,
   restore_on_exit: bool,
 ) -> Result<(), String> {
   let umu_run = match find_umu_run() {
@@ -457,6 +463,19 @@ pub(crate) fn launch_with_umu(
 
   let mut command = Command::new(&umu_run);
   command.arg(exe_path).current_dir(&working_dir);
+
+  if let Some(value) = umu_game_id.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("GAMEID", value);
+  }
+  if let Some(value) = umu_store.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("STORE", value);
+  }
+  if let Some(value) = umu_proton_path.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("PROTONPATH", value);
+  }
+  if let Some(value) = umu_wine_prefix.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("WINEPREFIX", value);
+  }
 
   if let Some(params) = launch_parameters {
     let params = params.trim();
