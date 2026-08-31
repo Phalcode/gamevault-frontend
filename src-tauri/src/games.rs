@@ -132,57 +132,31 @@ pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<Installe
 
 #[tauri::command]
 pub(crate) fn open_in_file_explorer(path: String) -> Result<(), String> {
-  #[cfg(windows)]
-  {
-    Command::new("explorer.exe")
-      .arg(&path)
-      .spawn()
-      .map(|_| ())
-      .map_err(|e| format!("Failed to open folder: {e}"))?;
-    return Ok(());
-  }
-
-  #[cfg(target_os = "macos")]
-  {
-    Command::new("open")
-      .arg(&path)
-      .spawn()
-      .map(|_| ())
-      .map_err(|e| format!("Failed to open folder: {e}"))?;
-    return Ok(());
-  }
-
+  // Inside WSL the desktop file manager is Windows Explorer. The opener
+  // plugin uses `xdg-open`, which cannot open Windows Explorer, so handle
+  // that case explicitly.
   #[cfg(all(unix, not(target_os = "macos")))]
-  {
-    // Prefer Windows Explorer when the desktop app is running inside WSL.
-    // `wslpath` converts Linux paths, including paths under /home, to a form
-    // that Explorer can open.
-    if std::env::var_os("WSL_INTEROP").is_some() {
-      if let Ok(output) = Command::new("wslpath").args(["-w", &path]).output() {
-        if output.status.success() {
-          let windows_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-          if !windows_path.is_empty()
-            && Command::new("explorer.exe")
-              .arg(&windows_path)
-              .spawn()
-              .is_ok()
-          {
-            return Ok(());
-          }
+  if std::env::var_os("WSL_INTEROP").is_some() {
+    if let Ok(output) = Command::new("wslpath").args(["-w", &path]).output() {
+      if output.status.success() {
+        let windows_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !windows_path.is_empty()
+          && Command::new("explorer.exe").arg(&windows_path).spawn().is_ok()
+        {
+          return Ok(());
         }
       }
     }
-
-    Command::new("xdg-open")
-      .arg(&path)
-      .spawn()
-      .map(|_| ())
-      .map_err(|e| format!("Failed to open folder: {e}"))?;
-    return Ok(());
   }
 
-  #[cfg(not(any(windows, unix)))]
-  Err("Opening folders is unsupported on this platform".to_string())
+  let path_buf = PathBuf::from(&path);
+  if !path_buf.exists() {
+    return Err(format!("Folder does not exist: {path}"));
+  }
+
+  // Delegate to the opener plugin (system default file manager / app).
+  tauri_plugin_opener::open_path(&path_buf, None::<&str>)
+    .map_err(|e| format!("Failed to open folder: {e}"))
 }
 
 fn validate_external_url(value: &str) -> Result<(), String> {
@@ -198,60 +172,18 @@ fn validate_external_url(value: &str) -> Result<(), String> {
 pub(crate) fn open_external_url(url: String) -> Result<(), String> {
   validate_external_url(&url)?;
 
-  #[cfg(windows)]
-  {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-
-    let verb: Vec<u16> = OsStr::new("open")
-      .encode_wide()
-      .chain(std::iter::once(0))
-      .collect();
-    let target: Vec<u16> = OsStr::new(&url)
-      .encode_wide()
-      .chain(std::iter::once(0))
-      .collect();
-    let result = unsafe {
-      winapi::um::shellapi::ShellExecuteW(
-        std::ptr::null_mut(),
-        verb.as_ptr(),
-        target.as_ptr(),
-        std::ptr::null(),
-        std::ptr::null(),
-        winapi::um::winuser::SW_SHOWNORMAL,
-      )
-    };
-    if (result as isize) <= 32 {
-      return Err(format!(
-        "Failed to open URL (ShellExecute error code: {})",
-        result as isize,
-      ));
-    }
-    return Ok(());
-  }
-
-  #[cfg(target_os = "macos")]
-  {
-    Command::new("open")
-      .arg(&url)
-      .spawn()
-      .map(|_| ())
-      .map_err(|e| format!("Failed to open URL: {e}"))?;
-    return Ok(());
-  }
-
+  // Inside WSL `xdg-open` cannot reliably hand the URL to the Windows
+  // default browser, so forward it to Windows Explorer instead.
   #[cfg(all(unix, not(target_os = "macos")))]
-  {
-    Command::new("xdg-open")
-      .arg(&url)
-      .spawn()
-      .map(|_| ())
-      .map_err(|e| format!("Failed to open URL: {e}"))?;
-    return Ok(());
+  if std::env::var_os("WSL_INTEROP").is_some() {
+    if Command::new("explorer.exe").arg(&url).spawn().is_ok() {
+      return Ok(());
+    }
   }
 
-  #[cfg(not(any(windows, unix)))]
-  Err("Opening external URLs is unsupported on this platform".to_string())
+  // Delegate to the opener plugin (system default browser / mail client).
+  tauri_plugin_opener::open_url(&url, None::<&str>)
+    .map_err(|e| format!("Failed to open URL: {e}"))
 }
 
 pub(crate) fn collect_launch_candidates(root: &Path, current: &Path, results: &mut Vec<String>) -> Result<(), String> {

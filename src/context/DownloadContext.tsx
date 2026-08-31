@@ -1424,7 +1424,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       const d = downloads[gameId];
       if (!d?.versionDirectory) return;
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("open_in_file_explorer", { path: d.versionDirectory });
+      try {
+        await invoke("open_in_file_explorer", { path: d.versionDirectory });
+      } catch (err) {
+        console.error("Failed to open folder:", err);
+      }
     },
     [downloads],
   );
