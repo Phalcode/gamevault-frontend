@@ -31,7 +31,10 @@ import MultiSelectFilterDialog, {
 } from "@/components/MultiSelectFilterDialog";
 import { Strong, Text, TextLink } from "@/components/tailwind/text";
 import { isTauriApp } from "@/utils/tauri";
-import { useInstalledGames } from "@/hooks/useInstalledGames";
+import {
+  useInstalledGames,
+  type InstalledGameInfo,
+} from "@/hooks/useInstalledGames";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { SectionExpander } from "@/components/SectionExpander";
 import { RowCountControl } from "@/components/RowCountControl";
@@ -547,6 +550,18 @@ export default function Library() {
       (g as any)._onUninstalled = refetchInstalledGames;
       return g;
     });
+  }, [installedGames]);
+
+  // Map installed game id -> installation info so server games that are
+  // already installed locally can be marked (e.g. a small "Installed" badge).
+  const installedByGameId = useMemo(() => {
+    const map = new Map<number, InstalledGameInfo>();
+    for (const ig of installedGames) {
+      if (ig.gameId > 0) {
+        map.set(ig.gameId, ig);
+      }
+    }
+    return map;
   }, [installedGames]);
 
   // Client-side filter + sort installed games with the same Library criteria
@@ -1151,6 +1166,7 @@ export default function Library() {
                       key={`installed-${g.id}`}
                       game={g}
                       sortBy={sortBy}
+                      hideInstalledBadge
                     />
                   ))}
                 </div>
@@ -1202,21 +1218,36 @@ export default function Library() {
               </div>
             )}
             <div className="min-w-0 grid gap-5 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] py-2 pb-8">
-              {games.map((g, i) => (
-                <motion.div
-                  key={g.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{
-                    delay: Math.min(i * 0.03, 0.3),
-                    duration: DURATION_SLOW,
-                    ease: EASE_OUT,
-                  }}
-                  className="min-w-0"
-                >
-                  <GameCard game={g} sortBy={sortBy} />
-                </motion.div>
-              ))}
+              {games.map((g, i) => {
+                const installed = installedByGameId.get(g.id);
+                const cardGame = installed
+                  ? {
+                      ...g,
+                      _installedInfo: {
+                        installationDirectory: installed.installationDirectory,
+                        versionDirectory: installed.versionDirectory,
+                        versionId: installed.versionId,
+                        versionName: installed.versionName,
+                      },
+                      _onUninstalled: refetchInstalledGames,
+                    }
+                  : g;
+                return (
+                  <motion.div
+                    key={g.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{
+                      delay: Math.min(i * 0.03, 0.3),
+                      duration: DURATION_SLOW,
+                      ease: EASE_OUT,
+                    }}
+                    className="min-w-0"
+                  >
+                    <GameCard game={cardGame} sortBy={sortBy} />
+                  </motion.div>
+                );
+              })}
             </div>
             {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
             {loading && games.length > 0 && (
@@ -1279,21 +1310,36 @@ export default function Library() {
               </div>
             )}
             <div className="min-w-0 grid gap-5 grid-cols-[repeat(auto-fill,minmax(140px,1fr))] py-2 pb-8">
-              {games.map((g, i) => (
-                <motion.div
-                  key={g.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{
-                    delay: Math.min(i * 0.03, 0.3),
-                    duration: DURATION_SLOW,
-                    ease: EASE_OUT,
-                  }}
-                  className="min-w-0"
-                >
-                  <GameCard game={g} sortBy={sortBy} />
-                </motion.div>
-              ))}
+              {games.map((g, i) => {
+                const installed = installedByGameId.get(g.id);
+                const cardGame = installed
+                  ? {
+                      ...g,
+                      _installedInfo: {
+                        installationDirectory: installed.installationDirectory,
+                        versionDirectory: installed.versionDirectory,
+                        versionId: installed.versionId,
+                        versionName: installed.versionName,
+                      },
+                      _onUninstalled: refetchInstalledGames,
+                    }
+                  : g;
+                return (
+                  <motion.div
+                    key={g.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{
+                      delay: Math.min(i * 0.03, 0.3),
+                      duration: DURATION_SLOW,
+                      ease: EASE_OUT,
+                    }}
+                    className="min-w-0"
+                  >
+                    <GameCard game={cardGame} sortBy={sortBy} />
+                  </motion.div>
+                );
+              })}
             </div>
             {hasMore && <div ref={sentinelRef} className="h-10 -mt-10" />}
             {loading && games.length > 0 && (
