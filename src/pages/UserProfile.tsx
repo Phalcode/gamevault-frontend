@@ -291,7 +291,7 @@ function ProfileProgressCard({
   onDelete,
 }: {
   progress: Progress;
-  onDelete?: (progressId: number, gameId: number) => void;
+  onDelete?: (progressId: number, gameId: number, title: string) => void;
 }) {
   const game = progress.game;
   const title = game?.metadata?.title || game?.title || "Unknown Game";
@@ -347,11 +347,11 @@ function ProfileProgressCard({
               e.preventDefault();
               e.stopPropagation();
               const gid = (progress.game as any)?.id ?? (game as any)?.id ?? 0;
-              onDelete(progress.id, gid);
+              onDelete(progress.id, gid, title);
             }}
             className="absolute bottom-3 right-3 rounded-xl p-2 text-gv-muted hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer"
-            aria-label="Delete progress entry"
-            title="Delete progress entry"
+            aria-label={`Delete progress for ${title}`}
+            title={`Delete progress for ${title}`}
           >
             <TrashIcon className="h-4 w-4" />
           </button>
@@ -460,13 +460,14 @@ export default function UserProfile() {
   }, [userId]);
 
   const handleDeleteProgress = useCallback(
-    async (progressId: number, gameId: number) => {
+    async (progressId: number, gameId: number, title?: string) => {
       if (!serverUrl || !userId || !gameId) return;
 
       const confirmed = await showAlert({
         title: "Delete progress entry?",
-        description:
-          "This will permanently remove the playtime, state, and history for this game. This action cannot be undone.",
+        description: title
+          ? `This will permanently remove the playtime, state, and history for "${title}". This action cannot be undone.`
+          : "This will permanently remove the playtime, state, and history for this game. This action cannot be undone.",
         affirmativeText: "Delete",
         negativeText: "Cancel",
       });
@@ -693,7 +694,11 @@ export default function UserProfile() {
           <div className="mt-5 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {recent.length > 0 ? (
               recent.map((progress) => (
-                <ProfileProgressCard key={progress.id} progress={progress} />
+                <ProfileProgressCard
+                  key={progress.id}
+                  progress={progress}
+                  onDelete={canEdit ? handleDeleteProgress : undefined}
+                />
               ))
             ) : (
               <div className="surface-panel-soft rounded-3xl p-6 text-sm text-gv-muted">
@@ -775,7 +780,7 @@ export default function UserProfile() {
                 >
                   <ProfileProgressCard
                     progress={progress}
-                    onDelete={isOwnProfile ? handleDeleteProgress : undefined}
+                    onDelete={canEdit ? handleDeleteProgress : undefined}
                   />
                 </div>
               ))
