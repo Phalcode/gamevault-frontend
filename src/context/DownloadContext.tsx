@@ -2222,11 +2222,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isTauriApp()) return;
 
-    let cancelled = false;
     const send = async (command: string, args?: Record<string, unknown>) => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        if (cancelled) return;
         await invoke(command, args);
       } catch (error) {
         // The native command may not be available in the web build; ignore.
@@ -2273,24 +2271,29 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     const progress =
       progresses.reduce((sum, p) => sum + p, 0) / progresses.length;
 
-    const status: "error" | "paused" | "normal" = needsAction
-      ? "error"
-      : paused
-        ? "paused"
-        : "normal";
-
     // Only invoke when the indicator state actually changes (round progress
     // to whole percent to avoid spamming the native command).
     const rounded = Math.round(progress);
+
+    const status: "error" | "paused" | "indeterminate" | "normal" = needsAction
+      ? "error"
+      : paused
+        ? "paused"
+        : rounded === 0 &&
+            active.some(
+              (d) =>
+                d.status === "downloading" ||
+                d.extractionStatus === "extracting" ||
+                d.installationStatus === "copying",
+            )
+          ? "indeterminate"
+          : "normal";
+
     const key = `${status}:${rounded}`;
     if (lastTaskbarRef.current === key) return;
     lastTaskbarRef.current = key;
 
     void send("set_taskbar_progress", { status, progress: rounded / 100 });
-
-    return () => {
-      cancelled = true;
-    };
   }, [downloads]);
 
   const value: DownloadContextValue = {

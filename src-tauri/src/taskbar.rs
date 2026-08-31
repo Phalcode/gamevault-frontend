@@ -27,6 +27,9 @@ pub enum TaskbarStatus {
   Error,
   /// Something requires the user's attention (e.g. password needed).
   Attention,
+  /// A download is active but its total size is unknown, so no determinate
+  /// percentage can be computed (e.g. the server sent no Content-Length).
+  Indeterminate,
 }
 
 impl TaskbarStatus {
@@ -36,6 +39,7 @@ impl TaskbarStatus {
       Self::Normal => ProgressBarStatus::Normal,
       Self::Paused => ProgressBarStatus::Paused,
       Self::Error | Self::Attention => ProgressBarStatus::Error,
+      Self::Indeterminate => ProgressBarStatus::Indeterminate,
     }
   }
 
@@ -80,7 +84,11 @@ pub(crate) fn set_taskbar_progress(app: AppHandle, status: TaskbarStatus, progre
 
   let _ = window.set_progress_bar(ProgressBarState {
     status: Some(progress_status),
-    progress: Some(progress_percent(progress)),
+    progress: if matches!(progress_status, ProgressBarStatus::Indeterminate) {
+      None
+    } else {
+      Some(progress_percent(progress))
+    },
   });
 
   // macOS only: surface a dock badge as an extra "you need to look" signal.
