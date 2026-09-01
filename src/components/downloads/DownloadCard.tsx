@@ -124,8 +124,13 @@ export function DownloadCard({
   const { showAlert } = useAlertDialog();
   const isTauri = isTauriApp();
   const [password, setPassword] = useState("");
-  const { installState, openInstallFlow, closeInstallView, setUndetectedMode, updateInstallState } =
-    useInstallFlow(download);
+  const {
+    installState,
+    openInstallFlow,
+    closeInstallView,
+    setUndetectedMode,
+    updateInstallState,
+  } = useInstallFlow(download);
 
   const downloadStep = getDownloadStepState(download.status);
   const extractionStep = getExtractionStepState(download);
@@ -142,8 +147,7 @@ export function DownloadCard({
     download.installationStatus === "running";
   const isInstalled = download.installationStatus === "completed";
   const isExtracted = download.extractionStatus === "completed";
-  const isFailed =
-    download.status === "error" || download.status === "aborted";
+  const isFailed = download.status === "error" || download.status === "aborted";
   const installViewOpen = installState !== null;
 
   const handleExtract = async () => {
@@ -201,10 +205,7 @@ export function DownloadCard({
 
     if (download.status === "downloading") {
       return (
-        <Button
-          color="amber"
-          onClick={() => pauseDownload(download.gameId)}
-        >
+        <Button color="amber" onClick={() => pauseDownload(download.gameId)}>
           <PauseIcon className="h-4 w-4" aria-hidden="true" />
           Pause
         </Button>
@@ -212,10 +213,7 @@ export function DownloadCard({
     }
     if (download.status === "paused") {
       return (
-        <Button
-          color="indigo"
-          onClick={() => resumeDownload(download.gameId)}
-        >
+        <Button color="indigo" onClick={() => resumeDownload(download.gameId)}>
           <PlayIcon className="h-4 w-4" aria-hidden="true" />
           Resume
         </Button>
@@ -223,10 +221,7 @@ export function DownloadCard({
     }
     if (isFailed) {
       return (
-        <Button
-          color="indigo"
-          onClick={() => retryDownload(download.gameId)}
-        >
+        <Button color="indigo" onClick={() => retryDownload(download.gameId)}>
           <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
           Try Again
         </Button>
@@ -269,10 +264,7 @@ export function DownloadCard({
         );
       }
       return (
-        <Button
-          color="indigo"
-          onClick={() => void openInstallFlow()}
-        >
+        <Button color="indigo" onClick={() => void openInstallFlow()}>
           Install
         </Button>
       );
@@ -285,13 +277,13 @@ export function DownloadCard({
       className="surface-panel rounded-2xl p-4 transition-colors duration-150 hover:border-gv-line-strong animate-[panel-in_0.18s_ease-out] motion-reduce:animate-none sm:p-5"
       style={{ animationDelay: `${Math.min(index * 0.05, 0.3)}s` }}
     >
-      <div className="flex items-start gap-3 sm:gap-4">
+      <div className="flex items-center gap-4 sm:gap-5">
         <div className="shrink-0">
           {(download.gameMetadata as any)?.cover ? (
             <Media
               media={(download.gameMetadata as any).cover}
-              width={80}
-              height={120}
+              width={112}
+              height={150}
               square
               alt={`${download.gameTitle} cover art`}
               className="overflow-hidden rounded-lg border border-gv-line bg-gv-panel-soft shadow-sm"
@@ -300,16 +292,16 @@ export function DownloadCard({
               fallback={
                 <CoverPlaceholder
                   title={download.gameTitle || "Game"}
-                  size="normal"
+                  size="large"
                   className="h-full w-full"
                 />
               }
             />
           ) : (
-            <div className="h-30 w-20 overflow-hidden rounded-lg border border-dashed border-gv-line bg-gv-panel-soft">
+            <div className="aspect-3/4 w-28 overflow-hidden rounded-lg border border-dashed border-gv-line bg-gv-panel-soft">
               <CoverPlaceholder
                 title={download.gameTitle || "Game"}
-                size="normal"
+                size="large"
                 className="h-full w-full"
               />
             </div>
@@ -320,23 +312,21 @@ export function DownloadCard({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h3
-                className="truncate text-sm font-semibold tracking-[-0.02em] text-gv-text"
+                className="truncate text-base font-semibold tracking-[-0.02em] text-gv-text"
                 title={download.gameTitle || download.filename}
               >
                 {download.gameTitle || download.filename}
               </h3>
               <p
-                className="mt-0.5 truncate font-mono text-xs text-gv-muted"
+                className="mt-1 truncate font-mono text-sm text-gv-muted"
                 title={download.filename}
               >
                 {download.filename}
               </p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gv-muted">
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gv-muted">
                 <span className="tabular-nums">
                   {formatBytes(download.received)} /{" "}
-                  {download.total
-                    ? formatBytes(download.total)
-                    : "Unknown"}
+                  {download.total ? formatBytes(download.total) : "Unknown"}
                 </span>
                 {download.speedBps !== undefined &&
                   download.status === "downloading" && (
@@ -347,7 +337,7 @@ export function DownloadCard({
               </div>
             </div>
             <Badge color={status.color} className="shrink-0">
-              <status.icon className="size-3.5" aria-hidden="true" />
+              <status.icon className="size-4" aria-hidden="true" />
               {status.label}
             </Badge>
           </div>
@@ -402,9 +392,7 @@ export function DownloadCard({
               </DropdownItem>
             )}
             {download.status === "downloading" && (
-              <DropdownItem
-                onClick={() => cancelDownload(download.gameId)}
-              >
+              <DropdownItem onClick={() => cancelDownload(download.gameId)}>
                 <XMarkIcon data-slot="icon" aria-hidden="true" />
                 <DropdownLabel>Cancel Download</DropdownLabel>
               </DropdownItem>
