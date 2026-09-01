@@ -250,6 +250,13 @@ jobs:
           GV_RELEASE_REF: ${{ needs.release.outputs.release_ref }}
         run: pnpm tauri build --config src-tauri/tauri.release.generated.json
 
+      - name: Patch AppImage AppRun (Wayland libwayland fix)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node scripts/patch-appimage-apprun.mjs
+
       - name: Prepare Tauri release assets
         if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access'
         run: node scripts/prepare-tauri-release-assets.mjs ${{ matrix.platform }} ${{ needs.release.outputs.build_version }}

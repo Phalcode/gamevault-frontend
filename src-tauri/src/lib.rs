@@ -278,18 +278,6 @@ async fn download_and_install_app_update(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  // WebKitGTK's dmabuf renderer tries to create an EGL display on Wayland,
-  // which fails with `EGL_BAD_PARAMETER` on some compositors (notably the
-  // Steam Deck's gamescope), aborting the app before the window appears.
-  // Disabling it forces WebKitGTK onto a compatible rendering path. We only
-  // set it when the user hasn't already overridden it.
-  #[cfg(target_os = "linux")]
-  {
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-      std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-    }
-  }
-
   let mut builder = tauri::Builder::default()
     // Must be the first plugin: when a second instance is launched it is
     // killed here and only the existing instance receives this callback,
