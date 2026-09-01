@@ -540,6 +540,8 @@ export default function Library() {
         versionDirectory: ig.versionDirectory,
         versionId: ig.versionId,
         versionName: ig.versionName,
+        installedAt: ig.installedAt ?? 0,
+        lastPlayedAt: ig.lastPlayedAt ?? 0,
       };
       (g as any)._onUninstalled = refetchInstalledGames;
       return g;
@@ -633,42 +635,23 @@ export default function Library() {
       });
     }
 
-    // Sort
+    // Sort: most recently installed or played games first (leftmost in the
+    // installed carousel). Ties are broken by title for a stable order.
     const sorted = [...filtered].sort((a, b) => {
-      let va: any;
-      let vb: any;
-      switch (sortBy) {
-        case "sort_title":
-          va = (a.sort_title ?? a.title ?? "").toLowerCase();
-          vb = (b.sort_title ?? b.title ?? "").toLowerCase();
-          break;
-        case "size":
-          va = Number(a.size) || 0;
-          vb = Number(b.size) || 0;
-          break;
-        case "created_at":
-          va = new Date(a.created_at).getTime();
-          vb = new Date(b.created_at).getTime();
-          break;
-        case "metadata.release_date":
-          va = a.metadata?.release_date
-            ? new Date(a.metadata.release_date).getTime()
-            : 0;
-          vb = b.metadata?.release_date
-            ? new Date(b.metadata.release_date).getTime()
-            : 0;
-          break;
-        case "metadata.rating":
-          va = (a.metadata as any)?.rating ?? 0;
-          vb = (b.metadata as any)?.rating ?? 0;
-          break;
-        default:
-          va = (a.sort_title ?? a.title ?? "").toLowerCase();
-          vb = (b.sort_title ?? b.title ?? "").toLowerCase();
-      }
-      if (va < vb) return order === "ASC" ? -1 : 1;
-      if (va > vb) return order === "ASC" ? 1 : -1;
-      return 0;
+      const ia = (a as any)._installedInfo;
+      const ib = (b as any)._installedInfo;
+      const ra = Math.max(
+        Number(ia?.installedAt) || 0,
+        Number(ia?.lastPlayedAt) || 0,
+      );
+      const rb = Math.max(
+        Number(ib?.installedAt) || 0,
+        Number(ib?.lastPlayedAt) || 0,
+      );
+      if (rb !== ra) return rb - ra;
+      return (a.sort_title ?? a.title ?? "").localeCompare(
+        b.sort_title ?? b.title ?? "",
+      );
     });
 
     return sorted;
@@ -680,8 +663,6 @@ export default function Library() {
     genreNames,
     developerNames,
     publisherNames,
-    sortBy,
-    order,
   ]);
 
   return (

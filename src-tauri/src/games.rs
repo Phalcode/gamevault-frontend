@@ -125,6 +125,15 @@ pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<Installe
         None
       };
 
+      // The version config is (re)written when an install completes, so its
+      // modified time is a good proxy for "when was this installed".
+      let installed_at = fs::metadata(&config_path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
       results.push(InstalledGameInfo {
         game_id: resolved_game_id,
         game_title: resolved_game_title.clone(),
@@ -135,6 +144,7 @@ pub(crate) fn list_installed_games(selected_root: String) -> Result<Vec<Installe
         version_name,
         installation_directory: installations_dir.to_string_lossy().to_string(),
         version_directory: version_path_str,
+        installed_at,
       });
     }
   }

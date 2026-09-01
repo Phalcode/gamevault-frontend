@@ -90,7 +90,8 @@ export default function GameView() {
   const [pendingRootPath, setPendingRootPath] = useState<string | null>(null);
   const isTauri = isTauriApp();
   const { isOnline } = useOnlineStatus();
-  const { installedGames, refetch: refetchInstalledGames } = useInstalledGames();
+  const { installedGames, refetch: refetchInstalledGames } =
+    useInstalledGames();
   const installedInfo = useMemo(
     () => installedGames.find((ig) => ig.gameId === numericId),
     [installedGames, numericId],
@@ -602,12 +603,8 @@ export default function GameView() {
     !!lastPlayedDate && !Number.isNaN(lastPlayedDate.getTime());
   // Locale-aware date + time (first line date, second line time), e.g.
   // `15.08.2025` / `16:01` (de) or `08/15/2025` / `4:01 PM` (en-US).
-  const lastPlayedDay = lastPlayedValid
-    ? formatDate(lastPlayedDate, "—")
-    : "—";
-  const lastPlayedTime = lastPlayedValid
-    ? formatTime(lastPlayedDate)
-    : null;
+  const lastPlayedDay = lastPlayedValid ? formatDate(lastPlayedDate, "—") : "—";
+  const lastPlayedTime = lastPlayedValid ? formatTime(lastPlayedDate) : null;
   const avgPlaytime =
     game?.metadata?.average_playtime ||
     (game as any)?.metadata?.average_playtime ||
@@ -643,10 +640,9 @@ export default function GameView() {
 
   const glassPanelClassName =
     "border border-white/35 bg-white/[0.42] backdrop-blur-md dark:border-white/10 dark:bg-gv-panel/80 dark:backdrop-blur-md";
-  const darkGlassInsetClassName =
-    "dark:bg-gv-panel/80 dark:backdrop-blur-md";
+  const darkGlassInsetClassName = "dark:bg-gv-panel/80 dark:backdrop-blur-md";
   const progressSelectClassName = clsx(
-    "rounded-lg before:bg-white/60 before:backdrop-blur-md before:shadow-sm",
+    "before:bg-white/60 before:backdrop-blur-md before:shadow-sm",
     "dark:before:hidden",
     darkGlassInsetClassName,
   );
@@ -927,7 +923,11 @@ export default function GameView() {
                   </div>
                   <div
                     className="flex min-h-9 flex-col items-center justify-center text-sm font-semibold leading-tight text-gv-text"
-                    title={lastPlayedTime ? `${lastPlayedDay}, ${lastPlayedTime}` : lastPlayedDay}
+                    title={
+                      lastPlayedTime
+                        ? `${lastPlayedDay}, ${lastPlayedTime}`
+                        : lastPlayedDay
+                    }
                   >
                     {lastPlayedTime ? (
                       <>

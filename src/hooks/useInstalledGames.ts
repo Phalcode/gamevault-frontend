@@ -4,10 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { getRootPaths } from "@/utils/rootPaths";
 import { onGameUpdated } from "@/utils/gameUpdates";
-import {
-  getServerNamespace,
-  resolveApiMediaBlob,
-} from "@/utils/mediaCache";
+import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
 
 export interface InstalledGameInfo {
   gameId: number;
@@ -19,14 +16,19 @@ export interface InstalledGameInfo {
   versionName: string;
   installationDirectory: string;
   versionDirectory: string;
+  /** Unix timestamp (ms) when this version was installed; 0 if unknown. */
+  installedAt: number;
+  /** Unix timestamp (ms) of the last time the game was played; 0 if unknown. */
+  lastPlayedAt: number;
 }
 
 export function useInstalledGames() {
   const [installedGames, setInstalledGames] = useState<InstalledGameInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { authFetch, serverUrl } = useAuth();
+  const { authFetch, serverUrl, user } = useAuth();
   const { isOnline } = useOnlineStatus();
+  const currentUserId = (user as any)?.id ?? (user as any)?.ID ?? 0;
   const cacheInFlightRef = useRef<Set<number>>(new Set());
 
   const ensureGameCache = useCallback(
@@ -68,7 +70,9 @@ export function useInstalledGames() {
               bytes: Array.from(bytes),
               contentType: blob.type || "image/png",
             });
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
 
         // Cache background image
@@ -88,7 +92,9 @@ export function useInstalledGames() {
               bytes: Array.from(bytes),
               contentType: blob.type || "image/png",
             });
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
 
         // Update local state to include the new cached metadata
@@ -105,6 +111,43 @@ export function useInstalledGames() {
     },
     [serverUrl, authFetch, isOnline],
   );
+
+  // Fetch the current user's last-played timestamps and merge them into the
+  // installed-games list (used for recency sorting in the library carousel).
+  const loadLastPlayed = useCallback(async () => {
+    if (!isOnline || !serverUrl || !currentUserId) return;
+    try {
+      const base = serverUrl.replace(/\/+$/, "");
+      const res = await authFetch(
+        `${base}/api/progresses?filter[user.id]=${currentUserId}&sort[last_played_at]=desc&limit=10000`,
+      );
+      if (!res.ok) return;
+      const json = await res.json();
+      const items: any[] = Array.isArray(json?.data)
+        ? json.data
+        : Array.isArray(json)
+          ? json
+          : [];
+      const lastPlayed = new Map<number, number>();
+      for (const p of items) {
+        const gid = Number(p?.game?.id ?? p?.game_id ?? 0);
+        const ts = p?.last_played_at
+          ? new Date(String(p.last_played_at)).getTime()
+          : 0;
+        if (gid > 0 && ts > 0) {
+          lastPlayed.set(gid, Math.max(lastPlayed.get(gid) ?? 0, ts));
+        }
+      }
+      setInstalledGames((prev) =>
+        prev.map((g) => ({
+          ...g,
+          lastPlayedAt: lastPlayed.get(g.gameId) ?? 0,
+        })),
+      );
+    } catch {
+      // Best-effort; last-played enrichment is non-critical.
+    }
+  }, [serverUrl, authFetch, isOnline, currentUserId]);
 
   const fetchInstalledGames = useCallback(async () => {
     if (!isTauriApp()) return;
@@ -136,8 +179,11 @@ export function useInstalledGames() {
             gameType: r.gameType ?? r.game_type ?? null,
             versionId: r.versionId ?? r.version_id ?? 0,
             versionName: r.versionName ?? r.version_name ?? "",
-            installationDirectory: r.installationDirectory ?? r.installation_directory ?? "",
+            installationDirectory:
+              r.installationDirectory ?? r.installation_directory ?? "",
             versionDirectory: r.versionDirectory ?? r.version_directory ?? "",
+            installedAt: Number(r.installedAt ?? r.installed_at ?? 0),
+            lastPlayedAt: 0,
           };
           const key = `${info.gameId}:${info.versionDirectory}`;
           if (info.gameId > 0 && !seen.has(key)) {
@@ -162,11 +208,17 @@ export function useInstalledGames() {
             if (cached) {
               game.cachedMetadata = JSON.parse(cached);
             }
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
       }
 
       setInstalledGames(allResults);
+
+      // While online, enrich installed games with the last-played timestamp
+      // from the server so the installed carousel can sort by recency.
+      void loadLastPlayed();
 
       // Refresh server metadata while online so changed media IDs replace stale cache bindings.
       if (isOnline) {
@@ -181,11 +233,15 @@ export function useInstalledGames() {
     } finally {
       setLoading(false);
     }
-  }, [ensureGameCache, isOnline]);
+  }, [ensureGameCache, isOnline, loadLastPlayed]);
 
   useEffect(() => {
     fetchInstalledGames();
   }, [fetchInstalledGames]);
+
+  useEffect(() => {
+    if (isOnline && currentUserId) void loadLastPlayed();
+  }, [isOnline, currentUserId, loadLastPlayed]);
 
   useEffect(
     () =>

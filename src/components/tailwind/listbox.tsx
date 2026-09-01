@@ -30,10 +30,19 @@ export function Listbox<T>({
           "group relative block w-full",
           // Hide default focus styles
           "focus:outline-hidden",
-          // Focus ring
-          "after:pointer-events-none after:absolute after:inset-0 after:rounded-2xl after:ring-transparent after:ring-inset data-focus:after:ring-2 data-focus:after:ring-gv-accent-cool",
+          // Focus ring — inherits the box radius so it always matches
+          "after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:ring-transparent after:ring-inset data-focus:after:ring-2 data-focus:after:ring-gv-accent-cool",
+          // Visible box: radius, border, background and shadow all live on the
+          // SAME element so the border's corner radius always matches the box.
+          "rounded-2xl border border-gv-line bg-gv-panel-strong shadow-sm",
+          "py-[calc(--spacing(2.5)-1px)] sm:py-1.5",
+          "min-h-11 sm:min-h-9",
+          "pr-[calc(--spacing(7)-1px)] pl-[calc(--spacing(3.5)-1px)] sm:pl-[calc(--spacing(3)-1px)]",
+          "text-left text-base/6 text-gv-text placeholder:text-gv-muted sm:text-sm/6 forced-colors:text-[CanvasText]",
+          // Invalid state
+          "data-invalid:border-red-500 data-hover:data-invalid:border-red-500 dark:data-invalid:border-red-600 dark:data-hover:data-invalid:border-red-600",
           // Disabled state
-          "data-disabled:opacity-50",
+          "data-disabled:opacity-50 data-disabled:bg-gv-panel-soft data-disabled:shadow-none",
         ])}
       >
         <Headless.ListboxSelectedOption
@@ -46,24 +55,7 @@ export function Listbox<T>({
               </span>
             )
           }
-          className={clsx([
-            // Basic layout
-            "relative block w-full appearance-none rounded-2xl py-[calc(--spacing(2.5)-1px)] sm:py-[calc(--spacing(1.75)-1px)]",
-            // Set minimum height for when no value is selected
-            "min-h-11 sm:min-h-9",
-            // Horizontal padding
-            "pr-[calc(--spacing(7)-1px)] pl-[calc(--spacing(3.5)-1px)] sm:pl-[calc(--spacing(3)-1px)]",
-            // Typography
-            "text-left text-base/6 text-gv-text placeholder:text-gv-muted sm:text-sm/6 forced-colors:text-[CanvasText]",
-            // Border (visible gray outline that matches surface panels)
-            "border border-gv-line",
-            // Background color
-            "bg-gv-panel-strong shadow-sm",
-            // Invalid state
-            "group-data-invalid:border-red-500 group-data-hover:group-data-invalid:border-red-500 dark:group-data-invalid:border-red-600 dark:data-hover:group-data-invalid:border-red-600",
-            // Disabled state
-            "group-data-disabled:border-gv-line group-data-disabled:opacity-100 group-data-disabled:bg-gv-panel-soft group-data-disabled:shadow-none",
-          ])}
+          className="relative block w-full appearance-none"
         />
         <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
           <svg

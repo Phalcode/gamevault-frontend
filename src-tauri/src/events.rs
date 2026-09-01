@@ -58,6 +58,8 @@ pub(crate) struct InstalledGameInfo {
   pub version_name: String,
   pub installation_directory: String,
   pub version_directory: String,
+  /// Unix timestamp (millis) of when this version was installed, 0 if unknown.
+  pub installed_at: i64,
 }
 
 #[derive(Serialize, Clone)]
