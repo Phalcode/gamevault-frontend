@@ -89,7 +89,7 @@ export default function GameView() {
   const [pendingRootPath, setPendingRootPath] = useState<string | null>(null);
   const isTauri = isTauriApp();
   const { isOnline } = useOnlineStatus();
-  const { installedGames } = useInstalledGames();
+  const { installedGames, refetch: refetchInstalledGames } = useInstalledGames();
   const installedInfo = useMemo(
     () => installedGames.find((ig) => ig.gameId === numericId),
     [installedGames, numericId],
@@ -1296,6 +1296,7 @@ export default function GameView() {
             game={game}
             onClose={() => setSettingsOpen(false)}
             onGameUpdated={(updatedGame) => setGame(updatedGame)}
+            onUninstalled={refetchInstalledGames}
           />
         )}
         <RootPathSelectDialog

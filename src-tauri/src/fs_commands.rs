@@ -68,9 +68,44 @@ pub(crate) fn fs_create_dir_all(path: String) -> Result<(), String> {
   std::fs::create_dir_all(&path).map_err(|e| format!("fs_create_dir_all failed for '{}': {}", path, e))
 }
 
-##[tauri::command]
+#[tauri::command]
 pub(crate) fn fs_path_exists(path: String) -> Result<bool, String> {
   Ok(std::path::Path::new(&path).exists())
+}
+
+/// Returns true if `path` contains leftover content that is not just GameVault
+/// metadata (`.gamevault.game.config.json` / `.gamevault.metadata.json`).
+///
+/// Used after an uninstall to detect files/folders that were not removed, so
+/// the UI can offer to delete the remains.
+fn dir_has_leftover_content(path: &std::path::Path) -> bool {
+  let Ok(entries) = std::fs::read_dir(path) else {
+    return false;
+  };
+  for entry in entries.flatten() {
+    let entry_path = entry.path();
+    if entry_path.is_dir() {
+      if dir_has_leftover_content(&entry_path) {
+        return true;
+      }
+    } else if !is_gamevault_metadata_file(&entry_path) {
+      return true;
+    }
+  }
+  false
+}
+
+#[tauri::command]
+pub(crate) fn fs_has_leftover_content(path: String) -> Result<bool, String> {
+  let p = std::path::PathBuf::from(&path);
+  if !p.exists() {
+    return Ok(false);
+  }
+  if p.is_dir() {
+    Ok(dir_has_leftover_content(&p))
+  } else {
+    Ok(!is_gamevault_metadata_file(&p))
+  }
 }
 
 #[tauri::command]

@@ -12,6 +12,8 @@
 - Fixed GOG/self-extracting installers being reported as failed: a non-zero wrapper exit code no longer counts as failure if the installation directory actually got populated.
 - After installation the launch executable is now auto-detected (falling back to the first available one) when none is configured.
 - Uninstalling a game or deleting a download now cleans up the empty leftover folder structure.
+- Fixed the game settings staying open after an uninstall; they now close once the game is uninstalled, and the installed game card refreshes/disappears correctly.
+- After an uninstall, any leftover files/folders the uninstaller failed to remove are detected and the user is asked whether to delete them.
 - Fixed the Wayland startup crash on the Linux AppImage (`Could not create default EGL display: EGL_BAD_PARAMETER`) by preloading the host's `libwayland-client` through a patched AppImage `AppRun` wrapper. The `.deb` build already uses the system library and is unaffected.
 - Administrators can delete progress entries of other users
 - Added a native OS taskbar/dock download progress indicator for desktop builds (Windows taskbar, macOS dock, Linux launcher)

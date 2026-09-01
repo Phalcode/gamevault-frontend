@@ -692,6 +692,42 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     }
   }, [installedGame, showAlert]);
 
+  /**
+   * After an uninstall, detect any files/folders the uninstaller left behind
+   * and offer to delete them so the version folder (and the game card) are
+   * fully cleaned up.
+   */
+  const cleanupLeftoverFiles = useCallback(
+    async (versionDirectory: string) => {
+      if (!versionDirectory) return;
+      const { invoke } = await import("@tauri-apps/api/core");
+      const hasLeftovers = await invoke<boolean>("fs_has_leftover_content", {
+        path: versionDirectory,
+      });
+      if (!hasLeftovers) return;
+
+      const confirmed = await showAlert({
+        title: "Delete leftover files?",
+        description:
+          "Some files from the uninstall could not be removed automatically. " +
+          "Do you want to permanently delete the remaining files?",
+        affirmativeText: "Delete",
+        negativeText: "Keep",
+      });
+      if (!confirmed) return;
+
+      await invoke("fs_remove", {
+        path: versionDirectory,
+        recursive: true,
+      });
+      // Walk up from the version folder's parent so now-empty game/version
+      // containers are cleaned up too.
+      const parentDir = versionDirectory.replace(/[\\/][^\\/]+$/, "");
+      await pruneEmptyVersionFolders(parentDir);
+    },
+    [showAlert],
+  );
+
   const handleUninstallGame = useCallback(async () => {
     if (!installedGame) return;
 
@@ -719,12 +755,15 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         );
         // Clean up the empty per-version / per-game folders left behind.
         await pruneEmptyVersionFolders(installedGame.versionDirectory);
+        // Offer to delete any leftover files the uninstaller left behind.
+        await cleanupLeftoverFiles(installedGame.versionDirectory);
         setInstalledGame(await findInstalledGame());
         onUninstalled?.();
         await showAlert({
           title: "Game uninstalled",
           affirmativeText: "OK",
         });
+        onClose();
       } catch (error: any) {
         await showAlert({
           title: "Error",
@@ -772,12 +811,14 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
             installedGame.versionDirectory,
             false,
           );
+          await cleanupLeftoverFiles(installedGame.versionDirectory);
           setInstalledGame(await findInstalledGame());
           onUninstalled?.();
           await showAlert({
             title: "Game uninstalled",
             affirmativeText: "OK",
           });
+          onClose();
         } catch (error: any) {
           await showAlert({
             title: "Error",
@@ -839,8 +880,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       affirmativeText: "OK",
     });
   }, [
+    cleanupLeftoverFiles,
     findInstalledGame,
     installedGame,
+    onClose,
     onUninstalled,
     showAlert,
     updateInstallationFinishedFlag,
