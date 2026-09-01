@@ -9,6 +9,7 @@
 - Fixed "Open Folder" doing nothing on Linux: folder and URL opening now use the official `tauri-plugin-opener`, with WSL support preserved.
 - Added an "Open" button to each download location in Settings to open the folder in your file manager.
 - Installed games are now detected even when the `installationfinished` flag was never written (e.g. self-extracting installers), by verifying the installation directory has content.
+- Fixed recovered download cards incorrectly showing an already-installed game as "not installed" after a restart: a version is now treated as installed when its installation directory has content, matching the installed-games list.
 - Fixed GOG/self-extracting installers being reported as failed: a non-zero wrapper exit code no longer counts as failure if the installation directory actually got populated.
 - After installation the launch executable is now auto-detected (falling back to the first available one) when none is configured.
 - Uninstalling a game or deleting a download now cleans up the empty leftover folder structure.

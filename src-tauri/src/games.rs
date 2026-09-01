@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use tauri::Manager;
 
 /// Returns true once `path` exists and contains at least one entry.
-fn directory_has_entries(path: &Path) -> bool {
+pub(crate) fn directory_has_entries(path: &Path) -> bool {
   fs::read_dir(path)
     .map(|mut entries| entries.next().is_some())
     .unwrap_or(false)

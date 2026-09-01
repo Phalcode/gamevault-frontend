@@ -1,4 +1,5 @@
 use crate::events::RecoveredDownloadCard;
+use crate::games::directory_has_entries;
 use crate::util::{parse_version_folder, stable_id_from_path, parse_i64_json, resolve_version_id, resolve_version_subdir};
 use std::fs;
 use std::path::PathBuf;
@@ -73,10 +74,17 @@ pub(crate) fn recover_download_cards(selected_root: String) -> Result<Vec<Recove
         .get("extractionfinished")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+      // The install may have completed without the `installationfinished` flag
+      // ever being written (e.g. self-extracting installers). Fall back to
+      // checking the installation directory has content, matching
+      // `list_installed_games`, so a recovered card doesn't show as uninstalled.
+      let installations_dir =
+        resolve_version_subdir(&version_path, "Installation", "Installations");
       let installation_finished = cfg_value
         .get("installationfinished")
         .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+        .unwrap_or(false)
+        || directory_has_entries(&installations_dir);
       let game_type = cfg_value
         .get("gametype")
         .and_then(|v| v.as_str())
@@ -99,7 +107,6 @@ pub(crate) fn recover_download_cards(selected_root: String) -> Result<Vec<Recove
 
       let downloads_dir = resolve_version_subdir(&version_path, "Download", "Downloads");
       let extractions_dir = resolve_version_subdir(&version_path, "Extraction", "Extractions");
-      let installations_dir = resolve_version_subdir(&version_path, "Installation", "Installations");
 
       let mut filename = format!("{}.bin", resolved_game_title);
       let mut downloaded_file_path: Option<String> = None;
