@@ -180,9 +180,9 @@ export function VersionSelectDialog({
                 <TableCell>
                   <span
                     className="block max-w-100 overflow-hidden text-ellipsis whitespace-nowrap"
-                    title={`(${version.id}) ${version.version || "Unknown Version"}`}
+                    title={`(${version.id}) ${version.version || "Unspecified"}`}
                   >
-                    {version.version || "Unknown Version"}
+                    {version.version || "Unspecified"}
                   </span>
                 </TableCell>
                 <TableCell>{formatIndexedAt(version.indexed_at)}</TableCell>

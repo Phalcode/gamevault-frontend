@@ -23,6 +23,9 @@
 - Windows executables on Linux can now run through umu-launcher: GameVault automatically installs umu-launcher, launches the game through it (showing a setup overlay while UMU-Proton and the Steam runtime download), and tracks playtime.
 - Added optional per-game umu-launcher overrides in the game settings (umu-database ID, store, Proton path, and Wine prefix).
 - Improved the widescreen layout so library content sits flush against the sidebar instead of being awkwardly re-centered on large monitors.
+---
+- Debounced the library game search so the server is no longer hit on every keystroke.
+- Renamed the unnamed-version placeholder from "Unknown Version" to "Unspecified"; existing version folders still using the old name are now automatically migrated on the next download.
 
 ## 17.0.0
 

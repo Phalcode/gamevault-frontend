@@ -2,18 +2,12 @@ import GameCard from "@/components/GameCard";
 import { useAuth } from "@/context/AuthContext";
 import { BookmarkFilter, EarlyAccessFilter, useGames } from "@/hooks/useGames";
 import { useScrollRestoration } from "@/hooks/useScrollRestoration";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { Divider } from "@tw/divider";
 import { Heading } from "@tw/heading";
 import { Input } from "@tw/input";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
-import {
-  useDeferredValue,
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-  useMemo,
-} from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { XMarkIcon } from "@heroicons/react/24/solid";
 import {
   TrashIcon,
@@ -213,8 +207,8 @@ export default function Library() {
     setEarlyAccess("all");
   }, []);
 
-  // Defer search to avoid spamming requests while user types quickly
-  const deferredSearch = useDeferredValue(search);
+  // Debounce search so we only fire the API request once the user pauses
+  const deferredSearch = useDebouncedValue(search, 300);
 
   // Convert selected type FilterItems to GamevaultGameTypeEnum values for API
   const gameTypeValues = useMemo(() => {

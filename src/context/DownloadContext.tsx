@@ -805,8 +805,12 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
           const gameFolderName =
             sanitizeFolderName(gameTitle) || `Game-${gameId}`;
+          // Old installs with an unnamed version used "Unknown Version" as the
+          // folder fallback. Keep it so we can still match those folders and
+          // avoid orphaning/re-downloading them.
+          const LEGACY_UNNAMED_FALLBACK = "Unknown Version";
           const resolvedVersionName =
-            sanitizeFolderName(versionName ?? "") || "Unknown Version";
+            sanitizeFolderName(versionName ?? "") || "Unspecified";
           const legacyVersionFolderName = `(${versionId}) ${resolvedVersionName}`;
 
           const gameVaultRoot = await join(downloadPath, "GameVault");
@@ -840,11 +844,52 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               path: await join(versionsFolder, folderName),
             });
 
+          // When an existing version folder was created under a legacy name
+          // (e.g. "(id) Unknown Version"), rename it on disk to the canonical
+          // `resolvedVersionName` (e.g. "Unspecified") so future runs stay
+          // consistent. Never clobbers an existing target folder.
+          const migrateFolderName = async (
+            matchedFolderName: string,
+          ): Promise<string> => {
+            if (matchedFolderName === resolvedVersionName) {
+              return resolvedVersionName;
+            }
+            if (await versionFolderExists(resolvedVersionName)) {
+              return matchedFolderName;
+            }
+            const oldPath = await join(versionsFolder, matchedFolderName);
+            const newPath = await join(versionsFolder, resolvedVersionName);
+            try {
+              await invoke("fs_rename", { from: oldPath, to: newPath });
+              return resolvedVersionName;
+            } catch {
+              // Rename failed (e.g. target exists / locked); keep the legacy
+              // folder — this version still belongs to it.
+              return matchedFolderName;
+            }
+          };
+
+          // Prefer the canonical folder name. If we find a legacy-named folder
+          // that belongs to this version, migrate it to the canonical name.
           let versionFolderName = resolvedVersionName;
           if (await folderMatchesVersion(resolvedVersionName)) {
             versionFolderName = resolvedVersionName;
           } else if (await folderMatchesVersion(legacyVersionFolderName)) {
-            versionFolderName = legacyVersionFolderName;
+            versionFolderName = await migrateFolderName(legacyVersionFolderName);
+          } else if (await folderMatchesVersion(LEGACY_UNNAMED_FALLBACK)) {
+            // Re-match the old "Unknown Version" folder fallback for installs
+            // that predate the "Unspecified" rename, then migrate it.
+            versionFolderName = await migrateFolderName(
+              LEGACY_UNNAMED_FALLBACK,
+            );
+          } else if (
+            await folderMatchesVersion(
+              `(${versionId}) ${LEGACY_UNNAMED_FALLBACK}`,
+            )
+          ) {
+            versionFolderName = await migrateFolderName(
+              `(${versionId}) ${LEGACY_UNNAMED_FALLBACK}`,
+            );
           } else if (await versionFolderExists(resolvedVersionName)) {
             const collisionFolderName = `${resolvedVersionName} (${versionId})`;
             if (

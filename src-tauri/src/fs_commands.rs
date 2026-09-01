@@ -74,6 +74,12 @@ pub(crate) fn fs_path_exists(path: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
+pub(crate) fn fs_rename(from: String, to: String) -> Result<(), String> {
+  std::fs::rename(&from, &to)
+    .map_err(|e| format!("fs_rename failed for '{}' -> '{}': {}", from, to, e))
+}
+
+#[tauri::command]
 pub(crate) fn fs_remove(path: String, recursive: bool) -> Result<(), String> {
   let p = std::path::Path::new(&path);
   if !p.exists() {
