@@ -10,6 +10,7 @@ import {
   ComputerDesktopIcon,
   PencilSquareIcon,
 } from "@heroicons/react/24/outline";
+import { formatDecimal } from "@/utils/number";
 import {
   FORCE_INSTALL_TYPES,
   formatGameTypeLabel,
@@ -50,7 +51,7 @@ export function InstallFlow({
   const copyProgressText =
     download.installationProgress !== null &&
     download.installationProgress !== undefined
-      ? `${download.installationProgress.toFixed(1)}%`
+      ? `${formatDecimal(download.installationProgress, 1)}%`
       : "In progress";
 
   const handleCopyInstallPath = async (path?: string) => {

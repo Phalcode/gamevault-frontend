@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { DiskUsageData } from "@/hooks/useDiskUsage";
+import { formatDecimal, formatNumber } from "@/utils/number";
 
 const COLORS = {
   current: "#F4417F", // deep pink
@@ -10,7 +11,7 @@ const COLORS = {
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024) return `${formatNumber(bytes)} B`;
   const units = ["KB", "MB", "GB", "TB", "PB"];
   let value = bytes / 1024;
   let unitIndex = 0;
@@ -18,7 +19,7 @@ function formatBytes(bytes: number): string {
     value /= 1024;
     unitIndex++;
   }
-  return `${value.toFixed(value < 10 ? 2 : value < 100 ? 1 : 0)} ${
+  return `${formatDecimal(value, value < 10 ? 2 : value < 100 ? 1 : 0)} ${
     units[unitIndex]
   }`;
 }

@@ -17,6 +17,7 @@ import {
 import { CheckIcon } from "@heroicons/react/24/solid";
 import { Button } from "@tw/button";
 import { useMemo, useState } from "react";
+import { formatDecimal } from "@/utils/number";
 
 interface VersionSelectDialogProps {
   open: boolean;
@@ -55,7 +56,7 @@ export function VersionSelectDialog({
       unitIndex++;
     }
     const precision = value < 10 ? 2 : value < 100 ? 1 : 0;
-    return `${value.toFixed(precision)} ${units[unitIndex]}`;
+    return `${formatDecimal(value, precision)} ${units[unitIndex]}`;
   };
 
   const formatGameType = (type: string) =>

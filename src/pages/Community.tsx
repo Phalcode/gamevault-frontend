@@ -10,6 +10,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Media } from "@/components/Media";
 import { useAuth } from "@/context/AuthContext";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
+import { formatDecimal } from "@/utils/number";
 import { getGameCoverMediaId } from "@/hooks/useGames";
 import { getRoleLabel } from "@/utils/roles";
 import clsx from "clsx";
@@ -126,7 +127,7 @@ function formatPlaytime(minutes: number) {
   if (!minutes) return "0 min";
   if (minutes < 60) return `${minutes} min`;
   const hours = minutes / 60;
-  return `${hours.toFixed(hours < 10 ? 1 : 0)} h`;
+  return `${formatDecimal(hours, hours < 10 ? 1 : 0)} h`;
 }
 
 function getDisplayName(user: GamevaultUser | null | undefined) {

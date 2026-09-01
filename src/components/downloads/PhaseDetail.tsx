@@ -10,6 +10,7 @@ import {
   ExclamationTriangleIcon,
   KeyIcon,
 } from "@heroicons/react/24/outline";
+import { formatDecimal } from "@/utils/number";
 
 type PhaseDetailProps = {
   download: ActiveDownload;
@@ -61,14 +62,14 @@ export function PhaseDetail({
   const extractionProgressText =
     download.extractionProgress !== null &&
     download.extractionProgress !== undefined
-      ? `${download.extractionProgress.toFixed(1)}%`
+      ? `${formatDecimal(download.extractionProgress, 1)}%`
       : "In progress";
 
   const installProgressText =
     download.installationStatus === "copying" &&
     download.installationProgress !== null &&
     download.installationProgress !== undefined
-      ? `${download.installationProgress.toFixed(1)}%`
+      ? `${formatDecimal(download.installationProgress, 1)}%`
       : download.installationStatus === "launching"
         ? "Starting"
         : "In progress";
@@ -91,7 +92,7 @@ export function PhaseDetail({
           valueText={
             download.status === "paused"
               ? "Paused"
-              : `${download.progress?.toFixed(1) ?? "0.0"}%`
+              : `${formatDecimal(download.progress ?? 0, 1)}%`
           }
         />
       ) : isFailed ? (

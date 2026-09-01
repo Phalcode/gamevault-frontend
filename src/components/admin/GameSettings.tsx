@@ -22,6 +22,7 @@ import { useUmu, type UmuStatusInfo } from "@/context/UmuContext";
 import { isWindowsExecutablePath } from "@/components/downloads/install-utils";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { isTauriApp } from "@/utils/tauri";
+import { formatDate, formatYear } from "@/utils/date";
 import {
   applyDroppedSources,
   isProbablyImageUrl,
@@ -2336,9 +2337,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                       </div>
                                       <div className="text-gv-text">
                                         {workingGame.release_date
-                                          ? new Date(
-                                              workingGame.release_date,
-                                            ).toLocaleDateString()
+                                          ? formatDate(workingGame.release_date)
                                           : "N/A"}
                                       </div>
                                     </div>
@@ -2347,9 +2346,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         Added:
                                       </div>
                                       <div className="text-gv-text">
-                                        {new Date(
-                                          workingGame.created_at,
-                                        ).toLocaleDateString()}
+                                        {formatDate(workingGame.created_at)}
                                       </div>
                                     </div>
                                   </div>
@@ -2400,9 +2397,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         </div>
                                         <div className="text-gv-text">
                                           {currentShownMappedGame.release_date
-                                            ? new Date(
-                                              currentShownMappedGame.release_date,
-                                            ).toLocaleDateString()
+                                            ? formatDate(
+                                                currentShownMappedGame.release_date,
+                                              )
                                             : "N/A"}
                                         </div>
                                       </div>
@@ -2412,9 +2409,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         </div>
                                         <div className="text-gv-text">
                                           {currentShownMappedGame.updated_at
-                                            ? new Date(
-                                              currentShownMappedGame.updated_at,
-                                            ).toLocaleDateString()
+                                            ? formatDate(
+                                                currentShownMappedGame.updated_at,
+                                              )
                                             : "N/A"}
                                         </div>
                                       </div>
@@ -2562,9 +2559,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                       </div>
                                       {result.release_date && (
                                         <div className="text-xs text-gv-muted">
-                                          {new Date(
-                                            result.release_date,
-                                          ).getFullYear()}
+                                          {formatYear(result.release_date)}
                                         </div>
                                       )}
                                       {result.description && (
@@ -2847,9 +2842,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               !customMetadata.release_date && (
                                 <p className="mt-1 text-xs text-gv-muted">
                                   Current:{" "}
-                                  {new Date(
-                                    getWatermark("release_date"),
-                                  ).toLocaleDateString()}
+                                  {formatDate(getWatermark("release_date"))}
                                 </p>
                               )}
                           </div>

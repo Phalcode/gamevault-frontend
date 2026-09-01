@@ -13,6 +13,7 @@ import {
 } from "@/components/tailwind/dropdown";
 import { Media } from "@/components/Media";
 import CoverPlaceholder from "@/components/CoverPlaceholder";
+import { formatDecimal } from "@/utils/number";
 import { isTauriApp } from "@/utils/tauri";
 import { PhaseSteps, type StepState } from "./PhaseSteps";
 import { PhaseDetail } from "./PhaseDetail";
@@ -168,7 +169,7 @@ export function DownloadCard({
       state: downloadStep,
       valueText:
         downloadStep === "active" && download.progress !== null
-          ? `${download.progress.toFixed(1)}%`
+          ? `${formatDecimal(download.progress, 1)}%`
           : undefined,
     },
     {
@@ -179,7 +180,7 @@ export function DownloadCard({
         extractionStep === "active" &&
         download.extractionProgress !== null &&
         download.extractionProgress !== undefined
-          ? `${download.extractionProgress.toFixed(1)}%`
+          ? `${formatDecimal(download.extractionProgress, 1)}%`
           : undefined,
     },
     {
@@ -190,7 +191,7 @@ export function DownloadCard({
         installationStep === "active" &&
         download.installationProgress !== null &&
         download.installationProgress !== undefined
-          ? `${download.installationProgress.toFixed(1)}%`
+          ? `${formatDecimal(download.installationProgress, 1)}%`
           : undefined,
     },
   ];

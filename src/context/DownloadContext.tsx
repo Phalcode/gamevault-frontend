@@ -14,6 +14,7 @@ import { isTauriApp } from "@/utils/tauri";
 import { onGameUpdated } from "@/utils/gameUpdates";
 import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
 import { getRootPaths } from "@/utils/rootPaths";
+import { formatTrimmedNumber } from "@/utils/number";
 import {
   pickPreferredInstaller,
   pickPreferredExecutable,
@@ -222,8 +223,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     return (received - first.bytes) / elapsedSec;
   };
   const precision = (v: number) => (v < 10 ? 2 : v < 100 ? 1 : 0);
-  const trimZeros = (s: string) =>
-    s.includes(".") ? s.replace(/\.?0+$/, "") : s;
   const scaleDecimal = (value: number, base: number, units: string[]) => {
     let v = value;
     let u = 0;
@@ -844,52 +843,25 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               path: await join(versionsFolder, folderName),
             });
 
-          // When an existing version folder was created under a legacy name
-          // (e.g. "(id) Unknown Version"), rename it on disk to the canonical
-          // `resolvedVersionName` (e.g. "Unspecified") so future runs stay
-          // consistent. Never clobbers an existing target folder.
-          const migrateFolderName = async (
-            matchedFolderName: string,
-          ): Promise<string> => {
-            if (matchedFolderName === resolvedVersionName) {
-              return resolvedVersionName;
-            }
-            if (await versionFolderExists(resolvedVersionName)) {
-              return matchedFolderName;
-            }
-            const oldPath = await join(versionsFolder, matchedFolderName);
-            const newPath = await join(versionsFolder, resolvedVersionName);
-            try {
-              await invoke("fs_rename", { from: oldPath, to: newPath });
-              return resolvedVersionName;
-            } catch {
-              // Rename failed (e.g. target exists / locked); keep the legacy
-              // folder — this version still belongs to it.
-              return matchedFolderName;
-            }
-          };
-
-          // Prefer the canonical folder name. If we find a legacy-named folder
-          // that belongs to this version, migrate it to the canonical name.
+          // Prefer the canonical folder name, but also accept the legacy
+          // "Unknown Version" fallback so existing installs created under the
+          // old name keep working. No on-disk rename happens, so we never
+          // risk breaking an existing install / registry entry.
           let versionFolderName = resolvedVersionName;
           if (await folderMatchesVersion(resolvedVersionName)) {
             versionFolderName = resolvedVersionName;
           } else if (await folderMatchesVersion(legacyVersionFolderName)) {
-            versionFolderName = await migrateFolderName(legacyVersionFolderName);
+            versionFolderName = legacyVersionFolderName;
           } else if (await folderMatchesVersion(LEGACY_UNNAMED_FALLBACK)) {
-            // Re-match the old "Unknown Version" folder fallback for installs
-            // that predate the "Unspecified" rename, then migrate it.
-            versionFolderName = await migrateFolderName(
-              LEGACY_UNNAMED_FALLBACK,
-            );
+            // Legacy "Unknown Version" fallback (kept as-is).
+            versionFolderName = LEGACY_UNNAMED_FALLBACK;
           } else if (
             await folderMatchesVersion(
               `(${versionId}) ${LEGACY_UNNAMED_FALLBACK}`,
             )
           ) {
-            versionFolderName = await migrateFolderName(
-              `(${versionId}) ${LEGACY_UNNAMED_FALLBACK}`,
-            );
+            // Legacy "(id) Unknown Version" fallback (kept as-is).
+            versionFolderName = `(${versionId}) ${LEGACY_UNNAMED_FALLBACK}`;
           } else if (await versionFolderExists(resolvedVersionName)) {
             const collisionFolderName = `${resolvedVersionName} (${versionId})`;
             if (
@@ -2308,12 +2280,12 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       v /= 1024;
       u++;
     }
-    return `${trimZeros(v.toFixed(precision(v)))} ${units[u]}`;
+    return `${formatTrimmedNumber(v, precision(v))} ${units[u]}`;
   }, []);
 
   const formatSpeed = useCallback((bps?: number) => {
     if (bps === undefined || bps === null || !isFinite(bps)) return "";
-    if (bps < 1000) return `${bps.toFixed(0)} B/s`;
+    if (bps < 1000) return `${formatTrimmedNumber(bps, 0)} B/s`;
     // decimal scaling
     let { value: v, unit } = scaleDecimal(bps / 1000, 1000, [
       "KB",
@@ -2322,14 +2294,14 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       "TB",
       "PB",
     ]);
-    return `${trimZeros(v.toFixed(precision(v)))} ${unit}/s`;
+    return `${formatTrimmedNumber(v, precision(v))} ${unit}/s`;
   }, []);
 
   const formatKBps = useCallback((bps?: number) => {
     if (bps === undefined || bps === null || !isFinite(bps) || bps <= 0)
       return "0 KB/s";
     const kb = bps / 1000;
-    return `${trimZeros(kb.toFixed(precision(kb)))} KB/s`;
+    return `${formatTrimmedNumber(kb, precision(kb))} KB/s`;
   }, []);
 
   const formatLimit = useCallback((kbPerSec: number) => {
@@ -2340,7 +2312,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       "GB/s",
       "TB/s",
     ]);
-    return `${trimZeros(v.toFixed(precision(v)))} ${unit}`;
+    return `${formatTrimmedNumber(v, precision(v))} ${unit}`;
   }, []);
 
   // ── OS taskbar / dock indicator (progress + attention) ────────────────

@@ -50,6 +50,13 @@ applyTheme(getStoredTheme());
 void applyZoom(getStoredZoom());
 void startMediaCacheMaintenance();
 
+// Reflect the user's locale on <html> so native form controls (e.g. the
+// <input type="date"> filters) render dates in the locale the computer uses
+// instead of the statically-declared "en".
+if (typeof document !== "undefined" && typeof navigator !== "undefined") {
+  document.documentElement.lang = navigator.language || "en";
+}
+
 (window as any).global = window;
 
 if (isAnalyticsEnabled()) {

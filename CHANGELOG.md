@@ -23,9 +23,10 @@
 - Windows executables on Linux can now run through umu-launcher: GameVault automatically installs umu-launcher, launches the game through it (showing a setup overlay while UMU-Proton and the Steam runtime download), and tracks playtime.
 - Added optional per-game umu-launcher overrides in the game settings (umu-database ID, store, Proton path, and Wine prefix).
 - Improved the widescreen layout so library content sits flush against the sidebar instead of being awkwardly re-centered on large monitors.
----
 - Debounced the library game search so the server is no longer hit on every keystroke.
-- Renamed the unnamed-version placeholder from "Unknown Version" to "Unspecified"; existing version folders still using the old name are now automatically migrated on the next download.
+- Renamed the unnamed-version placeholder from "Unknown Version" to "Unspecified". Existing installs that still use the old folder name continue to work (both the old and new names are supported, with no on-disk folder rename).
+- Fixed regional date formatting: dates now follow the locale the computer uses (e.g. `dd.mm.yyyy` for German) everywhere instead of a fixed `en-US` format, keeping release dates, filters and "last played" timestamps consistent. Date-only values are parsed as local dates so they no longer shift a day/year in timezones west of UTC, and the "Last Played" box keeps its compact two-line layout.
+- Numbers are now formatted with the locale's decimal and thousands separators (e.g. `1,5 GB` for German instead of `1.5 GB`), covering file sizes, download speeds/limits, playtime and progress percentages.
 
 ## 17.0.0
 

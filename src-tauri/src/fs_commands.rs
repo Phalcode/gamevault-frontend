@@ -68,15 +68,9 @@ pub(crate) fn fs_create_dir_all(path: String) -> Result<(), String> {
   std::fs::create_dir_all(&path).map_err(|e| format!("fs_create_dir_all failed for '{}': {}", path, e))
 }
 
-#[tauri::command]
+##[tauri::command]
 pub(crate) fn fs_path_exists(path: String) -> Result<bool, String> {
   Ok(std::path::Path::new(&path).exists())
-}
-
-#[tauri::command]
-pub(crate) fn fs_rename(from: String, to: String) -> Result<(), String> {
-  std::fs::rename(&from, &to)
-    .map_err(|e| format!("fs_rename failed for '{}' -> '{}': {}", from, to, e))
 }
 
 #[tauri::command]

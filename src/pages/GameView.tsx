@@ -18,6 +18,8 @@ import { GameVersion } from "@/api/models/GameVersion";
 import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
+import { formatDate, formatTime, formatYear } from "@/utils/date";
+import { formatDecimal } from "@/utils/number";
 import {
   useEffect,
   useMemo,
@@ -585,16 +587,13 @@ export default function GameView() {
     : null;
   const lastPlayedValid =
     !!lastPlayedDate && !Number.isNaN(lastPlayedDate.getTime());
-  // European date format: DD.MM.YYYY on the first line, HH:mm on the second.
+  // Locale-aware date + time (first line date, second line time), e.g.
+  // `15.08.2025` / `16:01` (de) or `08/15/2025` / `4:01 PM` (en-US).
   const lastPlayedDay = lastPlayedValid
-    ? `${String(lastPlayedDate.getDate()).padStart(2, "0")}.${String(
-        lastPlayedDate.getMonth() + 1,
-      ).padStart(2, "0")}.${lastPlayedDate.getFullYear()}`
+    ? formatDate(lastPlayedDate, "—")
     : "—";
   const lastPlayedTime = lastPlayedValid
-    ? `${String(lastPlayedDate.getHours()).padStart(2, "0")}:${String(
-        lastPlayedDate.getMinutes(),
-      ).padStart(2, "0")}`
+    ? formatTime(lastPlayedDate)
     : null;
   const avgPlaytime =
     game?.metadata?.average_playtime ||
@@ -621,7 +620,7 @@ export default function GameView() {
       value /= 1024;
       unitIndex++;
     }
-    return `${value.toFixed(value < 10 ? 2 : value < 100 ? 1 : 0)} ${units[unitIndex]}`;
+    return `${formatDecimal(value, value < 10 ? 2 : value < 100 ? 1 : 0)} ${units[unitIndex]}`;
   };
 
   const formattedSize = useMemo(
@@ -641,7 +640,7 @@ export default function GameView() {
 
   // Derive additional metadata fields
   const releaseYear = game?.release_date
-    ? new Date(game.release_date).getFullYear()
+    ? formatYear(game.release_date)
     : (game as any)?.metadata?.release_year || null;
   const versionTag = game?.version || (game as any)?.metadata?.version || null;
   const websites: string[] = (game as any)?.metadata?.url_websites || [];
@@ -909,7 +908,7 @@ export default function GameView() {
                   </div>
                   <div className="flex min-h-9 flex-col items-center justify-center text-sm font-semibold leading-tight tabular-nums text-gv-text">
                     {playtimeHours >= 1
-                      ? `${playtimeHours.toFixed(playtimeHours < 10 ? 1 : 0)} h`
+                      ? `${formatDecimal(playtimeHours, playtimeHours < 10 ? 1 : 0)} h`
                       : `${playtimeMinutes} m`}
                   </div>
                 </div>
@@ -939,7 +938,7 @@ export default function GameView() {
                   </div>
                   <div className="flex min-h-9 flex-col items-center justify-center text-sm font-semibold leading-tight tabular-nums text-gv-text">
                     {avgPlaytime
-                      ? `${(avgPlaytime / 60).toFixed(avgPlaytime / 60 < 10 ? 1 : 0)} h`
+                      ? `${formatDecimal(avgPlaytime / 60, avgPlaytime / 60 < 10 ? 1 : 0)} h`
                       : "—"}
                   </div>
                 </div>
@@ -1272,7 +1271,7 @@ export default function GameView() {
                                 <span className="truncate">
                                   Played:{" "}
                                   {hours >= 1
-                                    ? `${hours.toFixed(hours < 10 ? 1 : 0)} h`
+                                    ? `${formatDecimal(hours, hours < 10 ? 1 : 0)} h`
                                     : `${minutes} m`}
                                 </span>
                                 <span className="shrink-0 text-right">

@@ -17,6 +17,8 @@ import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
 import { isTauriApp } from "@/utils/tauri";
+import { formatShortDate } from "@/utils/date";
+import { formatDecimal } from "@/utils/number";
 import { Alert, AlertTitle } from "@tw/alert";
 import {
   Dropdown,
@@ -29,12 +31,6 @@ import clsx from "clsx";
 import { memo, useCallback, useMemo, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router";
 import { GameVersion } from "@/api/models/GameVersion";
-
-const releaseDateFormatter = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
 
 const GameCard = memo(function GameCard({
   game,
@@ -126,7 +122,7 @@ const GameCard = memo(function GameCard({
       value /= 1024;
       unitIndex++;
     }
-    return `${value.toFixed(value < 10 ? 2 : value < 100 ? 1 : 0)} ${units[unitIndex]}`;
+    return `${formatDecimal(value, value < 10 ? 2 : value < 100 ? 1 : 0)} ${units[unitIndex]}`;
   }, []);
 
   const formattedSize = formatBytes(
@@ -140,17 +136,15 @@ const GameCard = memo(function GameCard({
         return formattedSize;
       case "created_at":
         return localGame.created_at
-          ? releaseDateFormatter.format(new Date(localGame.created_at))
+          ? formatShortDate(localGame.created_at)
           : null;
       case "metadata.release_date":
         return localGame.metadata?.release_date
-          ? releaseDateFormatter.format(
-              new Date(localGame.metadata.release_date),
-            )
+          ? formatShortDate(localGame.metadata.release_date)
           : null;
       case "metadata.rating":
         return localGame.metadata?.rating != null
-          ? `${localGame.metadata.rating.toFixed(1)}%`
+          ? `${formatDecimal(localGame.metadata.rating, 1)}%`
           : null;
       case "download_count":
         return localGame.download_count != null
