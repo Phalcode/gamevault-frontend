@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/tailwind/dialog";
 import { isAnalyticsEnabled, setAnalyticsEnabled } from "@/utils/analytics";
+import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
 import { clearImageCache } from "@/utils/mediaCache";
 import { playSound } from "@/utils/audio";
 import { VolumeControl } from "@/components/VolumeControl";
@@ -728,6 +729,19 @@ export default function Settings() {
     }, 80);
     return () => window.clearTimeout(timer);
   }, [activeCategory, scrollToSetting]);
+
+  // ESC exits a drilled-in settings category back to the all-settings view.
+  // Open Headless UI overlays and editable inputs handle their own Escape
+  // first, so those take precedence over leaving the category.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (hasOpenOverlay() || isEditableTarget(event)) return;
+      setActiveCategory((current) => (current !== null ? null : current));
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const [licensesOpen, setLicensesOpen] = useState(false);
   const [licenseData, setLicenseData] = useState<LicensesData | null>(null);

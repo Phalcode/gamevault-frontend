@@ -19,6 +19,7 @@ import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
 import { formatDate, formatTime, formatYear } from "@/utils/date";
+import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
 import { formatDecimal } from "@/utils/number";
 import {
   useEffect,
@@ -94,6 +95,18 @@ export default function GameView() {
     () => installedGames.find((ig) => ig.gameId === numericId),
     [installedGames, numericId],
   );
+
+  // ESC returns to the library (same as the Back button). Open overlays
+  // (dialogs/popovers) and editable inputs handle their own Escape first.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (hasOpenOverlay() || isEditableTarget(event)) return;
+      navigate(-1);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [navigate]);
   const backgroundMediaId = game?.metadata?.background?.id;
   const { url: backgroundUrl } = useAuthMediaUrl(
     backgroundMediaId,
