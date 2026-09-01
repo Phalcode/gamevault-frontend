@@ -114,11 +114,6 @@ export function InstallFlow({
         <div className="space-y-4">
           <ol className="list-decimal space-y-1.5 pl-4 text-sm text-gv-muted marker:text-gv-muted">
             <li>Pick the correct installer from the dropdown menu below.</li>
-            <li>Hit the 'Install' button to launch the game's installer.</li>
-            <li>Go through the game's setup process.</li>
-            <li>
-              Make sure to select this folder as the installer's destination:
-            </li>
           </ol>
 
           <Listbox
@@ -141,6 +136,17 @@ export function InstallFlow({
             ))}
           </Listbox>
 
+          <ol
+            start={2}
+            className="list-decimal space-y-1.5 pl-4 text-sm text-gv-muted marker:text-gv-muted"
+          >
+            <li>Hit the 'Install' button to launch the game's installer.</li>
+            <li>Go through the game's setup process.</li>
+            <li>
+              If not already set, make sure to select this folder as the installer's destination:
+            </li>
+          </ol>
+
           <div className="surface-panel-soft rounded-xl p-3">
             <div className="flex items-center justify-between gap-3">
               <p
@@ -157,10 +163,7 @@ export function InstallFlow({
                 }
                 disabled={!download.installationDirectory}
               >
-                <ClipboardDocumentIcon
-                  className="h-4 w-4"
-                  aria-hidden="true"
-                />
+                <ClipboardDocumentIcon className="h-4 w-4" aria-hidden="true" />
                 Copy Path
               </Button>
             </div>
@@ -183,9 +186,7 @@ export function InstallFlow({
 
           <Listbox
             value={installState.forcedType}
-            onChange={(value) =>
-              onUpdate({ forcedType: value as GameType })
-            }
+            onChange={(value) => onUpdate({ forcedType: value as GameType })}
             aria-label="Forced installation type"
           >
             {FORCE_INSTALL_TYPES.map((option) => (
@@ -210,9 +211,7 @@ export function InstallFlow({
 
         <div className="flex items-center gap-2">
           {download.installationStatus === "running" && (
-            <span className="text-xs font-medium text-gv-accent">
-              Running
-            </span>
+            <span className="text-xs font-medium text-gv-accent">Running</span>
           )}
 
           {installState.mode === "portable" && (
