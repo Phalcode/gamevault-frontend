@@ -1,6 +1,6 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import pkg from "./package.json" with { type: "json" };
 
 export default defineConfig({
@@ -36,5 +36,13 @@ export default defineConfig({
       process.env.GV_BUILD_CHANNEL ||
         (process.env.GV_BUILD_VERSION ? "ci" : "dev"),
     ),
+  },
+  test: {
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      include: ["src/**"],
+      exclude: ["src/api/**", "src/generated/**"],
+    },
   },
 });
