@@ -1,0 +1,8 @@
+# Suppress MSVC LNK4099 on Windows release builds:
+#   "PDB 'libsodium.pdb' was not found with 'liblibsodium_sys-*.rlib' ... ;
+#    linking object as if no debug info"
+# libsodium-sys ships prebuilt object files that reference a PDB which is never
+# emitted, so the linker warns once per object. These are benign; /IGNORE:4099
+# silences this specific warning without disabling other linker diagnostics.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/IGNORE:4099"]

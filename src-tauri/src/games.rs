@@ -479,7 +479,7 @@ pub(crate) fn make_script_executable(
 }
 
 #[tauri::command]
-#[cfg_attr(windows, allow(unused_variables))]
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
 pub(crate) fn launch_game(
   app: tauri::AppHandle,
   game_title: String,
