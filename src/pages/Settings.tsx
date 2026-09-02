@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
   isTauriApp,
+  isTauriDesktop,
   isDebugTauriOverride,
   setDebugTauriOverride,
 } from "@/utils/tauri";
@@ -171,6 +172,8 @@ interface SearchableSetting {
   keywords: string[];
   /** Only shown in the desktop (Tauri) app. Hidden from search on the web build. */
   desktopOnly?: boolean;
+  /** Only shown on the web build. Hidden from search in the real desktop app. */
+  webOnly?: boolean;
 }
 
 /**
@@ -357,6 +360,7 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     description: "Preview GameVault as a native desktop application",
     category: "developer",
     keywords: ["simulate", "desktop", "tauri", "debug"],
+    webOnly: true,
   },
   {
     id: "developer-simulate-outage",
@@ -650,6 +654,7 @@ export default function Settings() {
     }
   });
   const isTauri = isTauriApp();
+  const isDesktopApp = isTauriDesktop();
   const systemInfo = collectSystemInfo(isTauri);
   const { ignoreList, setIgnoreList } = useIgnoreList();
   const [winePrefixBase, setWinePrefixBase] = useState<string | null>(null);
@@ -698,9 +703,9 @@ export default function Settings() {
 
   const trimmedQuery = searchQuery.trim().toLowerCase();
   // On the web build, desktop-only settings don't exist, so never suggest them.
-  const searchableSettings = isTauri
-    ? SETTINGS_SEARCH_INDEX
-    : SETTINGS_SEARCH_INDEX.filter((s) => !s.desktopOnly);
+  const searchableSettings = SETTINGS_SEARCH_INDEX.filter(
+    (s) => (!s.desktopOnly || isTauri) && (!s.webOnly || !isDesktopApp),
+  );
   const matchesQuery = (s: SearchableSetting) =>
     s.title.toLowerCase().includes(trimmedQuery) ||
     (s.description?.toLowerCase().includes(trimmedQuery) ?? false) ||
@@ -2000,27 +2005,29 @@ export default function Settings() {
                         </SettingsRow>
                       </SettingsGroup>
 
-                      <SettingsGroup
-                        id="setting-developer-simulate-desktop"
-                        className={rowHighlight("developer-simulate-desktop")}
-                      >
-                        <SettingsRow>
-                          <SettingsLabel
-                            title="Simulate Desktop App"
-                            description="Preview how GameVault looks and behaves as a native desktop application."
-                          />
-                          <Switch
-                            name="simulateDesktop"
-                            color="indigo"
-                            aria-label="Simulate Tauri desktop app mode"
-                            checked={isDebugTauriOverride()}
-                            onChange={(v: boolean) => {
-                              setDebugTauriOverride(v);
-                              window.location.reload();
-                            }}
-                          />
-                        </SettingsRow>
-                      </SettingsGroup>
+                      {!isDesktopApp && (
+                        <SettingsGroup
+                          id="setting-developer-simulate-desktop"
+                          className={rowHighlight("developer-simulate-desktop")}
+                        >
+                          <SettingsRow>
+                            <SettingsLabel
+                              title="Simulate Desktop App"
+                              description="Preview how GameVault looks and behaves as a native desktop application."
+                            />
+                            <Switch
+                              name="simulateDesktop"
+                              color="indigo"
+                              aria-label="Simulate Tauri desktop app mode"
+                              checked={isDebugTauriOverride()}
+                              onChange={(v: boolean) => {
+                                setDebugTauriOverride(v);
+                                window.location.reload();
+                              }}
+                            />
+                          </SettingsRow>
+                        </SettingsGroup>
+                      )}
 
                       <SettingsGroup
                         id="setting-developer-simulate-outage"

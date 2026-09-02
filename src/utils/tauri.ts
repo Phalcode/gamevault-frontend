@@ -25,13 +25,22 @@ export function setDebugTauriOverride(enabled: boolean): void {
 }
 
 /**
- * Utility to check if the app is running as a Tauri desktop application
+ * Check if the app is running inside a real Tauri desktop webview, as opposed
+ * to the web build or the dev-only "Simulate Desktop" override.
  */
-export function isTauriApp(): boolean {
-  if (isDebugTauriOverride()) return true;
+export function isTauriDesktop(): boolean {
   return (
     typeof window !== "undefined" && Boolean((window as any).__TAURI_INTERNALS__)
   );
+}
+
+/**
+ * Utility to check if the app is running as a Tauri desktop application
+ * (or the dev-only override is active, which simulates one).
+ */
+export function isTauriApp(): boolean {
+  if (isDebugTauriOverride()) return true;
+  return isTauriDesktop();
 }
 
 /**
