@@ -6,7 +6,10 @@ use std::fs;
 use std::fs::File as StdFile;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
+#[cfg(target_os = "linux")]
+use std::process::Stdio;
+#[cfg(target_os = "linux")]
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -357,6 +360,7 @@ fn installation_directory_populated(path: &Path) -> bool {
 /// are dropped: wine quotes spaced arguments itself when it rebuilds the
 /// Windows command line, and leftover embedded quotes would otherwise be
 /// escaped (`\"`) and misparsed by the installer.
+#[cfg(target_os = "linux")]
 fn split_installer_params(params: &str) -> Vec<String> {
   let mut tokens = Vec::new();
   let mut current = String::new();
@@ -953,7 +957,7 @@ pub(crate) fn launch_uninstall_executable(
   }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
   use super::split_installer_params;
 

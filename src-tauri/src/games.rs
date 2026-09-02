@@ -479,7 +479,7 @@ pub(crate) fn make_script_executable(
 }
 
 #[tauri::command]
-#[cfg_attr(not(windows), allow(unused_variables))]
+#[cfg_attr(windows, allow(unused_variables))]
 pub(crate) fn launch_game(
   app: tauri::AppHandle,
   game_title: String,
@@ -670,6 +670,7 @@ pub(crate) fn launch_game(
 }
 
 const LAUNCH_GRACE: Duration = Duration::from_secs(5);
+#[cfg(target_os = "linux")]
 const ADMIN_LAUNCH_GRACE: Duration = Duration::from_secs(30);
 
 fn create_launch_logs() -> Result<(PathBuf, PathBuf, fs::File, fs::File), String> {

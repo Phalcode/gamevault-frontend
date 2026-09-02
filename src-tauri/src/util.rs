@@ -2,9 +2,6 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-#[cfg(windows)]
-use std::process::Command;
-
 /// Returns the free (available) disk space, in bytes, on the volume that
 /// contains the given path. Returns `None` if the free space could not be
 /// determined.

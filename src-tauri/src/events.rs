@@ -200,6 +200,7 @@ pub(crate) fn emit_game_launch_failed(
 /// `installing` (umu-launcher itself is being installed), `setup` (umu's
 /// first-run setup: downloading UMU-Proton / steamrt3), `running` (the
 /// game/installer process was detected), `error` and `exit`.
+#[cfg(target_os = "linux")]
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UmuStatusEvent {
@@ -209,6 +210,7 @@ pub(crate) struct UmuStatusEvent {
   pub message: Option<String>,
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn emit_umu_status(
   app: &tauri::AppHandle,
   game_title: Option<&str>,
@@ -229,6 +231,7 @@ pub(crate) fn emit_umu_status(
 
 /// The exact program + arguments GameVault hands to an installer (used for
 /// debugging installer launches on Linux via umu-launcher).
+#[cfg(target_os = "linux")]
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct InstallerCommandEvent {
@@ -236,6 +239,7 @@ pub(crate) struct InstallerCommandEvent {
   pub args: Vec<String>,
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn emit_installer_command(app: &tauri::AppHandle, program: &str, args: &[String]) {
   let _ = app.emit(
     "installer-command",

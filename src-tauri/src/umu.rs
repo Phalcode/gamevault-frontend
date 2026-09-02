@@ -8,22 +8,35 @@
 //! frontend through `umu-status` events so the UI can show a
 //! "Setting up umu launcher…" overlay until the game process actually appears.
 
+#[cfg(target_os = "linux")]
 use crate::events::{emit_game_launch_failed, emit_umu_status};
+#[cfg(target_os = "linux")]
 use crate::games::{hide_main_window, restore_main_window};
+#[cfg(target_os = "linux")]
 use crate::time_tracker::process_matches_game;
 use serde::Serialize;
+#[cfg(target_os = "linux")]
 use std::collections::VecDeque;
+#[cfg(target_os = "linux")]
 use std::fs;
+#[cfg(target_os = "linux")]
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
+#[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "linux")]
 use std::sync::{Arc, Mutex};
+#[cfg(target_os = "linux")]
 use std::thread;
+#[cfg(target_os = "linux")]
 use std::time::{Duration, Instant};
+#[cfg(target_os = "linux")]
 use sysinfo::System;
 
 /// Where a user-space install of umu-launcher lives (`$HOME/.local/share/umu-launcher`).
+#[cfg(target_os = "linux")]
 const UMU_INSTALL_DIR: &str = ".local/share/umu-launcher";
 
 /// True when the file looks like a Windows executable that needs Proton/Wine
@@ -296,6 +309,7 @@ pub(crate) async fn install_umu_launcher(
 /// Ensure `umu-run` is available, installing it (with progress events) when
 /// it is missing. Used by the sync launch commands. On failure an `umu-status`
 /// `error` event is emitted so the frontend overlay closes.
+#[cfg(target_os = "linux")]
 pub(crate) fn ensure_umu_installed(app: &tauri::AppHandle, game_title: Option<&str>) -> Result<(), String> {
   #[cfg(not(target_os = "linux"))]
   {
