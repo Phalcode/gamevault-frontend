@@ -1,0 +1,58 @@
+name: Test
+
+on:
+  pull_request:
+    branches: [develop, master]
+  workflow_call:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve API spec hash
+        id: api-spec
+        shell: bash
+        run: |
+          SPEC_FILE="$RUNNER_TEMP/api-spec.yaml"
+          curl -fsSL "${{ vars.GV_API_SPEC_URL || 'https://gamevault.alfagun74.de/api/docs-yaml' }}" -o "$SPEC_FILE"
+          echo "hash=$(sha256sum "$SPEC_FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "file=$SPEC_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Cache generated API client
+        uses: actions/cache@v6
+        with:
+          path: src/api
+          key: api-${{ steps.api-spec.outputs.hash }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install dependencies
+        env:
+          GV_API_SPEC_PATH: ${{ steps.api-spec.outputs.file }}
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+
+      - name: Run tests with coverage
+        run: pnpm test:cov
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14

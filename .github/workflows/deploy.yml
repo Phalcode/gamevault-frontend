@@ -16,7 +16,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.package-version.outputs.current-version }}
@@ -27,7 +31,7 @@ jobs:
       release_ref: ${{ steps.build-info.outputs.release_ref }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fetch Current Package Version
         id: package-version
@@ -49,16 +53,16 @@ jobs:
           echo "file=$SPEC_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Cache generated API client
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: src/api
           key: api-${{ steps.api-spec.outputs.hash }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: pnpm
@@ -67,9 +71,6 @@ jobs:
         env:
           GV_API_SPEC_PATH: ${{ steps.api-spec.outputs.file }}
         run: pnpm install --frozen-lockfile --strict-peer-dependencies
-
-      - name: Run tests with coverage
-        run: pnpm test:cov
 
       - name: Build
         env:
@@ -125,9 +126,16 @@ jobs:
         with:
           args: "<@&1128857090090340382> New Release: {{ EVENT_PAYLOAD.repository.full_name }} v${{ steps.package-version.outputs.current-version }} has been deployed. Here are the changes: https://github.com/{{ EVENT_PAYLOAD.repository.full_name }}/releases/tag/${{ steps.package-version.outputs.current-version }}"
 
+      - name: Download coverage report
+        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master'
+        uses: actions/download-artifact@v8
+        with:
+          name: coverage-report
+          path: coverage
+
       - name: SonarCloud Scan
         if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master'
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarqube-scan-action@v8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -151,7 +159,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Resolve API spec hash
         id: api-spec
@@ -163,7 +171,7 @@ jobs:
           echo "file=$SPEC_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Cache generated API client
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: src/api
           key: api-${{ steps.api-spec.outputs.hash }}
@@ -188,10 +196,10 @@ jobs:
           cache-on-failure: true
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: pnpm
@@ -294,7 +302,7 @@ jobs:
 
       - name: Upload updater metadata artifact
         if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: updater-metadata-${{ matrix.platform }}
           path: updater-metadata/${{ matrix.platform }}.json
@@ -309,7 +317,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Clean prerelease release assets
         shell: bash
@@ -331,15 +339,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
 
       - name: Download updater metadata
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: updater-metadata-*
           path: updater-metadata
