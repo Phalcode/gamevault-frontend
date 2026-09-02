@@ -5,7 +5,7 @@ on:
     branches:
       - master
       - develop
-      - early-access
+      - ea
   workflow_dispatch:
 
 permissions:
@@ -108,7 +108,7 @@ jobs:
           prerelease: true
 
       - name: Upload Frontend artifact to early-access release
-        if: github.ref == 'refs/heads/early-access'
+        if: github.ref == 'refs/heads/ea'
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
@@ -256,7 +256,7 @@ jobs:
         run: pnpm tauri build --config src-tauri/tauri.release.generated.json
 
       - name: Build Tauri early-access release
-        if: github.ref == 'refs/heads/early-access'
+        if: github.ref == 'refs/heads/ea'
         env:
           GV_TAURI_UPDATER_PUBKEY: ${{ vars.GV_TAURI_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -276,7 +276,7 @@ jobs:
         run: node scripts/patch-appimage-apprun.mjs
 
       - name: Prepare Tauri release assets
-        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access'
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/ea'
         run: node scripts/prepare-tauri-release-assets.mjs ${{ matrix.platform }} ${{ needs.release.outputs.build_version }}
 
       - name: Upload Tauri release assets
@@ -294,14 +294,14 @@ jobs:
         run: gh release upload unstable release-assets/${{ matrix.platform }}/* --clobber
 
       - name: Upload early-access Tauri release assets
-        if: github.ref == 'refs/heads/early-access'
+        if: github.ref == 'refs/heads/ea'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload early-access release-assets/${{ matrix.platform }}/* --clobber
 
       - name: Upload updater metadata artifact
-        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access'
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/ea'
         uses: actions/upload-artifact@v7
         with:
           name: updater-metadata-${{ matrix.platform }}
@@ -313,7 +313,7 @@ jobs:
     # Run even if a platform build fails or the manifest isn't published, so
     # partially uploaded prerelease assets still get cleaned up (while keeping
     # assets still referenced by the published updater feed).
-    if: ${{ !cancelled() && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access') && needs.updater-manifest.result != 'cancelled' }}
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/ea') && needs.updater-manifest.result != 'cancelled' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -334,7 +334,7 @@ jobs:
   updater-manifest:
     name: Publish updater manifest
     needs: [release, tauri]
-    if: ${{ !cancelled() && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/early-access') && needs.release.result == 'success' && needs.tauri.result == 'success' }}
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/ea') && needs.release.result == 'success' && needs.tauri.result == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -365,7 +365,7 @@ jobs:
             echo "tag=${{ needs.release.outputs.version }}" >> "$GITHUB_OUTPUT"
             echo "asset_tag=${{ needs.release.outputs.version }}" >> "$GITHUB_OUTPUT"
             echo "channels_tag=${{ needs.release.outputs.version }}" >> "$GITHUB_OUTPUT"
-          elif [ "$GITHUB_REF" = "refs/heads/early-access" ]; then
+          elif [ "$GITHUB_REF" = "refs/heads/ea" ]; then
             echo "channel=early-access" >> "$GITHUB_OUTPUT"
             echo "file=early-access.json" >> "$GITHUB_OUTPUT"
             echo "tag=early-access" >> "$GITHUB_OUTPUT"
