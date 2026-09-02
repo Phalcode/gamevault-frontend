@@ -174,6 +174,44 @@ fn make_executable(path: &Path) {
   }
 }
 
+/// Moves the contents of `src` into `dest`, preserving directory structure.
+/// Uses `rename` where possible and falls back to copy+remove when the two
+/// locations are on different filesystems (the extraction temp dir is usually
+/// `/tmp` while the install dir lives under `$HOME`).
+#[cfg(target_os = "linux")]
+fn move_contents(src: &Path, dest: &Path) -> Result<(), String> {
+  fs::create_dir_all(dest).map_err(|e| format!("Failed to create destination directory: {e}"))?;
+  let entries = fs::read_dir(src).map_err(|e| format!("Failed to read extracted directory: {e}"))?;
+  for entry in entries {
+    let entry = entry.map_err(|e| format!("Failed to read extracted entry: {e}"))?;
+    let from = entry.path();
+    let to = dest.join(entry.file_name());
+    if from.is_dir() {
+      move_contents(&from, &to)?;
+    } else if fs::rename(&from, &to).is_err() {
+      // Cross-device move: copy the file (following any symlink) and drop the
+      // original. Files are small, so this is cheap.
+      fs::copy(&from, &to).map_err(|e| format!("Failed to copy umu-launcher file: {e}"))?;
+      let _ = fs::remove_file(&from);
+    }
+  }
+  Ok(())
+}
+
+/// Clear `PYTHONHOME`/`PYTHONPATH` before running the umu-run zipapp.
+///
+/// `umu-run` is a self-contained Python zipapp launched through its
+/// `#!/usr/bin/env python3` shebang. If the caller's environment exports
+/// `PYTHONHOME` (e.g. from a conda/venv/pyenv shell), the system Python tries
+/// to load its stdlib from that path and dies at startup with
+/// "Fatal Python error: Failed to import encodings module". Removing the
+/// variable lets the zipapp use the system interpreter's own stdlib.
+#[cfg(target_os = "linux")]
+pub(crate) fn prepare_umu_run_env(command: &mut Command) {
+  command.env_remove("PYTHONHOME");
+  command.env_remove("PYTHONPATH");
+}
+
 /// Download and install umu-launcher into `$HOME/.local/share/umu-launcher`.
 /// Uses the official `*-zipapp.tar` release asset, which is a self-contained
 /// Python zipapp and needs no root privileges or build tools.
@@ -250,13 +288,23 @@ async fn install_umu_launcher_inner(app: &tauri::AppHandle, game_title: Option<&
   let tar_file = fs::File::open(&tar_path).map_err(|e| format!("Failed to open umu-launcher archive: {e}"))?;
   let mut archive = tar::Archive::new(tar_file);
   archive
-    .unpack(&install_dir)
+    .unpack(&temp_dir)
     .map_err(|e| format!("Failed to extract umu-launcher: {e}"))?;
 
   let _ = fs::remove_file(&tar_path);
+
+  // The `*-zipapp.tar` release asset wraps its files in a `umu/` directory
+  // (`umu-run` plus an `umu_run.py` symlink). Normalize it so `umu-run` sits
+  // directly in the install dir, where `find_umu_run()` looks for it. Fall
+  // back to the whole extraction if upstream ever changes the archive layout.
+  let extracted = temp_dir.join("umu");
+  let source: &Path = if extracted.is_dir() { &extracted } else { &temp_dir };
+  move_contents(source, &install_dir)?;
+
   let _ = fs::remove_dir_all(&temp_dir);
 
-  // The zipapp may land in a subdirectory; find it and restore the exec bit.
+  // The move may have dropped the exec bit (cross-device copy fallback);
+  // restore it so `find_umu_run()` accepts the file.
   if find_umu_run().is_none() {
     if let Some(found) = find_named_file(&install_dir, "umu-run") {
       make_executable(&found);
@@ -566,6 +614,7 @@ pub(crate) fn launch_with_umu(
     .unwrap_or_else(|| PathBuf::from("."));
 
   let mut command = Command::new(&umu_run);
+  prepare_umu_run_env(&mut command);
   command.arg(exe_path).current_dir(&working_dir);
 
   if let Some(value) = umu_game_id.map(str::trim).filter(|v| !v.is_empty()) {

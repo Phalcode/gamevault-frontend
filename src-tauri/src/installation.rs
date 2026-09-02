@@ -443,6 +443,7 @@ fn run_installer_via_umu(
     .unwrap_or_default();
 
   let mut command = Command::new(&umu_run);
+  crate::umu::prepare_umu_run_env(&mut command);
   if is_msi {
     command.arg("msiexec").arg("/i");
   }
@@ -817,6 +818,7 @@ fn run_uninstall_via_umu(
     .ok_or_else(|| "umu-run was not found. Unable to run Windows uninstaller on Linux.".to_string())?;
 
   let mut command = Command::new(&umu_run);
+  crate::umu::prepare_umu_run_env(&mut command);
   if is_msi {
     command.arg("msiexec").arg("/x");
   }
