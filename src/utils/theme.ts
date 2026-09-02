@@ -25,16 +25,25 @@ export function getStoredTheme(): ThemeMode {
   return "system";
 }
 
-export function applyTheme(mode: ThemeMode): void {
+/**
+ * Applies a theme mode. By default the explicit choice is persisted to
+ * localStorage. Pass `persist: false` for a temporary, visual-only switch
+ * (e.g. the login page forcing the device theme) so the user's saved
+ * preference is never erased — a reload while the login page is showing
+ * would otherwise permanently lose the chosen theme.
+ */
+export function applyTheme(mode: ThemeMode, persist = true): void {
   const isDark = resolveIsDark(mode);
   const root = document.documentElement;
   root.classList.toggle("dark", isDark);
 
   try {
-    if (mode === "system") {
-      localStorage.removeItem(STORAGE_KEY);
-    } else {
-      localStorage.setItem(STORAGE_KEY, mode === "dark" ? "true" : "false");
+    if (persist) {
+      if (mode === "system") {
+        localStorage.removeItem(STORAGE_KEY);
+      } else {
+        localStorage.setItem(STORAGE_KEY, mode === "dark" ? "true" : "false");
+      }
     }
   } catch {
     // localStorage unavailable
@@ -59,8 +68,7 @@ export function useIsDark(): boolean {
     const apply = () => setIsDark(resolveIsDark(getStoredTheme()));
     const onThemeChange = (event: Event) => {
       const detail = (event as CustomEvent).detail as
-        | { darkMode?: boolean }
-        | undefined;
+        { darkMode?: boolean } | undefined;
       if (typeof detail?.darkMode === "boolean") {
         setIsDark(detail.darkMode);
       }

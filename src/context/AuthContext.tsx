@@ -567,18 +567,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : null;
 
       try {
-        console.log("[bootstrap] trying refreshWithToken...");
-        const tokens = await refreshWithToken(storedRefresh);
+        console.log("[bootstrap] trying performRefresh...");
+        // Route the bootstrap refresh through the single-flight performRefresh
+        // so any concurrent refresh (e.g. downloads resuming at launch hitting
+        // a 401 while auth is still null) shares the SAME in-flight call. The
+        // backend rotates the refresh token on every successful refresh, so
+        // two refreshes using the same old token race: the loser gets
+        // "Invalid or expired refresh token" and is mistaken for a genuine
+        // auth failure, logging the user out on reload. performRefresh also
+        // persists the rotated token and updates the expiry.
+        await performRefresh();
         console.log("[bootstrap] refresh succeeded, fetching user...");
-        if (!tokens.access_token)
-          throw new Error("No access_token in refresh response");
-        authRef.current = tokens;
-        setAuth(tokens);
-        if (tokens.refresh_token)
-          localStorage.setItem(AUTH_REFRESH_STORAGE_KEY, tokens.refresh_token);
-        nextTokenRefreshRef.current = computeNextTokenRefresh(
-          tokens.access_token,
-        );
         const me = await fetchCurrentUser();
         setUser(me);
         if (isTauriApp()) {

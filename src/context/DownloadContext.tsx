@@ -502,7 +502,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (!isOnline || !serverUrl || !downloadGameIdsKey) return;
+    // Wait until auth exists: firing these requests while the bootstrap
+    // refresh is still in flight produces 401s that trigger a second refresh
+    // with the same (about-to-be-rotated) token and can log the user out.
+    if (!isOnline || !serverUrl || !auth?.access_token || !downloadGameIdsKey)
+      return;
 
     const gameIds = downloadGameIdsKey.split(",").map(Number);
     let cancelled = false;
@@ -550,6 +554,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [
+    auth?.access_token,
     authFetch,
     cacheInstalledGameData,
     downloadGameIdsKey,

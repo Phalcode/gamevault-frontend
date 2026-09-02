@@ -44,11 +44,13 @@ export function Login() {
   const [statusError, setStatusError] = useState(false);
   const [backendServed, setBackendServed] = useState(false);
 
-  // Force device theme on login page; restore stored preference on leave
+  // Force device theme on login page (visual only — never persisted, so a
+  // reload here can't wipe the user's saved theme); restore the stored
+  // preference on leave.
   useEffect(() => {
     const stored = getStoredTheme();
-    applyTheme("system");
-    return () => applyTheme(stored);
+    applyTheme("system", false);
+    return () => applyTheme(stored, false);
   }, []);
 
   const basicAuthAvailable =
