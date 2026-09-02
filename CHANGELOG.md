@@ -5,7 +5,6 @@
 ### Changes
 
 - Added a Refresh button to the window title bar that reloads the current page.
-- Added an "Open DevTools" button to the Developer Tools settings menu (desktop builds).
 - Auto-install on Linux now makes extracted shell scripts (`.sh`/`.bash`/`.run`/etc.) executable automatically.
 - Fixed "Open Folder" doing nothing on Linux: folder and URL opening now use the official `tauri-plugin-opener`, with WSL support preserved.
 - Added an "Open" button to each download location in Settings to open the folder in your file manager.
@@ -38,6 +37,12 @@
 - Fixed the login session not surviving an app restart and the title-bar "Refresh" button logging you out with "Session expired": the app no longer destroys a recoverable session during startup.
 - Fixed "Minimize GameVault when launching a game" showing a false "exited with an error" dialog: a game that runs and then closes cleanly (even if it prints engine warnings such as Godot's shutdown messages) is no longer reported as a failed launch. The failure alert is only shown when a game actually fails to start.
 - Fixed being unable to remove a bookmark from a game that was deleted on the server. Deleted games now keep their bookmark (so it returns if the game is restored) but are hidden from your bookmarked lists, and a failed bookmark toggle now shows an alert instead of silently doing nothing.
+- Added an "Open DevTools" button to the Developer Tools settings menu (desktop builds).
+- Fixed Windows games not launching through umu-launcher on Linux: it now installs to the correct folder and clears `PYTHONHOME`/`PYTHONPATH` before launching, so its bundled Python runs correctly.
+- Installed games are now sorted by most recently installed, and each install records its timestamp.
+- Installed games now always show their download size in the desktop build, even after the source files are cleaned up.
+- Extracted source files are now removed automatically after a successful install, and download file names are sanitized to avoid characters that are invalid on some file systems.
+- Running an installer as administrator now passes file paths literally, so installation folders containing `[`, `]`, or spaces no longer fail.
 
 ## 17.0.0
 
