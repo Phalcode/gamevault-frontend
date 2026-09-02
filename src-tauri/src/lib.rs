@@ -451,6 +451,7 @@ pub fn run() {
       taskbar::clear_taskbar_progress,
       umu::umu_status,
       umu::install_umu_launcher,
+      umu::resolve_windows_install_path,
       is_updater_enabled,
       check_for_app_update,
       download_and_install_app_update

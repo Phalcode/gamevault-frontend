@@ -226,3 +226,22 @@ pub(crate) fn emit_umu_status(
     },
   );
 }
+
+/// The exact program + arguments GameVault hands to an installer (used for
+/// debugging installer launches on Linux via umu-launcher).
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InstallerCommandEvent {
+  pub program: String,
+  pub args: Vec<String>,
+}
+
+pub(crate) fn emit_installer_command(app: &tauri::AppHandle, program: &str, args: &[String]) {
+  let _ = app.emit(
+    "installer-command",
+    InstallerCommandEvent {
+      program: program.to_string(),
+      args: args.to_vec(),
+    },
+  );
+}

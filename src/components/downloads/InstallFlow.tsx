@@ -10,6 +10,7 @@ import {
   ComputerDesktopIcon,
   PencilSquareIcon,
 } from "@heroicons/react/24/outline";
+import { useEffect, useRef, useState } from "react";
 import { formatDecimal } from "@/utils/number";
 import {
   FORCE_INSTALL_TYPES,
@@ -63,6 +64,30 @@ export function InstallFlow({
       await showAlert({ title: "Could not copy path", description: path });
     }
   };
+
+  // On Linux, Windows installers run under wine/umu where the install
+  // directory must be a Windows path (drive X: maps to $HOME). Resolve it so
+  // the user pastes a path the installer can actually use.
+  const isLinux =
+    typeof navigator !== "undefined" &&
+    navigator.userAgent.includes("Linux");
+  const [windowsInstallPath, setWindowsInstallPath] = useState("");
+  const windowsPathResolvedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isLinux || installState.mode !== "setup") return;
+    if (!download.installationDirectory || windowsPathResolvedRef.current)
+      return;
+    windowsPathResolvedRef.current = true;
+    import("@tauri-apps/api/core")
+      .then(({ invoke }) =>
+        invoke<string>("resolve_windows_install_path", {
+          installationPath: download.installationDirectory,
+        }),
+      )
+      .then(setWindowsInstallPath)
+      .catch(() => {});
+  }, [isLinux, installState.mode, download.installationDirectory]);
 
   return (
     <div className="space-y-4">
@@ -148,25 +173,60 @@ export function InstallFlow({
           </ol>
 
           <div className="surface-panel-soft rounded-xl p-3">
-            <div className="flex items-center justify-between gap-3">
-              <p
-                className="min-w-0 flex-1 truncate font-mono text-xs text-gv-muted"
-                title={download.installationDirectory}
-              >
-                {download.installationDirectory ||
-                  "No installation path available"}
-              </p>
-              <Button
-                color="zinc"
-                onClick={() =>
-                  void handleCopyInstallPath(download.installationDirectory)
-                }
-                disabled={!download.installationDirectory}
-              >
-                <ClipboardDocumentIcon className="h-4 w-4" aria-hidden="true" />
-                Copy Path
-              </Button>
-            </div>
+            {windowsInstallPath ? (
+              <div className="space-y-2">
+                <p className="text-xs text-gv-muted">
+                  Enter this path in the installer:
+                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <p
+                    className="min-w-0 flex-1 truncate font-mono text-sm text-gv-text"
+                    title={windowsInstallPath}
+                  >
+                    {windowsInstallPath}
+                  </p>
+                  <Button
+                    color="indigo"
+                    onClick={() => void handleCopyInstallPath(windowsInstallPath)}
+                  >
+                    <ClipboardDocumentIcon
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    />
+                    Copy Path
+                  </Button>
+                </div>
+                <p
+                  className="truncate font-mono text-xs text-gv-muted"
+                  title={download.installationDirectory}
+                >
+                  On disk: {download.installationDirectory}
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <p
+                  className="min-w-0 flex-1 truncate font-mono text-xs text-gv-muted"
+                  title={download.installationDirectory}
+                >
+                  {download.installationDirectory ||
+                    "No installation path available"}
+                </p>
+                <Button
+                  color="zinc"
+                  onClick={() =>
+                    void handleCopyInstallPath(download.installationDirectory)
+                  }
+                  disabled={!download.installationDirectory}
+                >
+                  <ClipboardDocumentIcon
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                  />
+                  Copy Path
+                </Button>
+              </div>
+            )}
           </div>
 
           {installState.installerLoadError && (

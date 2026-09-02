@@ -299,6 +299,26 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [clearSimulatedTimer],
   );
 
+  // Forward the exact installer command the backend launches into the web
+  // console for debugging (e.g. umu-launcher installs on Linux).
+  useEffect(() => {
+    if (!isTauriApp()) return;
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        unlisten = await listen<any>("installer-command", (event) => {
+          console.log("[installer-command]", event.payload);
+        });
+      } catch {
+        // Non-Tauri environments won't have the IPC bridge; ignore.
+      }
+    })();
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
   const simulateDownload = useCallback(
     (kind: SimulatedDownloadKind) => {
       const gameId = -Math.floor(performance.now());

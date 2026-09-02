@@ -351,6 +351,35 @@ fn installation_directory_populated(path: &Path) -> bool {
     .unwrap_or(false)
 }
 
+/// Splits an installer parameter string on whitespace while keeping double-
+/// quoted spans (e.g. `/DIR="path with spaces"`) as single tokens, so paths
+/// substituted via `%INSTALLDIR%` survive as one argument. Quote characters
+/// are dropped: wine quotes spaced arguments itself when it rebuilds the
+/// Windows command line, and leftover embedded quotes would otherwise be
+/// escaped (`\"`) and misparsed by the installer.
+fn split_installer_params(params: &str) -> Vec<String> {
+  let mut tokens = Vec::new();
+  let mut current = String::new();
+  let mut in_quotes = false;
+  for c in params.chars() {
+    match c {
+      '"' => {
+        in_quotes = !in_quotes;
+      }
+      c if c.is_whitespace() && !in_quotes => {
+        if !current.is_empty() {
+          tokens.push(std::mem::take(&mut current));
+        }
+      }
+      c => current.push(c),
+    }
+  }
+  if !current.is_empty() {
+    tokens.push(current);
+  }
+  tokens
+}
+
 /// Polls the installation directory for `INSTALLER_VERIFY_GRACE`, returning
 /// true as soon as it is populated (or immediately if it already is).
 fn wait_for_installation_populated(path: &Path) -> bool {
@@ -415,15 +444,34 @@ fn run_installer_via_umu(
   }
   command.arg(installer_path).current_dir(&working_dir);
 
+  let mut installer_args: Vec<String> = Vec::new();
+  if is_msi {
+    installer_args.push("msiexec".to_string());
+    installer_args.push("/i".to_string());
+  }
+  installer_args.push(installer_path.display().to_string());
+
   if let Some(parameters) = installer_parameters {
-    let parameters = parameters.replace("%INSTALLDIR%", installation_path_resolved);
+    // The installer runs inside wine, so any install directory it receives
+    // must be a Windows path (umu maps $HOME to X:, / to Z:), not the raw
+    // Linux path.
+    let windows_install_dir = crate::umu::to_windows_install_path(installation_path_resolved);
+    let parameters = parameters.replace("%INSTALLDIR%", &windows_install_dir);
     let parameters = parameters.trim();
     if !parameters.is_empty() {
-      for arg in parameters.split_whitespace() {
-        command.arg(arg);
+      // Split on whitespace but keep double-quoted spans (e.g.
+      // `/DIR="path with spaces"`) as single arguments so the substituted
+      // install directory survives intact.
+      for arg in split_installer_params(parameters) {
+        command.arg(arg.clone());
+        installer_args.push(arg);
       }
     }
   }
+
+  // Surface the exact command in the web console + terminal for debugging.
+  crate::events::emit_installer_command(&app, &umu_run.to_string_lossy(), &installer_args);
+  println!("GV_INSTALLER: {} {:?}", umu_run.display(), installer_args);
 
   command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
@@ -528,9 +576,16 @@ pub(crate) fn launch_installation_executable(
   installer_parameters: Option<String>,
 ) -> Result<(), String> {
   let extraction_root = PathBuf::from(extraction_path);
-  let installer_path = extraction_root.join(installer_relative_path.replace('/', "\\"));
+  // Candidate paths are normalized to forward slashes; convert back to the
+  // platform separator so nested installers resolve on every OS (a literal
+  // backslash only works as a separator on Windows).
+  let installer_path = extraction_root
+    .join(installer_relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
   if !installer_path.exists() || !installer_path.is_file() {
-    return Err("Selected installer does not exist".to_string());
+    return Err(format!(
+      "Selected installer does not exist: {}",
+      installer_path.display()
+    ));
   }
 
   let installation_path_resolved = installation_path.clone();
@@ -732,8 +787,57 @@ pub(crate) fn launch_installation_executable(
   Ok(())
 }
 
+/// Runs a Windows uninstaller through `umu-run` on Linux (auto-installing
+/// umu-launcher when missing). Mirrors the native wait + exit-code semantics.
+#[cfg(target_os = "linux")]
+fn run_uninstall_via_umu(
+  app: tauri::AppHandle,
+  executable: &Path,
+  working_directory: Option<&str>,
+  arguments: Option<String>,
+  is_msi: bool,
+) -> Result<Option<i32>, String> {
+  if let Err(error) = crate::umu::ensure_umu_installed(&app, None) {
+    return Err(error);
+  }
+  let umu_run = crate::umu::find_umu_run()
+    .ok_or_else(|| "umu-run was not found. Unable to run Windows uninstaller on Linux.".to_string())?;
+
+  let mut command = Command::new(&umu_run);
+  if is_msi {
+    command.arg("msiexec").arg("/x");
+  }
+  command.arg(executable);
+  if let Some(directory) = working_directory.filter(|value| !value.trim().is_empty()) {
+    command.current_dir(directory);
+  }
+  if let Some(arguments) = arguments.filter(|value| !value.trim().is_empty()) {
+    for arg in split_installer_params(arguments.trim()) {
+      command.arg(arg);
+    }
+  }
+
+  let mut child = command
+    .spawn()
+    .map_err(|error| format!("Failed to start uninstall executable: {error}"))?;
+  let status = child
+    .wait()
+    .map_err(|error| format!("Failed while waiting for uninstall executable: {error}"))?;
+  let exit_code = status.code();
+  if status.success() {
+    Ok(exit_code)
+  } else {
+    Err(format!(
+      "Uninstall executable exited with code {}.",
+      exit_code.unwrap_or(-1)
+    ))
+  }
+}
+
 #[tauri::command]
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
 pub(crate) fn launch_uninstall_executable(
+  app: tauri::AppHandle,
   executable_path: String,
   working_directory: Option<String>,
   argument_list: Option<String>,
@@ -748,6 +852,18 @@ pub(crate) fn launch_uninstall_executable(
     .and_then(|value| value.to_str())
     .map(|value| value.eq_ignore_ascii_case("msi"))
     .unwrap_or(false);
+
+  // On Linux, Windows uninstallers run through umu-launcher (Proton/Wine).
+  #[cfg(target_os = "linux")]
+  if crate::umu::is_windows_executable(&executable) {
+    return run_uninstall_via_umu(
+      app,
+      &executable,
+      working_directory.as_deref(),
+      argument_list,
+      is_msi,
+    );
+  }
 
   let mut command = if is_msi {
     let mut cmd = Command::new("msiexec");
@@ -825,5 +941,36 @@ pub(crate) fn launch_uninstall_executable(
       }
     }
     Err(error) => Err(format!("Failed while waiting for uninstall executable: {error}")),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::split_installer_params;
+
+  #[test]
+  fn keeps_quoted_paths_as_single_tokens() {
+    // Quotes are dropped (wine re-quotes spaced args itself); each /DIR path
+    // stays one token.
+    assert_eq!(
+      split_installer_params(
+        "/D=\"X:\\Games\\GameVault\\ReStory - Chill Electronics Repairs\\Installation\" /S /DIR=\"X:\\Games\\GameVault\\ReStory - Chill Electronics Repairs\\Installation\" /SILENT /COMPONENTS=text"
+      ),
+      vec![
+        "/D=X:\\Games\\GameVault\\ReStory - Chill Electronics Repairs\\Installation",
+        "/S",
+        "/DIR=X:\\Games\\GameVault\\ReStory - Chill Electronics Repairs\\Installation",
+        "/SILENT",
+        "/COMPONENTS=text",
+      ]
+    );
+  }
+
+  #[test]
+  fn splits_unquoted_parameters() {
+    assert_eq!(
+      split_installer_params("/S /D=C:\\Games\\foo.exe"),
+      vec!["/S", "/D=C:\\Games\\foo.exe"]
+    );
   }
 }

@@ -317,6 +317,51 @@ pub(crate) fn ensure_umu_installed(app: &tauri::AppHandle, game_title: Option<&s
   }
 }
 
+// ── Host → Windows path conversion ──────────────────────────────────────────
+
+/// Converts a host path into the Windows path umu/wine exposes it as: umu maps
+/// `$HOME` to drive `X:` (the root `/` is `Z:`). Every `/` becomes `\`.
+#[cfg(target_os = "linux")]
+fn to_windows_install_path_with_home(host_path: &str, home: Option<&Path>) -> String {
+  let host_path = host_path.trim_end_matches(['/', '\\']);
+  if let Some(home) = home {
+    let home = home.to_string_lossy().trim_end_matches('/').to_string();
+    if let Some(rest) = host_path.strip_prefix(&format!("{home}/")) {
+      let rest = rest.trim_start_matches('/');
+      return if rest.is_empty() {
+        "X:\\".to_string()
+      } else {
+        format!("X:\\{}", rest.replace('/', "\\"))
+      };
+    }
+  }
+  let rest = host_path.trim_start_matches('/');
+  if rest.is_empty() {
+    "Z:\\".to_string()
+  } else {
+    format!("Z:\\{}", rest.replace('/', "\\"))
+  }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn to_windows_install_path(host_path: &str) -> String {
+  to_windows_install_path_with_home(host_path, home_dir().as_deref())
+}
+
+/// Returns the umu/Wine-visible path for an install directory (drive `X:` for
+/// paths under `$HOME`, `Z:` otherwise). Non-Linux returns the input unchanged.
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub(crate) fn resolve_windows_install_path(installation_path: String) -> String {
+  to_windows_install_path(&installation_path)
+}
+
+#[cfg(not(target_os = "linux"))]
+#[tauri::command]
+pub(crate) fn resolve_windows_install_path(installation_path: String) -> String {
+  installation_path
+}
+
 // ── Streaming umu-run output ────────────────────────────────────────────────
 
 /// Shared state handed back after spawning the stdout/stderr reader threads.
@@ -595,5 +640,37 @@ mod tests {
     assert!(!is_windows_executable(Path::new("game/run.sh")));
     assert!(!is_windows_executable(Path::new("game/run")));
     assert!(!is_windows_executable(Path::new("game/run.appimage")));
+  }
+
+  #[cfg(target_os = "linux")]
+  #[test]
+  fn maps_home_paths_to_x_drive() {
+    let home = Path::new("/home/yelo");
+    assert_eq!(
+      to_windows_install_path_with_home(
+        "/home/yelo/Games/GameVault/ReStory - Chill Electronics Repairs/Versions/Unspecified/Installation",
+        Some(home),
+      ),
+      "X:\\Games\\GameVault\\ReStory - Chill Electronics Repairs\\Versions\\Unspecified\\Installation"
+    );
+    assert_eq!(
+      to_windows_install_path_with_home("/home/yelo/foo/bar.exe", Some(home)),
+      "X:\\foo\\bar.exe"
+    );
+  }
+
+  #[cfg(target_os = "linux")]
+  #[test]
+  fn maps_other_paths_to_z_drive() {
+    let home = Path::new("/home/yelo");
+    assert_eq!(
+      to_windows_install_path_with_home("/media/data/game/Setup.exe", Some(home)),
+      "Z:\\media\\data\\game\\Setup.exe"
+    );
+    // A different user's home is not drive X:.
+    assert_eq!(
+      to_windows_install_path_with_home("/home/other/game/Setup.exe", Some(home)),
+      "Z:\\home\\other\\game\\Setup.exe"
+    );
   }
 }
