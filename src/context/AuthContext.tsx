@@ -10,11 +10,16 @@ import {
 import { GamevaultUser } from "../api";
 import { AuthTokens } from "../types/AuthTokens";
 import {
-  AUTH_REFRESH_STORAGE_KEY,
   AUTH_SERVER_STORAGE_KEY,
   getDevAutologinConfig,
   normalizeServerUrl,
 } from "@/utils/authConfig";
+import {
+  getRefreshToken,
+  initTokenStorage,
+  removeRefreshToken,
+  setRefreshToken,
+} from "@/utils/tokenStorage";
 import { isTauriApp } from "@/utils/tauri";
 import { useOnlineStatus } from "@/context/OfflineContext";
 
@@ -143,6 +148,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const offlineModeRef = useRef(false);
   /** Cooldown timestamp (ms) — skip refresh retries until after this time */
   const offlineRefreshCooldownRef = useRef(0);
+  /** True while the initial bootstrap is still deciding session state. */
+  const bootstrapInProgressRef = useRef(true);
 
   const { onReconnect } = useOnlineStatus();
 
@@ -215,9 +222,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (refreshInFlightRef.current) return refreshInFlightRef.current;
 
     const promise = (async () => {
+      // Ensure the cached refresh token is populated so concurrent 401
+      // handlers sharing this in-flight refresh never read an empty cache.
+      await initTokenStorage();
       const refreshToken =
-        authRef.current?.refresh_token ||
-        localStorage.getItem(AUTH_REFRESH_STORAGE_KEY);
+        authRef.current?.refresh_token || getRefreshToken();
       if (!refreshToken) throw new Error("Missing refresh token");
       const data = await refreshWithToken(refreshToken);
       if (!data?.access_token)
@@ -225,8 +234,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const merged: AuthTokens = { ...(authRef.current || {}), ...data };
       authRef.current = merged;
       setAuth(merged);
-      if (merged.refresh_token)
-        localStorage.setItem(AUTH_REFRESH_STORAGE_KEY, merged.refresh_token);
+      if (merged.refresh_token) await setRefreshToken(merged.refresh_token);
       nextTokenRefreshRef.current = computeNextTokenRefresh(
         merged.access_token,
       );
@@ -252,7 +260,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * to "/". We also record a user-facing message so the login page can
    * explain what happened.
    */
-  const handleSessionExpired = useCallback(() => {
+  const handleSessionExpired = useCallback(async () => {
+    // During the initial bootstrap the AuthProvider owns the session lifecycle.
+    // A concurrent request must not tear down the session (and erase the
+    // refresh token) while the bootstrap is still deciding whether the session
+    // is recoverable — e.g. on a transient network blip, or a token that was
+    // rotated between checks. The bootstrap itself handles genuine auth errors.
+    if (bootstrapInProgressRef.current) {
+      console.log(
+        "[auth] handleSessionExpired suppressed during bootstrap",
+      );
+      return;
+    }
     console.log(
       "[auth] session expired — clearing auth and redirecting to login",
     );
@@ -262,7 +281,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     nextTokenRefreshRef.current = null;
     setAuth(null);
     setUser(null);
-    localStorage.removeItem(AUTH_REFRESH_STORAGE_KEY);
+    await removeRefreshToken();
     localStorage.removeItem(AUTH_CACHED_USER_KEY);
     setError("Your session has expired. Please log in again.");
   }, []);
@@ -311,14 +330,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
       // If Tauri + stored creds exist, fall back to offline mode on any
       // failure (the reconnect handler will re-authenticate later).
-      if (isTauriApp() && localStorage.getItem(AUTH_REFRESH_STORAGE_KEY)) {
+      if (isTauriApp() && getRefreshToken()) {
         console.log("[auth] network failure, re-entering offline mode");
         offlineModeRef.current = true;
         offlineRefreshCooldownRef.current = Date.now() + 30_000;
       } else if (isAuthError(e)) {
         // Genuine auth failure — the refresh token was rejected. The
         // session is no longer valid, so send the user to the login screen.
-        handleSessionExpired();
+        await handleSessionExpired();
       } else {
         // Transient network error. Keep the session intact and back off so
         // we don't hammer the endpoint while the server is unreachable.
@@ -365,13 +384,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Refresh failed while handling the 401. Only force a logout for a
           // genuine auth error — a transient network problem should not
           // destroy a still-valid session.
-          if (isAuthError(e)) handleSessionExpired();
+          if (isAuthError(e)) await handleSessionExpired();
           return res;
         }
         if (res.status === 401) {
           // Even after a successful refresh the request was rejected, so the
           // session is genuinely invalid — send the user to login.
-          handleSessionExpired();
+          await handleSessionExpired();
         }
       }
 
@@ -398,10 +417,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         authRef.current = authData;
         setAuth(authData);
         if (authData.refresh_token)
-          localStorage.setItem(
-            AUTH_REFRESH_STORAGE_KEY,
-            authData.refresh_token,
-          );
+          await setRefreshToken(authData.refresh_token);
         nextTokenRefreshRef.current = authData.access_token
           ? computeNextTokenRefresh(authData.access_token)
           : new Date();
@@ -421,6 +437,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw e;
       } finally {
         setLoading(false);
+        bootstrapInProgressRef.current = false;
         setBootstrapping(false);
       }
     },
@@ -443,7 +460,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         authRef.current = tokens;
         setAuth(tokens);
         if (tokens.refresh_token)
-          localStorage.setItem(AUTH_REFRESH_STORAGE_KEY, tokens.refresh_token);
+          await setRefreshToken(tokens.refresh_token);
         nextTokenRefreshRef.current = computeNextTokenRefresh(
           tokens.access_token,
         );
@@ -463,6 +480,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw e;
       } finally {
         setLoading(false);
+        bootstrapInProgressRef.current = false;
         setBootstrapping(false);
       }
     },
@@ -475,7 +493,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     bootstrapRanRef.current = true;
 
     (async () => {
-      const storedRefresh = localStorage.getItem(AUTH_REFRESH_STORAGE_KEY);
+      await initTokenStorage();
+      const storedRefresh = getRefreshToken();
       const storedServer = localStorage.getItem(AUTH_SERVER_STORAGE_KEY);
       console.log(
         "[bootstrap] storedRefresh:",
@@ -488,6 +507,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!storedRefresh || !storedServer) {
         const devAutologin = getDevAutologinConfig();
         if (!devAutologin) {
+          bootstrapInProgressRef.current = false;
           setBootstrapping(false);
           return;
         }
@@ -508,10 +528,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           authRef.current = tokens;
           setAuth(tokens);
           if (tokens.refresh_token) {
-            localStorage.setItem(
-              AUTH_REFRESH_STORAGE_KEY,
-              tokens.refresh_token,
-            );
+            await setRefreshToken(tokens.refresh_token);
           }
           nextTokenRefreshRef.current = computeNextTokenRefresh(
             tokens.access_token,
@@ -523,10 +540,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setAuth(null);
           setUser(null);
           nextTokenRefreshRef.current = null;
-          localStorage.removeItem(AUTH_REFRESH_STORAGE_KEY);
+          await removeRefreshToken();
           setError(e instanceof Error ? e.message : "Dev autologin failed.");
         } finally {
           setLoading(false);
+          bootstrapInProgressRef.current = false;
           setBootstrapping(false);
         }
         return;
@@ -562,6 +580,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 /* ignore */
               }
             }
+            bootstrapInProgressRef.current = false;
             setBootstrapping(false);
           }, 15_000)
         : null;
@@ -637,7 +656,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log(
             "[bootstrap] refresh rejected (auth error), clearing session",
           );
-          localStorage.removeItem(AUTH_REFRESH_STORAGE_KEY);
+          await removeRefreshToken();
           authRef.current = null;
           setAuth(null);
         } else {
@@ -661,6 +680,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           "offlineBootstrap:",
           offlineBootstrap,
         );
+        bootstrapInProgressRef.current = false;
         setBootstrapping(false);
       }
     })();
@@ -675,7 +695,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Route through performRefresh so any concurrent 401-triggered refresh
       // shares the same in-flight call and we don't race the token rotation.
       // performRefresh also clears offlineModeRef on success.
-      const storedRefresh = localStorage.getItem(AUTH_REFRESH_STORAGE_KEY);
+      const storedRefresh = getRefreshToken();
       if (!storedRefresh) return;
 
       try {
@@ -695,14 +715,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unregister;
   }, [onReconnect, performRefresh]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     offlineModeRef.current = false;
     authRef.current = null;
     nextTokenRefreshRef.current = null;
     setAuth(null);
     setUser(null);
     setError(null);
-    localStorage.removeItem(AUTH_REFRESH_STORAGE_KEY);
+    await removeRefreshToken();
   }, []);
 
   const refreshCurrentUser = useCallback(async () => {

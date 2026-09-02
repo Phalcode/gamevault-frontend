@@ -13,6 +13,11 @@ pub(crate) struct AppSettings {
   pub ignored_executables: Vec<String>,
   #[serde(default)]
   pub ignore_list_initialized: bool,
+  /// Base directory for Wine/Proton prefixes. When set, GameVault creates an
+  /// isolated `<base>/<slug>` prefix per game/installer so the OS root drive
+  /// stays clean. Empty/None falls back to umu's built-in default location.
+  #[serde(default)]
+  pub default_wine_prefix: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -101,5 +106,23 @@ pub(crate) fn set_ignore_list(app: tauri::AppHandle, ignored: Vec<String>) -> Re
 
   settings.ignored_executables = clean;
   settings.ignore_list_initialized = true;
+  save_settings(&app, &settings)
+}
+
+#[tauri::command]
+pub(crate) fn get_default_wine_prefix(app: tauri::AppHandle) -> Option<String> {
+  load_settings(&app).default_wine_prefix
+}
+
+#[tauri::command]
+pub(crate) fn set_default_wine_prefix(
+  app: tauri::AppHandle,
+  prefix: Option<String>,
+) -> Result<(), String> {
+  let mut settings = load_settings(&app);
+  let trimmed = prefix
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty());
+  settings.default_wine_prefix = trimmed;
   save_settings(&app, &settings)
 }

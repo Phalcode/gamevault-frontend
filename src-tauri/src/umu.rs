@@ -478,6 +478,51 @@ pub(crate) fn detect_process_running(exe_path: &Path) -> bool {
 
 // ── Launching through umu-run ───────────────────────────────────────────────
 
+/// Converts a game title/identifier into a filesystem-safe slug for use as a
+/// per-game prefix subfolder (uppercase/lowercase preserved but unsafe chars
+/// replaced). Falls back to a deterministic placeholder when nothing is left.
+#[cfg(target_os = "linux")]
+pub(crate) fn slugify_prefix_name(name: &str) -> String {
+  let mut slug: String = name
+    .chars()
+    .map(|c| {
+      if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' {
+        c
+      } else {
+        '-'
+      }
+    })
+    .collect();
+  slug = slug.trim_matches('-').to_string();
+  if slug.is_empty() {
+    "game-prefix".to_string()
+  } else {
+    slug
+  }
+}
+
+/// Resolves the `WINEPREFIX` for a launch. A per-game override (from the game
+/// settings dialog) always wins; otherwise, when a global default base
+/// directory is configured, an isolated `<base>/<slug>` prefix is used so
+/// games never share a prefix. Returns `None` to fall back to umu's default.
+#[cfg(target_os = "linux")]
+pub(crate) fn resolve_wine_prefix(
+  app: &tauri::AppHandle,
+  per_game_prefix: Option<&str>,
+  identifier: &str,
+) -> Option<String> {
+  if let Some(value) = per_game_prefix.map(str::trim).filter(|v| !v.is_empty()) {
+    return Some(value.to_string());
+  }
+  let base = crate::settings::load_settings(app).default_wine_prefix;
+  if let Some(base) = base.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+    let slug = slugify_prefix_name(identifier);
+    let merged = Path::new(&base).join(&slug);
+    return Some(merged.to_string_lossy().to_string());
+  }
+  None
+}
+
 /// Spawn `umu-run <exe> [args]` and hand the child to the umu launch monitor.
 /// Optional umu environment overrides (GAMEID/STORE/PROTONPATH/WINEPREFIX) are
 /// forwarded when set; empty values are ignored so umu's defaults apply.
@@ -518,8 +563,8 @@ pub(crate) fn launch_with_umu(
   if let Some(value) = umu_proton_path.map(str::trim).filter(|v| !v.is_empty()) {
     command.env("PROTONPATH", value);
   }
-  if let Some(value) = umu_wine_prefix.map(str::trim).filter(|v| !v.is_empty()) {
-    command.env("WINEPREFIX", value);
+  if let Some(prefix) = resolve_wine_prefix(&app, umu_wine_prefix, &game_title) {
+    command.env("WINEPREFIX", &prefix);
   }
 
   if let Some(params) = launch_parameters {

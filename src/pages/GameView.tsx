@@ -308,10 +308,23 @@ export default function GameView() {
       if (!res.ok) throw new Error("Bookmark toggle failed");
     } catch {
       setBookmarked(!next);
+      showAlert({
+        title: "Couldn't update bookmark",
+        description:
+          "The bookmark couldn't be updated. The game may no longer exist on the server.",
+      });
     } finally {
       setBookmarkBusy(false);
     }
-  }, [serverUrl, game, currentUserId, bookmarked, authFetch, bookmarkBusy]);
+  }, [
+    serverUrl,
+    game,
+    currentUserId,
+    bookmarked,
+    authFetch,
+    bookmarkBusy,
+    showAlert,
+  ]);
 
   const handleShare = useCallback(() => {
     try {

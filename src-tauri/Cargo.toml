@@ -33,6 +33,8 @@ tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-opener = "2"
 sevenz-rust2 = { version = "0.20.2", features = ["aes256"] }
+tauri-plugin-stronghold = "2"
+getrandom = "0.2"
 reqwest = { version = "0.12.23", default-features = false, features = ["rustls-tls", "stream"] }
 tokio = { version = "1.48.0", features = ["fs", "io-util", "time", "sync", "macros"] }
 futures-util = "0.3.31"
@@ -50,3 +52,8 @@ iso9660_simple = "0.2.7"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["fileapi", "shellapi", "winnt", "winuser", "synchapi", "handleapi", "winbase", "winerror", "processthreadsapi"] }
+
+# Recommended by the tauri-plugin-stronghold docs to work around an upstream
+# scrypt performance bug in dev builds.
+[profile.dev.package.scrypt]
+opt-level = 3

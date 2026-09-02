@@ -290,6 +290,14 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     keywords: ["ignore", "hidden", "executables", "skip", "setup"],
     desktopOnly: true,
   },
+  {
+    id: "games-wine-prefix",
+    title: "Wine/Proton Prefix Directory",
+    description: "Base folder for isolated per-game Wine/Proton prefixes",
+    category: "games",
+    keywords: ["wine", "proton", "prefix", "umu", "linux", "directory", "folder"],
+    desktopOnly: true,
+  },
   // Privacy
   {
     id: "privacy-analytics",
@@ -637,6 +645,7 @@ export default function Settings() {
   const isTauri = isTauriApp();
   const systemInfo = collectSystemInfo(isTauri);
   const { ignoreList, setIgnoreList } = useIgnoreList();
+  const [winePrefixBase, setWinePrefixBase] = useState<string | null>(null);
   const { forceOffline, setForceOffline } = useOnlineStatus();
   const { showAlert } = useAlertDialog();
   const {
@@ -772,6 +781,24 @@ export default function Settings() {
       } catch (e) {
         console.error("Failed to check autostart status:", e);
         if (!cancelled) setAutostartEnabled(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTauri]);
+
+  // Load the Wine/Proton prefix base directory from the Rust backend config.
+  useEffect(() => {
+    if (!isTauri) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const value = await invoke<string | null>("get_default_wine_prefix");
+        if (!cancelled) setWinePrefixBase(value ?? null);
+      } catch (e) {
+        console.error("Failed to load default Wine prefix:", e);
       }
     })();
     return () => {
@@ -973,6 +1000,39 @@ export default function Settings() {
 
   const handleRemoveIgnore = async (name: string) => {
     await setIgnoreList(ignoreList.filter((existing) => existing !== name));
+  };
+
+  const persistWinePrefix = async (value: string | null) => {
+    if (!isTauri) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_default_wine_prefix", { prefix: value });
+    } catch (e) {
+      console.error("Failed to save default Wine prefix:", e);
+    }
+  };
+
+  const handleSelectWinePrefix = async () => {
+    if (!isTauri) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Wine/Proton Prefix Directory",
+      });
+      if (selected && typeof selected === "string") {
+        setWinePrefixBase(selected);
+        await persistWinePrefix(selected);
+      }
+    } catch (error) {
+      console.error("Error selecting Wine prefix directory:", error);
+    }
+  };
+
+  const handleClearWinePrefix = async () => {
+    setWinePrefixBase(null);
+    await persistWinePrefix(null);
   };
 
   const handleClearImageCache = async () => {
@@ -1734,6 +1794,44 @@ export default function Settings() {
                           </Button>
                         </div>
                       </SettingsRow>
+                    </SettingsGroup>
+
+                    <SettingsGroup
+                      id="setting-games-wine-prefix"
+                      className={rowHighlight("games-wine-prefix")}
+                      caption="Wine / Proton"
+                      description="Where umu-launcher stores Wine/Proton prefixes for Windows games. Each game gets its own isolated subfolder, so the OS root drive stays clean."
+                    >
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Prefix Base Directory"
+                          description="GameVault creates a separate prefix subfolder per game inside this folder. Leave empty to use umu's default location."
+                        />
+                        <Button
+                          outline
+                          onClick={() => void handleSelectWinePrefix()}
+                        >
+                          <FolderOpenIcon className="size-4" />
+                          Choose folder
+                        </Button>
+                      </SettingsRow>
+                      {winePrefixBase && (
+                        <SettingsRow>
+                          <div className="flex min-w-0 flex-1 items-center gap-2">
+                            <span className="min-w-0 flex-1 truncate text-sm text-gv-muted">
+                              {winePrefixBase}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void handleClearWinePrefix()}
+                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                              aria-label="Clear Wine/Proton prefix directory"
+                            >
+                              <XMarkIcon className="size-4" />
+                            </button>
+                          </div>
+                        </SettingsRow>
+                      )}
                     </SettingsGroup>
                   </>
                 )}

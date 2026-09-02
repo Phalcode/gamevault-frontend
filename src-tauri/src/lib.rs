@@ -9,6 +9,7 @@ mod fs_commands;
 mod time_tracker;
 mod cache;
 mod settings;
+mod secure_store;
 mod net;
 mod youtube;
 mod taskbar;
@@ -309,6 +310,18 @@ pub fn run() {
       // working in packaged builds (tauri-apps/tauri#14422).
       youtube::start_embed_server();
 
+      // Stronghold: the official Tauri secret-store plugin. It keeps secrets
+      // (the auth refresh token) encrypted at rest in a vault that works on
+      // Windows, macOS and Linux. The salt file lives in the app data dir.
+      let salt_path = app
+        .path()
+        .app_local_data_dir()
+        .expect("could not resolve app local data path")
+        .join("salt.txt");
+      app.handle().plugin(
+        tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build(),
+      )?;
+
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -447,6 +460,9 @@ pub fn run() {
       settings::set_minimize_on_game_launch,
       settings::get_ignore_list,
       settings::set_ignore_list,
+      settings::get_default_wine_prefix,
+      settings::set_default_wine_prefix,
+      secure_store::get_or_create_vault_password,
       taskbar::set_taskbar_progress,
       taskbar::clear_taskbar_progress,
       umu::umu_status,

@@ -26,11 +26,17 @@
 - Windows executables on Linux can now run through umu-launcher: GameVault automatically installs umu-launcher, launches the game through it (showing a setup overlay while UMU-Proton and the Steam runtime download), and tracks playtime.
 - Added optional per-game umu-launcher overrides in the game settings (umu-database ID, store, Proton path, and Wine prefix).
 - Improved the widescreen layout so library content sits flush against the sidebar instead of being awkwardly re-centered on large monitors.
+
+---
+
 - Debounced the library game search so the server is no longer hit on every keystroke.
 - Pressing Escape now exits a drilled-in Settings category back to the settings list, and returns from a game page to the library. Open dialogs/popovers and inline editors keep handling Escape first.
 - Renamed the unnamed-version placeholder from "Unknown Version" to "Unspecified". Existing installs that still use the old folder name continue to work (both the old and new names are supported, with no on-disk folder rename).
 - Fixed regional date formatting: dates now follow the locale the computer uses (e.g. `dd.mm.yyyy` for German) everywhere instead of a fixed `en-US` format, keeping release dates, filters and "last played" timestamps consistent. Date-only values are parsed as local dates so they no longer shift a day/year in timezones west of UTC, and the "Last Played" box keeps its compact two-line layout.
 - Numbers are now formatted with the locale's decimal and thousands separators (e.g. `1,5 GB` for German instead of `1.5 GB`), covering file sizes, download speeds/limits, playtime and progress percentages.
+- Fixed the login session not surviving an app restart and the title-bar "Refresh" button logging you out with "Session expired": the app no longer destroys a recoverable session during startup.
+- Fixed "Minimize GameVault when launching a game" showing a false "exited with an error" dialog: a game that runs and then closes cleanly (even if it prints engine warnings such as Godot's shutdown messages) is no longer reported as a failed launch. The failure alert is only shown when a game actually fails to start.
+- Fixed being unable to remove a bookmark from a game that was deleted on the server. Deleted games now keep their bookmark (so it returns if the game is restored) but are hidden from your bookmarked lists, and a failed bookmark toggle now shows an alert instead of silently doing nothing.
 
 ## 17.0.0
 

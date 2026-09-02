@@ -444,6 +444,15 @@ fn run_installer_via_umu(
   }
   command.arg(installer_path).current_dir(&working_dir);
 
+  // Use an isolated per-game Wine prefix. There is no per-game override on the
+  // installer path, so this resolves to `<default_base>/<game_id>` whenever a
+  // global default base directory is configured (otherwise umu's default).
+  if let Some(prefix) =
+    crate::umu::resolve_wine_prefix(&app, None, &format!("game-{}", game_id))
+  {
+    command.env("WINEPREFIX", &prefix);
+  }
+
   let mut installer_args: Vec<String> = Vec::new();
   if is_msi {
     installer_args.push("msiexec".to_string());

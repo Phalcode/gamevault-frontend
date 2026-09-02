@@ -823,16 +823,18 @@ fn spawn_launch_monitor(
     }
 
     let start = Instant::now();
+    let mut launched_running = false;
 
     let status = loop {
       match child.try_wait() {
         Ok(Some(status)) => break status,
         Ok(None) => {
           if start.elapsed() >= grace {
-            // Still running after the grace window — treat the launch as
-            // successful. If we are restoring on exit, keep watching until
-            // the process actually quits so we can bring the window back;
+            // Still running after the grace window — the launch succeeded and
+            // the game actually ran. If we are restoring on exit, keep watching
+            // until the process quits so we can bring the window back;
             // otherwise stop watching (the process is already detached).
+            launched_running = true;
             if !restore_on_exit {
               clean_up_launch_logs(&out_path, &err_path);
               return;
@@ -859,10 +861,12 @@ fn spawn_launch_monitor(
     // the user is never left with a hidden gamevault window.
     restore_main_window(&app);
 
-    // An immediate exit with console output (or a non-zero exit code) almost
-    // always means the game failed to start (e.g. a missing prerequisite).
-    // Surface it to the user instead of silently doing nothing.
-    if !status.success() || !stderr.trim().is_empty() || !stdout.trim().is_empty() {
+    // A process that exits before the grace window (launched_running == false)
+    // almost always failed to start (e.g. a missing prerequisite) — surface it
+    // instead of silently doing nothing. Once the game has been confirmed
+    // running, ignore benign shutdown console output (engine warnings, etc.)
+    // so we don't report a false "exited with an error" alert.
+    if !launched_running {
       emit_game_launch_failed(&app, game_title, exit_code, message);
     }
   });
