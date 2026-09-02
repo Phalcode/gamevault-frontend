@@ -5,6 +5,7 @@
 ### Changes
 
 - Added a Refresh button to the window title bar that reloads the current page.
+- Added an "Open DevTools" button to the Developer Tools settings menu (desktop builds).
 - Auto-install on Linux now makes extracted shell scripts (`.sh`/`.bash`/`.run`/etc.) executable automatically.
 - Fixed "Open Folder" doing nothing on Linux: folder and URL opening now use the official `tauri-plugin-opener`, with WSL support preserved.
 - Added an "Open" button to each download location in Settings to open the folder in your file manager.

@@ -78,6 +78,17 @@ pub(crate) fn parse_version_folder(folder_name: &str) -> (i64, String) {
   (0, folder_name.to_string())
 }
 
+/// Opens the browser DevTools for the main window. Only meaningful in builds
+/// compiled with the tauri `devtools` feature (enabled in Cargo.toml).
+#[tauri::command]
+pub(crate) fn open_devtools(app: tauri::AppHandle) {
+  use tauri::Manager;
+  if let Some(window) = app.get_webview_window("main") {
+    let _ = window.open_devtools();
+  }
+}
+
+
 pub(crate) fn stable_id_from_path(path: &str) -> i64 {
   let mut hasher = std::collections::hash_map::DefaultHasher::new();
   path.hash(&mut hasher);

@@ -414,6 +414,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       games::open_in_file_explorer,
       games::open_external_url,
+      util::open_devtools,
       youtube::youtube_embed_base,
       extraction::extract_archive,
       installation::list_install_executables,

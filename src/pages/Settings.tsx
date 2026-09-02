@@ -345,6 +345,13 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
   },
   // Developer
   {
+    id: "developer-open-devtools",
+    title: "Open Browser DevTools",
+    description: "Open the WebView devtools for the desktop build",
+    category: "developer",
+    keywords: ["devtools", "developer", "inspect", "console", "window"],
+  },
+  {
     id: "developer-simulate-desktop",
     title: "Simulate Desktop App",
     description: "Preview GameVault as a native desktop application",
@@ -1118,6 +1125,20 @@ export default function Settings() {
           tone: "danger",
         });
       }
+    }
+  };
+
+  const handleOpenDevTools = async () => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_devtools");
+    } catch (e) {
+      console.error("Failed to open DevTools", e);
+      await showAlert({
+        title: "Couldn't open DevTools",
+        description: "DevTools are only available in desktop builds.",
+        tone: "warning",
+      });
     }
   };
 
@@ -1958,6 +1979,27 @@ export default function Settings() {
                         title="Developer Tools"
                         description="Tools for development."
                       />
+                      <SettingsGroup
+                        id="setting-developer-open-devtools"
+                        className={rowHighlight("developer-open-devtools")}
+                        caption="Window"
+                      >
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Open Browser DevTools"
+                            description="Opens the WebView devtools for the desktop build."
+                          />
+                          <Button
+                            type="button"
+                            color="indigo"
+                            className="shrink-0"
+                            onClick={() => void handleOpenDevTools()}
+                          >
+                            Open DevTools
+                          </Button>
+                        </SettingsRow>
+                      </SettingsGroup>
+
                       <SettingsGroup
                         id="setting-developer-simulate-desktop"
                         className={rowHighlight("developer-simulate-desktop")}
