@@ -26,9 +26,6 @@
 - Windows executables on Linux can now run through umu-launcher: GameVault automatically installs umu-launcher, launches the game through it (showing a setup overlay while UMU-Proton and the Steam runtime download), and tracks playtime.
 - Added optional per-game umu-launcher overrides in the game settings (umu-database ID, store, Proton path, and Wine prefix).
 - Improved the widescreen layout so library content sits flush against the sidebar instead of being awkwardly re-centered on large monitors.
-
----
-
 - Debounced the library game search so the server is no longer hit on every keystroke.
 - Pressing Escape now exits a drilled-in Settings category back to the settings list, and returns from a game page to the library. Open dialogs/popovers and inline editors keep handling Escape first.
 - Renamed the unnamed-version placeholder from "Unknown Version" to "Unspecified". Existing installs that still use the old folder name continue to work (both the old and new names are supported, with no on-disk folder rename).
@@ -43,6 +40,11 @@
 - Installed games now always show their download size in the desktop build, even after the source files are cleaned up.
 - Extracted source files are now removed automatically after a successful install, and download file names are sanitized to avoid characters that are invalid on some file systems.
 - Running an installer as administrator now passes file paths literally, so installation folders containing `[`, `]`, or spaces no longer fail.
+
+---
+
+- Added a dedicated "Rendering & System" section to the Developer Tools settings (desktop builds) showing OS, GPU/WebGL, WebGPU, display/monitor and live WebKitGTK details, along with controls for WebKitGTK smooth scrolling and the hardware-acceleration policy. The same diagnostics are included when you copy the settings dump for bug reports.
+- Gate Wine Base Path/Prefix settings to appear to linux users only.
 
 ## 17.0.0
 

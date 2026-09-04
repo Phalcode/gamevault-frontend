@@ -35,6 +35,10 @@ import {
 import { isAnalyticsEnabled, setAnalyticsEnabled } from "@/utils/analytics";
 import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
 import { clearImageCache } from "@/utils/mediaCache";
+import {
+  getRenderingDiagnostics,
+  type RenderingDiagnostics,
+} from "@/utils/rendering";
 import { playSound } from "@/utils/audio";
 import { VolumeControl } from "@/components/VolumeControl";
 import {
@@ -174,6 +178,8 @@ interface SearchableSetting {
   desktopOnly?: boolean;
   /** Only shown on the web build. Hidden from search in the real desktop app. */
   webOnly?: boolean;
+  /** Only shown on Linux (Tauri). Hidden from search elsewhere. */
+  linuxOnly?: boolean;
 }
 
 /**
@@ -300,6 +306,7 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     category: "games",
     keywords: ["wine", "proton", "prefix", "umu", "linux", "directory", "folder"],
     desktopOnly: true,
+    linuxOnly: true,
   },
   // Privacy
   {
@@ -396,6 +403,29 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     description: "Export all preferences as JSON for bug reports",
     category: "developer",
     keywords: ["settings", "dump", "export", "copy", "json", "diagnostics"],
+  },
+  {
+    id: "developer-rendering",
+    title: "Rendering & System",
+    description: "OS, GPU and display diagnostics plus WebKitGTK settings",
+    category: "developer",
+    keywords: ["rendering", "gpu", "display", "webkit", "os", "system", "diagnostic"],
+  },
+  {
+    id: "rendering-smooth-scroll",
+    title: "Smooth Scrolling",
+    description: "Toggle WebKitGTK smooth-scroll animation",
+    category: "developer",
+    keywords: ["scroll", "webkit", "smooth", "animation", "rendering"],
+    desktopOnly: true,
+  },
+  {
+    id: "rendering-hw-accel",
+    title: "Hardware Acceleration",
+    description: "WebKitGTK hardware acceleration policy",
+    category: "developer",
+    keywords: ["gpu", "acceleration", "webkit", "hardware", "rendering"],
+    desktopOnly: true,
   },
 ];
 
@@ -655,6 +685,10 @@ export default function Settings() {
   });
   const isTauri = isTauriApp();
   const isDesktopApp = isTauriDesktop();
+  const isLinux =
+    isTauri &&
+    typeof navigator !== "undefined" &&
+    navigator.userAgent.includes("Linux");
   const systemInfo = collectSystemInfo(isTauri);
   const { ignoreList, setIgnoreList } = useIgnoreList();
   const [winePrefixBase, setWinePrefixBase] = useState<string | null>(null);
@@ -704,7 +738,10 @@ export default function Settings() {
   const trimmedQuery = searchQuery.trim().toLowerCase();
   // On the web build, desktop-only settings don't exist, so never suggest them.
   const searchableSettings = SETTINGS_SEARCH_INDEX.filter(
-    (s) => (!s.desktopOnly || isTauri) && (!s.webOnly || !isDesktopApp),
+    (s) =>
+      (!s.desktopOnly || isTauri) &&
+      (!s.webOnly || !isDesktopApp) &&
+      (!s.linuxOnly || isLinux),
   );
   const matchesQuery = (s: SearchableSetting) =>
     s.title.toLowerCase().includes(trimmedQuery) ||
@@ -781,6 +818,33 @@ export default function Settings() {
   const [editingRootId, setEditingRootId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState("");
 
+  // ── Rendering / GPU / display diagnostics + WebKitGTK settings ────────
+  const [renderingDiagnostics, setRenderingDiagnostics] =
+    useState<RenderingDiagnostics | null>(null);
+  const [webkitSmoothScroll, setWebkitSmoothScroll] = useState(true);
+  const [webkitHwAccel, setWebkitHwAccel] = useState("OnDemand");
+  const [webkitSupported, setWebkitSupported] = useState(false);
+
+  // Load diagnostics when the Developer Tools category is open.
+  const developerCategoryActive = activeCategory === "developer";
+  useEffect(() => {
+    if (!developerCategoryActive) return;
+    let cancelled = false;
+    (async () => {
+      const diag = await getRenderingDiagnostics();
+      if (cancelled) return;
+      setRenderingDiagnostics(diag);
+      if (diag.webkit) {
+        setWebkitSupported(true);
+        setWebkitSmoothScroll(diag.webkit.smooth_scroll);
+        setWebkitHwAccel(diag.webkit.hardware_acceleration_policy);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [developerCategoryActive]);
+
   // Initialize autostart state from the Tauri plugin
   useEffect(() => {
     if (!isTauri) return;
@@ -802,7 +866,7 @@ export default function Settings() {
 
   // Load the Wine/Proton prefix base directory from the Rust backend config.
   useEffect(() => {
-    if (!isTauri) return;
+    if (!isTauri || !isLinux) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1096,6 +1160,7 @@ export default function Settings() {
         platform: isTauri ? "desktop" : "web",
         version: __APP_VERSION__,
         system: systemInfo,
+        rendering: await getRenderingDiagnostics().catch(() => null),
         settings,
       },
       null,
@@ -1146,6 +1211,83 @@ export default function Settings() {
       });
     }
   };
+
+  const handleSetWebkitSmoothScroll = async (value: boolean) => {
+    if (!webkitSupported) return;
+    const previous = webkitSmoothScroll;
+    setWebkitSmoothScroll(value);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_webkit_smooth_scrolling", { enabled: value });
+      setRenderingDiagnostics((d) =>
+        d?.webkit ? { ...d, webkit: { ...d.webkit, smooth_scroll: value } } : d,
+      );
+    } catch (error) {
+      console.error("Failed to set WebKit smooth scrolling", error);
+      setWebkitSmoothScroll(previous);
+    }
+  };
+
+  const handleSetWebkitHwAccel = async (value: string) => {
+    if (!webkitSupported) return;
+    const previous = webkitHwAccel;
+    setWebkitHwAccel(value);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_webkit_hardware_acceleration_policy", { policy: value });
+      setRenderingDiagnostics((d) =>
+        d?.webkit
+          ? { ...d, webkit: { ...d.webkit, hardware_acceleration_policy: value } }
+          : d,
+      );
+    } catch (error) {
+      console.error("Failed to set WebKit hardware acceleration policy", error);
+      setWebkitHwAccel(previous);
+    }
+  };
+
+  const osLabel = (() => {
+    const os = renderingDiagnostics?.os;
+    if (!os) return "Loading…";
+    const base = os.long_os_version || `${os.name} ${os.os_version}`.trim() || os.name;
+    return `${base} (${os.arch})`;
+  })();
+  const displayLabel = (() => {
+    const d = renderingDiagnostics?.display;
+    if (!d) return "Loading…";
+    return `${d.width}x${d.height} · ${d.devicePixelRatio}x DPR · ${d.colorDepth}-bit`;
+  })();
+  const monitorsLabel = (() => {
+    if (!renderingDiagnostics) return "Loading…";
+    const mons = renderingDiagnostics.monitors ?? [];
+    if (mons.length === 0) return "—";
+    return mons
+      .map(
+        (m) =>
+          `${m.width}x${m.height} @ ${m.scale_factor}x${m.name ? ` (${m.name})` : ""}`,
+      )
+      .join(", ");
+  })();
+  const gpuLabel = (() => {
+    const gl = renderingDiagnostics?.webgl;
+    if (gl == null) return "Loading…";
+    if (!gl.supported) return "Unavailable";
+    return `${gl.renderer ?? "Unknown"}${gl.webgl2 ? " · WebGL2" : " · WebGL1"}`;
+  })();
+  const webgpuLabel = (() => {
+    const wgpu = renderingDiagnostics?.webgpu;
+    if (wgpu == null) return "Loading…";
+    if (!wgpu.supported) return "Unavailable";
+    const parts = [wgpu.vendor, wgpu.architecture, wgpu.description, wgpu.device].filter(
+      Boolean,
+    );
+    return parts.length ? parts.join(" · ") : "Available";
+  })();
+  const cpuMemoryLabel = (() => {
+    const cores = navigator.hardwareConcurrency;
+    const memory = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
+    return `${cores ? `${cores} cores` : "—"}${memory != null ? ` · ${memory} GB` : ""}`;
+  })();
 
   const ignoreQuery = ignoreSearch.trim().toLowerCase();
   const filteredIgnoreList = ignoreQuery
@@ -1822,43 +1964,45 @@ export default function Settings() {
                       </SettingsRow>
                     </SettingsGroup>
 
-                    <SettingsGroup
-                      id="setting-games-wine-prefix"
-                      className={rowHighlight("games-wine-prefix")}
-                      caption="Wine / Proton"
-                      description="Where umu-launcher stores Wine/Proton prefixes for Windows games. Each game gets its own isolated subfolder, so the OS root drive stays clean."
-                    >
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Prefix Base Directory"
-                          description="GameVault creates a separate prefix subfolder per game inside this folder. Leave empty to use umu's default location."
-                        />
-                        <Button
-                          outline
-                          onClick={() => void handleSelectWinePrefix()}
-                        >
-                          <FolderOpenIcon className="size-4" />
-                          Choose folder
-                        </Button>
-                      </SettingsRow>
-                      {winePrefixBase && (
+                    {isLinux && (
+                      <SettingsGroup
+                        id="setting-games-wine-prefix"
+                        className={rowHighlight("games-wine-prefix")}
+                        caption="Wine / Proton"
+                        description="Where umu-launcher stores Wine/Proton prefixes for Windows games. Each game gets its own isolated subfolder, so the OS root drive stays clean."
+                      >
                         <SettingsRow>
-                          <div className="flex min-w-0 flex-1 items-center gap-2">
-                            <span className="min-w-0 flex-1 truncate text-sm text-gv-muted">
-                              {winePrefixBase}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => void handleClearWinePrefix()}
-                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                              aria-label="Clear Wine/Proton prefix directory"
-                            >
-                              <XMarkIcon className="size-4" />
-                            </button>
-                          </div>
+                          <SettingsLabel
+                            title="Prefix Base Directory"
+                            description="GameVault creates a separate prefix subfolder per game inside this folder. Leave empty to use umu's default location."
+                          />
+                          <Button
+                            outline
+                            onClick={() => void handleSelectWinePrefix()}
+                          >
+                            <FolderOpenIcon className="size-4" />
+                            Choose folder
+                          </Button>
                         </SettingsRow>
-                      )}
-                    </SettingsGroup>
+                        {winePrefixBase && (
+                          <SettingsRow>
+                            <div className="flex min-w-0 flex-1 items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate text-sm text-gv-muted">
+                                {winePrefixBase}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void handleClearWinePrefix()}
+                                className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                                aria-label="Clear Wine/Proton prefix directory"
+                              >
+                                <XMarkIcon className="size-4" />
+                              </button>
+                            </div>
+                          </SettingsRow>
+                        )}
+                      </SettingsGroup>
+                    )}
                   </>
                 )}
 
@@ -2184,6 +2328,137 @@ export default function Settings() {
                             Copy
                           </Button>
                         </SettingsRow>
+                      </SettingsGroup>
+
+                      <SettingsGroup
+                        id="setting-developer-rendering"
+                        className={rowHighlight("developer-rendering")}
+                        caption="Rendering & System"
+                      >
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Operating System"
+                            description="OS, version and architecture"
+                          />
+                          <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                            {osLabel}
+                          </span>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel title="Display" description="Resolution, DPR and colour depth" />
+                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                            {displayLabel}
+                          </span>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel title="Monitors" />
+                          <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                            {monitorsLabel}
+                          </span>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="GPU (WebGL)"
+                            description="GPU renderer reported by the WebGL context"
+                          />
+                          <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                            {gpuLabel}
+                          </span>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel title="WebGPU" />
+                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                            {webgpuLabel}
+                          </span>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel title="CPU / Memory" />
+                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                            {cpuMemoryLabel}
+                          </span>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel title="Platform" />
+                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                            {systemInfo.platform}
+                          </span>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel title="Language" />
+                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                            {systemInfo.language}
+                          </span>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel title="User Agent" />
+                          <span className="min-w-0 max-w-[55%] break-all text-right font-mono text-xs text-gv-muted">
+                            {systemInfo.userAgent}
+                          </span>
+                        </SettingsRow>
+
+                        {webkitSupported && renderingDiagnostics?.webkit && (
+                          <>
+                            <SettingsRow
+                              id="setting-rendering-smooth-scroll"
+                              className={rowHighlight("rendering-smooth-scroll")}
+                            >
+                              <SettingsLabel
+                                title="Smooth Scrolling"
+                                description="WebKitGTK smooth-scroll animation. Disable if scrolling feels delayed or queued."
+                              />
+                              <Switch
+                                name="webkitSmoothScroll"
+                                color="indigo"
+                                aria-label="WebKitGTK smooth scrolling"
+                                checked={webkitSmoothScroll}
+                                onChange={(v: boolean) =>
+                                  void handleSetWebkitSmoothScroll(v)
+                                }
+                              />
+                            </SettingsRow>
+                            <SettingsRow
+                              id="setting-rendering-hw-accel"
+                              className={rowHighlight("rendering-hw-accel")}
+                            >
+                              <SettingsLabel
+                                title="Hardware Acceleration"
+                                description="WebKitGTK hardware acceleration policy"
+                              />
+                              <div className="w-36 shrink-0">
+                                <Listbox
+                                  name="webkitHwAccel"
+                                  value={webkitHwAccel}
+                                  onChange={(v) =>
+                                    void handleSetWebkitHwAccel(
+                                      String(v),
+                                    )
+                                  }
+                                >
+                                  <ListboxOption value="Never">
+                                    <ListboxLabel>Never</ListboxLabel>
+                                  </ListboxOption>
+                                  <ListboxOption value="OnDemand">
+                                    <ListboxLabel>On-demand</ListboxLabel>
+                                  </ListboxOption>
+                                  <ListboxOption value="Always">
+                                    <ListboxLabel>Always</ListboxLabel>
+                                  </ListboxOption>
+                                </Listbox>
+                              </div>
+                            </SettingsRow>
+                            <SettingsRow>
+                              <SettingsLabel
+                                title="WebGL (WebKit)"
+                                description="Whether WebKitGTK reports WebGL as enabled"
+                              />
+                              <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                                {renderingDiagnostics.webkit.webgl_enabled
+                                  ? "Enabled"
+                                  : "Disabled"}
+                              </span>
+                            </SettingsRow>
+                          </>
+                        )}
                       </SettingsGroup>
                     </>
                   )}

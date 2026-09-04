@@ -18,6 +18,13 @@ pub(crate) struct AppSettings {
   /// stays clean. Empty/None falls back to umu's built-in default location.
   #[serde(default)]
   pub default_wine_prefix: Option<String>,
+  /// WebKitGTK smooth-scrolling override (Linux). `None` = leave WebKit default.
+  #[serde(default)]
+  pub webkit_smooth_scroll: Option<bool>,
+  /// WebKitGTK hardware-acceleration policy (Linux): "Always" / "OnDemand" / "Never".
+  /// `None` = leave WebKit default.
+  #[serde(default)]
+  pub webkit_hw_accel_policy: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
