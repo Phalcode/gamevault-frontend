@@ -53,6 +53,13 @@ iso9660_simple = "0.2.7"
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["fileapi", "shellapi", "winnt", "winuser", "synchapi", "handleapi", "winbase", "winerror", "processthreadsapi"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Direct dependency so we can read/configure WebKitGTK WebKitSettings at runtime
+# (smooth scrolling, hardware acceleration policy) for the DevTools "Rendering"
+# section. Already a transitive dependency of tauri/wry on Linux; the `v2_16`
+# feature gates the hardware-acceleration-policy API.
+webkit2gtk = { version = "2", features = ["v2_16"] }
+
 # Recommended by the tauri-plugin-stronghold docs to work around an upstream
 # scrypt performance bug in dev builds.
 [profile.dev.package.scrypt]

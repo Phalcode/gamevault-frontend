@@ -14,6 +14,7 @@ mod net;
 mod youtube;
 mod taskbar;
 mod umu;
+mod rendering;
 
 use crate::settings::AppSettings;
 use semver::Version;
@@ -409,6 +410,10 @@ pub fn run() {
         }
       }
 
+      // ── Apply persisted WebKitGTK rendering settings (Linux) ──────────
+      #[cfg(target_os = "linux")]
+      rendering::apply_webkit_settings(app.handle());
+
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
@@ -463,6 +468,10 @@ pub fn run() {
       settings::set_ignore_list,
       settings::get_default_wine_prefix,
       settings::set_default_wine_prefix,
+      rendering::get_rendering_diagnostics,
+      rendering::get_webkit_settings,
+      rendering::set_webkit_smooth_scrolling,
+      rendering::set_webkit_hardware_acceleration_policy,
       secure_store::get_or_create_vault_password,
       taskbar::set_taskbar_progress,
       taskbar::clear_taskbar_progress,
