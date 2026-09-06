@@ -26,9 +26,6 @@
 - Windows executables on Linux can now run through umu-launcher: GameVault automatically installs umu-launcher, launches the game through it (showing a setup overlay while UMU-Proton and the Steam runtime download), and tracks playtime.
 - Added optional per-game umu-launcher overrides in the game settings (umu-database ID, store, Proton path, and Wine prefix).
 - Improved the widescreen layout so library content sits flush against the sidebar instead of being awkwardly re-centered on large monitors.
-
----
-
 - Debounced the library game search so the server is no longer hit on every keystroke.
 - Pressing Escape now exits a drilled-in Settings category back to the settings list, and returns from a game page to the library. Open dialogs/popovers and inline editors keep handling Escape first.
 - Renamed the unnamed-version placeholder from "Unknown Version" to "Unspecified". Existing installs that still use the old folder name continue to work (both the old and new names are supported, with no on-disk folder rename).
@@ -49,6 +46,7 @@
 - Added a dedicated "Rendering & System" section to the Developer Tools settings (desktop builds) showing OS, GPU/WebGL, WebGPU, display/monitor and live WebKitGTK details, along with controls for WebKitGTK smooth scrolling and the hardware-acceleration policy. The same diagnostics are included when you copy the settings dump for bug reports.
 - Gate Wine Base Path/Prefix settings to appear to linux users only.
 - Added a Streamer / OPSEC mode (Settings → Appearance) that masks user names, emails and the server URL with funny placeholder text across the sidebar, community, profiles, administration and game activity, so a stream capture doesn't leak real identities or your server address.
+- Fixed "Open Folder" still doing nothing on Linux for KDE Plasma (Dolphin) users running the AppImage: the AppImage's bundled `xdg-open` no longer intercepts the request — folders and URLs are now opened with the host system's launchers instead.
 
 ## 17.0.0
 
