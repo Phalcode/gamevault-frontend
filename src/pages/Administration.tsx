@@ -31,7 +31,12 @@ import {
 } from "@tw/table";
 import { useMemo, useState } from "react";
 import Card from "../components/Card";
-// Legacy modals (inline styles) brought back from old-src for now
+import {
+  maskDisplayName,
+  maskEmail,
+  maskUrl,
+  useStreamerMode,
+} from "@/utils/streamerMode";
 import { RegisterUserModal } from "@/components/admin/RegisterUserModal";
 import { UserEditorModal } from "@/components/admin/UserEditorModal";
 import { GamevaultUser, GamevaultUserRoleEnum } from "../api";
@@ -40,6 +45,7 @@ import BackupRestoreDialog from "../components/admin/BackupRestoreDialog";
 import { Label } from "../components/tailwind/fieldset";
 
 export default function Administration() {
+  const streamerMode = useStreamerMode();
   const {
     users,
     loading,
@@ -98,8 +104,11 @@ export default function Administration() {
               <DescriptionTerm>Address</DescriptionTerm>
               <DescriptionDetails>
                 {connected ? (
-                  <Link href={serverUrl} target="_blank">
-                    {serverUrl}
+                  <Link
+                    href={streamerMode ? maskUrl(serverUrl) : serverUrl}
+                    target="_blank"
+                  >
+                    {streamerMode ? maskUrl(serverUrl) : serverUrl}
                   </Link>
                 ) : (
                   <span className="text-gv-muted">Not connected</span>
@@ -291,6 +300,13 @@ export default function Administration() {
                   const last_name = u.last_name;
                   const email = u.email;
                   const roleNumeric = u.role ?? GamevaultUserRoleEnum._0;
+                  const displayName = streamerMode
+                    ? maskDisplayName(name)
+                    : name;
+                  const displayEmail = streamerMode ? maskEmail(email || "") : email;
+                  const displayFull = streamerMode
+                    ? ""
+                    : `${first_name ?? ""} ${last_name ?? ""}`.trim();
                   return (
                     <TableRow
                       key={id}
@@ -303,19 +319,22 @@ export default function Administration() {
                             href={`/community/${id}`}
                             className="shrink-0 rounded-full outline-hidden focus:outline-2 focus:outline-offset-2 focus:outline-gv-accent-cool"
                           >
-                            <UserAvatar media={u.avatar} size={48} alt={name} />
+                            <UserAvatar
+                              media={u.avatar}
+                              size={48}
+                              alt={displayName}
+                            />
                           </Link>
                           <div>
                             <div className="font-medium flex items-center gap-2">
                               <span>
-                                {name}{" "}
-                                {(first_name || last_name) && (
-                                  <span className="font-normal">
-                                    (
-                                    {`${first_name ?? ""} ${last_name ?? ""}`.trim()}
-                                    )
-                                  </span>
-                                )}
+                                {displayName}{" "}
+                                {!streamerMode &&
+                                  (first_name || last_name) && (
+                                    <span className="font-normal">
+                                      ({displayFull})
+                                    </span>
+                                  )}
                               </span>
                               {deleted && (
                                 <span className="rounded bg-red-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-400">
@@ -323,13 +342,17 @@ export default function Administration() {
                                 </span>
                               )}
                             </div>
-                            {email && (
+                            {displayEmail && (
                               <div className="text-gv-muted">
                                 <a
-                                  href={`mailto:${email}`}
+                                  href={
+                                    streamerMode
+                                      ? undefined
+                                      : `mailto:${email}`
+                                  }
                                   className="hover:text-gv-text"
                                 >
-                                  {email}
+                                  {displayEmail}
                                 </a>
                               </div>
                             )}

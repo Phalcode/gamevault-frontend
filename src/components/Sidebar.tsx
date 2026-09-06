@@ -42,6 +42,11 @@ import { GamevaultUserRoleEnum } from "../api";
 import { useNews } from "../hooks/useNews";
 import { UserEditorModal } from "./admin/UserEditorModal";
 import { NewsDialog } from "./news/NewsDialog";
+import {
+  maskDisplayName,
+  maskEmail,
+  useStreamerMode,
+} from "@/utils/streamerMode";
 
 export function Sidebar() {
   const { user, logout } = useAuth();
@@ -49,8 +54,11 @@ export function Sidebar() {
   const location = useLocation();
   const [showNews, setShowNews] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const username = user?.username || "Unknown User";
-  const email = user?.email || "";
+  const streamerMode = useStreamerMode();
+  const username = streamerMode
+    ? maskDisplayName(user?.username || "")
+    : user?.username || "Unknown User";
+  const email = streamerMode ? maskEmail(user?.email || "") : user?.email || "";
   const avatar = user?.avatar;
   const { hasNewNews } = useNews();
   const [badgeVisible, setBadgeVisible] = useState(hasNewNews);

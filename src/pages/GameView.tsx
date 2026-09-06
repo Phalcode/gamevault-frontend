@@ -58,6 +58,10 @@ import { GameSettings } from "@/components/admin/GameSettings";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { isTauriApp } from "@/utils/tauri";
+import {
+  maskDisplayName,
+  useStreamerMode,
+} from "@/utils/streamerMode";
 import { LayoutGroup, motion } from "motion/react";
 import { EASE_OUT } from "@/lib/motion";
 
@@ -66,6 +70,7 @@ export default function GameView() {
   const numericId = Number(id);
   const navigate = useNavigate();
   const { serverUrl, authFetch, user } = useAuth();
+  const streamerMode = useStreamerMode();
   const [game, setGame] = useState<GamevaultGame | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1260,8 +1265,11 @@ export default function GameView() {
                     <ul className="flex flex-col gap-3 text-sm">
                       {others.map((p) => {
                         const uid = p.user?.id ?? (p.user as any)?.ID;
-                        const uname =
+                        const rawUname =
                           (p.user as any)?.username || `User #${uid}`;
+                        const uname = streamerMode
+                          ? maskDisplayName(rawUname)
+                          : rawUname;
                         const avatarMedia = (p.user as any)?.avatar;
                         const lastPlayedStr = p.last_played_at
                           ? new Date(p.last_played_at).toLocaleDateString()

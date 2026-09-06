@@ -25,6 +25,7 @@ import { Button } from "@/components/tailwind/button";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
 import ThemeSelect from "@/components/ThemeSelect";
 import ZoomControl from "@/components/ZoomControl";
+import StreamerModeToggle from "@/components/StreamerModeToggle";
 import BackButton from "@/components/BackButton";
 import {
   Dialog,
@@ -243,6 +244,13 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     description: "Zoom the interface in or out",
     category: "appearance",
     keywords: ["zoom", "scale", "size", "font", "ui"],
+  },
+  {
+    id: "appearance-streamer-mode",
+    title: "Streamer / OPSEC Mode",
+    description: "Mask user names, emails and the server URL with placeholders",
+    category: "appearance",
+    keywords: ["streamer", "opsec", "privacy", "mask", "anon", "placeholder"],
   },
   // Sound
   {
@@ -1923,6 +1931,21 @@ export default function Settings() {
                         />
                         <div className="w-44 shrink-0">
                           <ZoomControl />
+                        </div>
+                      </SettingsRow>
+                    </SettingsGroup>
+
+                    <SettingsGroup
+                      id="setting-appearance-streamer-mode"
+                      className={rowHighlight("appearance-streamer-mode")}
+                    >
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Streamer / OPSEC Mode"
+                          description="Replaces user names, emails and the server URL with funny placeholder text so your stream capture never leaks real identities or your server address."
+                        />
+                        <div className="shrink-0">
+                          <StreamerModeToggle />
                         </div>
                       </SettingsRow>
                     </SettingsGroup>

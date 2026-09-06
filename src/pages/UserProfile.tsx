@@ -16,6 +16,11 @@ import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { getGameCoverMediaId } from "@/hooks/useGames";
 import { getRoleLabel } from "@/utils/roles";
+import {
+  maskDisplayName,
+  maskHandle,
+  useStreamerMode,
+} from "@/utils/streamerMode";
 import { GamevaultUserRoleEnum } from "@/api";
 import clsx from "clsx";
 import {
@@ -366,6 +371,7 @@ export default function UserProfile() {
   const { serverUrl, authFetch, user: loggedIn } = useAuth();
   const { showAlert } = useAlertDialog();
   const { id } = useParams<{ id?: string }>();
+  const streamerMode = useStreamerMode();
 
   const [user, setUser] = useState<GamevaultUser | null>(null);
   const [loading, setLoading] = useState(false);
@@ -608,7 +614,7 @@ export default function UserProfile() {
               <UserAvatar
                 media={user.avatar}
                 size={110}
-                alt={getDisplayName(user)}
+                alt={streamerMode ? maskDisplayName(getDisplayName(user)) : getDisplayName(user)}
                 fallback={getAvatarFallback(user)}
                 className="border-4 border-white/20 bg-gv-panel-soft/50 shadow-lg backdrop-blur-xl"
               />
@@ -622,10 +628,15 @@ export default function UserProfile() {
                 </div>
                 <div>
                   <h2 className="truncate text-3xl font-bold tracking-[-0.04em] text-white">
-                    {getDisplayName(user)}
+                    {streamerMode
+                      ? maskDisplayName(getDisplayName(user))
+                      : getDisplayName(user)}
                   </h2>
                   <p className="mt-1 text-base text-white/80">
-                    @{getUserHandle(user)}
+                    @
+                    {streamerMode
+                      ? maskHandle(getUserHandle(user))
+                      : getUserHandle(user)}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3 text-sm text-white/80">

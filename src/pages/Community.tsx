@@ -26,6 +26,11 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useScrollRestoration } from "@/hooks/useScrollRestoration";
+import {
+  maskDisplayName,
+  maskHandle,
+  useStreamerMode,
+} from "@/utils/streamerMode";
 import type { GamevaultGame, GamevaultUser, Progress } from "../api";
 
 type UserDetailsMap = Record<number, GamevaultUser>;
@@ -312,6 +317,13 @@ function NetworkUserCard({
 }) {
   const stats = getUserStats(user);
   const recent = getRecentProgresses(user, 3);
+  const streamerMode = useStreamerMode();
+  const displayName = streamerMode
+    ? maskDisplayName(getDisplayName(user))
+    : getDisplayName(user);
+  const handle = streamerMode
+    ? maskHandle(getUserHandle(user))
+    : getUserHandle(user);
 
   return (
     <Link
@@ -331,14 +343,14 @@ function NetworkUserCard({
               <UserAvatar
                 media={user.avatar}
                 size={76}
-                alt={getDisplayName(user)}
+                alt={displayName}
                 fallback={getAvatarFallback(user)}
                 className="border border-gv-line/70 bg-gv-panel-soft shadow-sm"
               />
               <div className="min-w-0 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="truncate text-lg font-semibold tracking-[-0.02em] text-gv-text">
-                    {getDisplayName(user)}
+                    {displayName}
                   </h3>
                   {isCurrentUser && <Badge color="indigo">You</Badge>}
                   <Badge color={getRoleBadgeColor(user.role)}>
@@ -346,7 +358,7 @@ function NetworkUserCard({
                   </Badge>
                 </div>
                 <div className="truncate text-sm text-gv-muted">
-                  @{getUserHandle(user)}
+                  @{handle}
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gv-muted">
                   <span

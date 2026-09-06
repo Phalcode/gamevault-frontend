@@ -44,6 +44,12 @@
 - Extracted source files are now removed automatically after a successful install, and download file names are sanitized to avoid characters that are invalid on some file systems.
 - Running an installer as administrator now passes file paths literally, so installation folders containing `[`, `]`, or spaces no longer fail.
 
+---
+
+- Added a dedicated "Rendering & System" section to the Developer Tools settings (desktop builds) showing OS, GPU/WebGL, WebGPU, display/monitor and live WebKitGTK details, along with controls for WebKitGTK smooth scrolling and the hardware-acceleration policy. The same diagnostics are included when you copy the settings dump for bug reports.
+- Gate Wine Base Path/Prefix settings to appear to linux users only.
+- Added a Streamer / OPSEC mode (Settings → Appearance) that masks user names, emails and the server URL with funny placeholder text across the sidebar, community, profiles, administration and game activity, so a stream capture doesn't leak real identities or your server address.
+
 ## 17.0.0
 
 ### Changes
