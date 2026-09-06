@@ -158,7 +158,7 @@ export function DownloadCard({
     const confirmed = await showAlert({
       title: "Delete download?",
       description:
-        "Do you really want to delete this download card? This removes only the Download and Extraction folders for this game version.",
+        "Do you really want to delete this download card? This removes the Download and Extraction folders for this game version, and cleans up the empty installation folder if the game was never installed.",
       affirmativeText: "Yes",
       negativeText: "No",
     });
