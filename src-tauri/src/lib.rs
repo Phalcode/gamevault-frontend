@@ -125,37 +125,118 @@ fn normalize_version_string(value: &str) -> String {
   value.trim().trim_start_matches(['v', 'V']).to_string()
 }
 
+fn default_build_channel() -> UpdateChannel {
+  match option_env!("GV_BUILD_CHANNEL") {
+    Some("early-access") => UpdateChannel::EarlyAccess,
+    Some("unstable") => UpdateChannel::Unstable,
+    _ => UpdateChannel::Stable,
+  }
+}
+
 fn build_version_comparator(
   channel: UpdateChannel,
   state: Option<UpdateState>,
 ) -> impl Fn(Version, tauri_plugin_updater::RemoteRelease) -> bool + Send + Sync + 'static {
   move |current, release| {
-    let current_version = current.to_string();
-    let matching_state = state
+    // Determine the channel the running build came from. The persisted state is
+    // written after every in-app install (channel + version), so it is the
+    // authoritative source when its version matches the running one; otherwise
+    // fall back to the channel this binary was built for (fresh installs).
+    let current_channel = state
       .as_ref()
-      .filter(|value| normalize_version_string(&value.version) == current_version);
+      .filter(|value| normalize_version_string(&value.version) == current.to_string())
+      .map(|value| value.channel)
+      .unwrap_or_else(default_build_channel);
 
-    if release.version > current {
-      return true;
-    }
+    should_offer_release(&current, &release.version, channel, current_channel)
+  }
+}
 
-    let same_core = current.major == release.version.major
-      && current.minor == release.version.minor
-      && current.patch == release.version.patch;
+/// Core decision for whether a release on the requested channel should be
+/// offered to update to. Kept as a pure helper so the channel-switch and
+/// downgrade rules are unit-testable.
+fn should_offer_release(
+  current: &Version,
+  release: &Version,
+  channel: UpdateChannel,
+  current_channel: UpdateChannel,
+) -> bool {
+  // Switching to a different channel is intentional and always allowed, even
+  // when the target release is older (a downgrade). The endpoint only lists
+  // releases for the requested channel, so this surfaces that channel's latest
+  // build. Skip only when it happens to equal the version currently running.
+  if current_channel != channel {
+    return release != current;
+  }
 
-    match channel {
-      // Switching back to a less-experimental channel stays allowed even when
-      // it is not semver-newer (e.g. the app was previously installed from a
-      // prerelease channel).
-      UpdateChannel::Stable => matching_state
-        .is_some_and(|value| value.channel != UpdateChannel::Stable),
-      // Prerelease channels (early-access and unstable) are offered when the
-      // running build is the plain release of the same core, i.e. switching
-      // from stable up into a prerelease channel. Otherwise semver decides.
-      UpdateChannel::EarlyAccess | UpdateChannel::Unstable => {
-        current.pre.is_empty() && !release.version.pre.is_empty() && same_core
-      }
-    }
+  // Staying on the same channel: only surface genuinely newer releases.
+  release > current
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use semver::Version;
+
+  fn v(value: &str) -> Version {
+    Version::parse(value).unwrap()
+  }
+
+  #[test]
+  fn same_channel_only_offers_newer() {
+    assert!(should_offer_release(
+      &v("17.1.0"),
+      &v("17.2.0"),
+      UpdateChannel::Stable,
+      UpdateChannel::Stable,
+    ));
+    assert!(!should_offer_release(
+      &v("17.1.0"),
+      &v("17.1.0"),
+      UpdateChannel::Stable,
+      UpdateChannel::Stable,
+    ));
+    assert!(!should_offer_release(
+      &v("17.2.0"),
+      &v("17.1.0"),
+      UpdateChannel::Stable,
+      UpdateChannel::Stable,
+    ));
+  }
+
+  #[test]
+  fn switching_channels_allows_downgrade() {
+    // From a newer unstable build back down to stable.
+    assert!(should_offer_release(
+      &v("18.0.0-alpha.1"),
+      &v("17.1.0"),
+      UpdateChannel::Stable,
+      UpdateChannel::Unstable,
+    ));
+    // From a newer unstable build down to early-access.
+    assert!(should_offer_release(
+      &v("18.0.0-alpha.1"),
+      &v("17.1.1-beta.1"),
+      UpdateChannel::EarlyAccess,
+      UpdateChannel::Unstable,
+    ));
+    // From stable up into a prerelease channel.
+    assert!(should_offer_release(
+      &v("17.1.0"),
+      &v("17.1.1-beta.1"),
+      UpdateChannel::EarlyAccess,
+      UpdateChannel::Stable,
+    ));
+  }
+
+  #[test]
+  fn switching_to_identical_version_is_skipped() {
+    assert!(!should_offer_release(
+      &v("17.1.0"),
+      &v("17.1.0"),
+      UpdateChannel::Stable,
+      UpdateChannel::Unstable,
+    ));
   }
 }
 

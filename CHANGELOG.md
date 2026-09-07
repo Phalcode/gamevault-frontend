@@ -52,6 +52,7 @@
 - Fixed the WebKitGTK hardware-acceleration policy setting not sticking on Linux: it no longer reverts to "Never" when you leave the settings page or restart the app, and the value you choose is now remembered.
 - Fixed a flash when switching between tabs: the outgoing page no longer briefly shows the incoming tab's content or loading state, so the main content now switches smoothly.
 - Smoothed the sidebar's active-tab indicator so it slides evenly in both directions instead of jumping when moving upward.
+- Fixed switching between the stable, early-access and unstable update channels: the selected channel's latest release is now offered reliably, including a downgrade when switching back from a newer prerelease channel (e.g. unstable → early-access or → stable).
 
 ## 17.0.0
 
