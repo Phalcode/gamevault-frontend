@@ -45,10 +45,13 @@
 
 - Added a dedicated "Rendering & System" section to the Developer Tools settings (desktop builds) showing OS, GPU/WebGL, WebGPU, display/monitor and live WebKitGTK details, along with controls for WebKitGTK smooth scrolling and the hardware-acceleration policy. The same diagnostics are included when you copy the settings dump for bug reports.
 - Gate Wine Base Path/Prefix settings to appear to linux users only.
+<<<<<<< HEAD
 - Added a Streamer / OPSEC mode (Settings → Appearance) that masks user names, emails and the server URL with funny placeholder text across the sidebar, community, profiles, administration and game activity, so a stream capture doesn't leak real identities or your server address.
 - Fixed "Open Folder" still doing nothing on Linux for KDE Plasma (Dolphin) users running the AppImage: the AppImage's bundled `xdg-open` no longer intercepts the request — folders and URLs are now opened with the host system's launchers instead.
 - Deleting a download card for a game that was downloaded but never installed now also removes the leftover empty Installation folder and its empty parent folder.
 - Restored Streamer / OPSEC Mode: user names, emails and the server URL are masked again when the setting is enabled.
+=======
+>>>>>>> ea
 
 ## 17.0.0
 
