@@ -224,7 +224,8 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
   {
     id: "downloads-auto-delete-source",
     title: "Auto-Delete Source Files",
-    description: "Clean up downloaded and extracted files after installation to free space",
+    description:
+      "Clean up downloaded and extracted files after installation to free space",
     category: "downloads",
     keywords: ["delete", "cleanup", "space", "source", "files"],
     desktopOnly: true,
@@ -312,7 +313,15 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     title: "Wine/Proton Prefix Directory",
     description: "Base folder for isolated per-game Wine/Proton prefixes",
     category: "games",
-    keywords: ["wine", "proton", "prefix", "umu", "linux", "directory", "folder"],
+    keywords: [
+      "wine",
+      "proton",
+      "prefix",
+      "umu",
+      "linux",
+      "directory",
+      "folder",
+    ],
     desktopOnly: true,
     linuxOnly: true,
   },
@@ -417,13 +426,21 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     title: "Rendering & System",
     description: "OS, GPU and display diagnostics plus WebKitGTK settings",
     category: "developer",
-    keywords: ["rendering", "gpu", "display", "webkit", "os", "system", "diagnostic"],
+    keywords: [
+      "rendering",
+      "gpu",
+      "display",
+      "webkit",
+      "os",
+      "system",
+      "diagnostic",
+    ],
   },
   {
     id: "rendering-smooth-scroll",
     title: "Smooth Scrolling",
     description: "Toggle WebKitGTK smooth-scroll animation",
-    category: "developer",
+    category: "appearance",
     keywords: ["scroll", "webkit", "smooth", "animation", "rendering"],
     desktopOnly: true,
   },
@@ -833,10 +850,12 @@ export default function Settings() {
   const [webkitHwAccel, setWebkitHwAccel] = useState("OnDemand");
   const [webkitSupported, setWebkitSupported] = useState(false);
 
-  // Load diagnostics when the Developer Tools category is open.
-  const developerCategoryActive = activeCategory === "developer";
+  // Load rendering diagnostics when the Developer Tools category is open, and
+  // also when Appearance is open (it shows the WebKitGTK smooth-scrolling toggle).
+  const renderingCategoryActive =
+    activeCategory === "developer" || activeCategory === "appearance";
   useEffect(() => {
-    if (!developerCategoryActive) return;
+    if (!renderingCategoryActive) return;
     let cancelled = false;
     (async () => {
       const diag = await getRenderingDiagnostics();
@@ -851,7 +870,7 @@ export default function Settings() {
     return () => {
       cancelled = true;
     };
-  }, [developerCategoryActive]);
+  }, [renderingCategoryActive]);
 
   // Initialize autostart state from the Tauri plugin
   useEffect(() => {
@@ -1242,10 +1261,15 @@ export default function Settings() {
     setWebkitHwAccel(value);
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("set_webkit_hardware_acceleration_policy", { policy: value });
+      await invoke("set_webkit_hardware_acceleration_policy", {
+        policy: value,
+      });
       setRenderingDiagnostics((d) =>
         d?.webkit
-          ? { ...d, webkit: { ...d.webkit, hardware_acceleration_policy: value } }
+          ? {
+              ...d,
+              webkit: { ...d.webkit, hardware_acceleration_policy: value },
+            }
           : d,
       );
     } catch (error) {
@@ -1257,7 +1281,8 @@ export default function Settings() {
   const osLabel = (() => {
     const os = renderingDiagnostics?.os;
     if (!os) return "Loading…";
-    const base = os.long_os_version || `${os.name} ${os.os_version}`.trim() || os.name;
+    const base =
+      os.long_os_version || `${os.name} ${os.os_version}`.trim() || os.name;
     return `${base} (${os.arch})`;
   })();
   const displayLabel = (() => {
@@ -1286,14 +1311,18 @@ export default function Settings() {
     const wgpu = renderingDiagnostics?.webgpu;
     if (wgpu == null) return "Loading…";
     if (!wgpu.supported) return "Unavailable";
-    const parts = [wgpu.vendor, wgpu.architecture, wgpu.description, wgpu.device].filter(
-      Boolean,
-    );
+    const parts = [
+      wgpu.vendor,
+      wgpu.architecture,
+      wgpu.description,
+      wgpu.device,
+    ].filter(Boolean);
     return parts.length ? parts.join(" · ") : "Available";
   })();
   const cpuMemoryLabel = (() => {
     const cores = navigator.hardwareConcurrency;
-    const memory = (navigator as unknown as { deviceMemory?: number }).deviceMemory;
+    const memory = (navigator as unknown as { deviceMemory?: number })
+      .deviceMemory;
     return `${cores ? `${cores} cores` : "—"}${memory != null ? ` · ${memory} GB` : ""}`;
   })();
 
@@ -2093,6 +2122,29 @@ export default function Settings() {
                         </div>
                       </SettingsRow>
                     </SettingsGroup>
+
+                    {webkitSupported && renderingDiagnostics?.webkit && (
+                      <SettingsGroup
+                        id="setting-rendering-smooth-scroll"
+                        className={rowHighlight("rendering-smooth-scroll")}
+                      >
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Smooth Scrolling"
+                            description="WebKitGTK smooth-scroll animation. Disable if scrolling feels delayed or queued."
+                          />
+                          <Switch
+                            name="webkitSmoothScroll"
+                            color="indigo"
+                            aria-label="WebKitGTK smooth scrolling"
+                            checked={webkitSmoothScroll}
+                            onChange={(v: boolean) =>
+                              void handleSetWebkitSmoothScroll(v)
+                            }
+                          />
+                        </SettingsRow>
+                      </SettingsGroup>
+                    )}
                   </>
                 )}
 
@@ -2368,7 +2420,10 @@ export default function Settings() {
                           </span>
                         </SettingsRow>
                         <SettingsRow>
-                          <SettingsLabel title="Display" description="Resolution, DPR and colour depth" />
+                          <SettingsLabel
+                            title="Display"
+                            description="Resolution, DPR and colour depth"
+                          />
                           <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
                             {displayLabel}
                           </span>
@@ -2422,24 +2477,6 @@ export default function Settings() {
                         {webkitSupported && renderingDiagnostics?.webkit && (
                           <>
                             <SettingsRow
-                              id="setting-rendering-smooth-scroll"
-                              className={rowHighlight("rendering-smooth-scroll")}
-                            >
-                              <SettingsLabel
-                                title="Smooth Scrolling"
-                                description="WebKitGTK smooth-scroll animation. Disable if scrolling feels delayed or queued."
-                              />
-                              <Switch
-                                name="webkitSmoothScroll"
-                                color="indigo"
-                                aria-label="WebKitGTK smooth scrolling"
-                                checked={webkitSmoothScroll}
-                                onChange={(v: boolean) =>
-                                  void handleSetWebkitSmoothScroll(v)
-                                }
-                              />
-                            </SettingsRow>
-                            <SettingsRow
                               id="setting-rendering-hw-accel"
                               className={rowHighlight("rendering-hw-accel")}
                             >
@@ -2452,9 +2489,7 @@ export default function Settings() {
                                   name="webkitHwAccel"
                                   value={webkitHwAccel}
                                   onChange={(v) =>
-                                    void handleSetWebkitHwAccel(
-                                      String(v),
-                                    )
+                                    void handleSetWebkitHwAccel(String(v))
                                   }
                                 >
                                   <ListboxOption value="Never">
