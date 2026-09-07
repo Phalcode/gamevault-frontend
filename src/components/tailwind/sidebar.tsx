@@ -6,6 +6,7 @@ import { LayoutGroup, motion } from "motion/react";
 import React, { forwardRef, useId } from "react";
 import { TouchTarget } from "./button";
 import { Link } from "./link";
+import { DURATION_BASE, EASE_OUT } from "@/lib/motion";
 
 export function Sidebar({
   className,
@@ -166,6 +167,14 @@ export const SidebarItem = forwardRef(function SidebarItem(
       {current && (
         <motion.span
           layoutId="current-indicator"
+          // Use a symmetric tween (shared EASE_OUT) for the slide instead of
+          // Framer Motion's default spring, which overshoots and looks jumpy
+          // one way but smooth the other.
+          transition={{
+            type: "tween",
+            duration: DURATION_BASE,
+            ease: EASE_OUT,
+          }}
           className="absolute inset-y-2 left-0 w-1 rounded-full bg-gv-accent"
         />
       )}

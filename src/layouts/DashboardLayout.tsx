@@ -3,7 +3,7 @@ import { Sidebar } from "@components/Sidebar";
 import { SidebarLayout } from "@tw/sidebar-layout";
 import { PageLoader } from "@/components/PageLoader";
 import { Suspense } from "react";
-import { Outlet, matchPath, useLocation } from "react-router";
+import { matchPath, useLocation, useOutlet } from "react-router";
 import { AnimatePresence, motion } from "motion/react";
 import { pageVariants } from "@/lib/motion";
 import ProtectedRoute from "../guards/ProtectedRoute";
@@ -17,6 +17,11 @@ export default function DashboardLayout({
   guarded = true,
 }: DashboardLayoutProps) {
   const location = useLocation();
+  // Freeze the outlet element for the current route. Rendering this element
+  // (instead of the live <Outlet />) means the page that is animating out keeps
+  // showing its own content, rather than instantly switching to the incoming
+  // tab's content/loading state, which caused a visible flash on tab switch.
+  const outlet = useOutlet();
   const isGameViewRoute = Boolean(
     matchPath({ path: "/library/:id" }, location.pathname),
   );
@@ -45,7 +50,7 @@ export default function DashboardLayout({
             className="h-full"
           >
             <Suspense fallback={<PageLoader />}>
-              <Outlet />
+              {outlet}
             </Suspense>
           </motion.div>
         </AnimatePresence>
