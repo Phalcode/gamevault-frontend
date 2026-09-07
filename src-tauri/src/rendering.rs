@@ -68,10 +68,12 @@ fn get_monitors(app: &AppHandle) -> Vec<MonitorInfo> {
 #[cfg(target_os = "linux")]
 async fn read_webkit_state(app: &AppHandle) -> Option<WebKitState> {
   let window = app.get_webview_window("main")?;
+  let persisted = crate::settings::load_settings(app);
   let (tx, rx) = tokio::sync::oneshot::channel::<WebKitState>();
   if window
     .with_webview(move |webview| {
-      let _ = tx.send(webkit_settings_snapshot(&webview.inner()));
+      let state = webkit_settings_snapshot(&webview.inner(), &persisted);
+      let _ = tx.send(state);
     })
     .is_err()
   {
@@ -81,9 +83,12 @@ async fn read_webkit_state(app: &AppHandle) -> Option<WebKitState> {
 }
 
 #[cfg(target_os = "linux")]
-fn webkit_settings_snapshot(webview: &webkit2gtk::WebView) -> WebKitState {
+fn webkit_settings_snapshot(
+  webview: &webkit2gtk::WebView,
+  persisted: &crate::settings::AppSettings,
+) -> WebKitState {
   use webkit2gtk::{SettingsExt, WebViewExt};
-  match webview.settings() {
+  let mut state = match webview.settings() {
     Some(settings) => WebKitState {
       smooth_scroll: settings.enables_smooth_scrolling(),
       hardware_acceleration_policy: format!(
@@ -97,7 +102,16 @@ fn webkit_settings_snapshot(webview: &webkit2gtk::WebView) -> WebKitState {
       hardware_acceleration_policy: "Unknown".into(),
       webgl_enabled: false,
     },
+  };
+  // WebKitGTK only honours the hardware-acceleration policy when it is set
+  // *before* the web process starts, so the live getter may not reflect the
+  // configured value after launch (it tends to report the effective default,
+  // e.g. "Never"). Prefer the persisted preference as the source of truth so
+  // the setting sticks across navigation and restarts.
+  if let Some(policy) = persisted.webkit_hw_accel_policy.as_ref() {
+    state.hardware_acceleration_policy = policy.clone();
   }
+  state
 }
 
 /// Applies persisted WebKit settings to the main webview at startup.
@@ -163,10 +177,12 @@ pub(crate) async fn get_webkit_settings(app: AppHandle) -> Result<WebKitState, S
   let window = app
     .get_webview_window("main")
     .ok_or_else(|| "main webview window not found".to_string())?;
+  let persisted = crate::settings::load_settings(&app);
   let (tx, rx) = tokio::sync::oneshot::channel::<WebKitState>();
   window
     .with_webview(move |webview| {
-      let _ = tx.send(webkit_settings_snapshot(&webview.inner()));
+      let state = webkit_settings_snapshot(&webview.inner(), &persisted);
+      let _ = tx.send(state);
     })
     .map_err(|error| format!("with_webview failed: {error}"))?;
   rx.await.map_err(|_| "main thread dropped the response".to_string())

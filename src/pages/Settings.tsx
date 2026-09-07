@@ -447,7 +447,8 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
   {
     id: "rendering-hw-accel",
     title: "Hardware Acceleration",
-    description: "WebKitGTK hardware acceleration policy",
+    description:
+      "WebKitGTK hardware acceleration policy. Only takes effect after restarting the app.",
     category: "developer",
     keywords: ["gpu", "acceleration", "webkit", "hardware", "rendering"],
     desktopOnly: true,
@@ -2482,7 +2483,7 @@ export default function Settings() {
                             >
                               <SettingsLabel
                                 title="Hardware Acceleration"
-                                description="WebKitGTK hardware acceleration policy"
+                                description="WebKitGTK hardware acceleration policy. Only takes effect after restarting the app."
                               />
                               <div className="w-36 shrink-0">
                                 <Listbox

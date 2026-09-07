@@ -45,6 +45,7 @@
 - Added a Streamer / OPSEC mode (Settings → Appearance) that masks user names, emails and the server URL with funny placeholder text across the sidebar, community, profiles, administration and game activity, so a stream capture doesn't leak real identities or your server address.
 - Fixed "Open Folder" still doing nothing on Linux for KDE Plasma (Dolphin) users running the AppImage: the AppImage's bundled `xdg-open` no longer intercepts the request — folders and URLs are now opened with the host system's launchers instead.
 - Deleting a download card for a game that was downloaded but never installed now also removes the leftover empty Installation folder and its empty parent folder.
+- Fixed the WebKitGTK hardware-acceleration policy setting not sticking on Linux: it no longer reverts to "Never" when you leave the settings page or restart the app, and the value you choose is now remembered.
 
 ---
 
