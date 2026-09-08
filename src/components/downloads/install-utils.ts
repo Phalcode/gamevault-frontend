@@ -23,7 +23,7 @@ export const FORCE_INSTALL_TYPES: { label: string; value: GameType }[] = [
 export function formatGameTypeLabel(gameType?: string) {
   if (!gameType) return "Undetectable";
   return gameType
-    .replace(/_/g, " ")
+    .replaceAll("_", " ")
     .toLowerCase()
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -46,7 +46,7 @@ export function resolveInstallMode(gameType?: string): InstallViewMode {
 }
 
 export function normalizeRelativePath(value?: string) {
-  return (value || "").replace(/\\/g, "/").toLowerCase();
+  return (value || "").replaceAll("\\", "/").toLowerCase();
 }
 
 const WINDOWS_EXECUTABLE_EXTENSIONS = ["exe", "bat", "cmd", "com", "msi"];

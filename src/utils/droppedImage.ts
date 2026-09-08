@@ -24,7 +24,7 @@ export function isProbablyImageUrl(value: string): boolean {
 
 /** Pull the first http(s) URL out of a string, ignoring trailing link text. */
 export function extractFirstUrl(value: string): string | null {
-  const match = value.match(/https?:\/\/[^\s]+/i);
+  const match = /https?:\/\/[^\s]+/i.exec(value);
   return match ? match[0] : null;
 }
 
@@ -137,7 +137,7 @@ async function fetchImageFile(url: string): Promise<File | null> {
     if (!blob.type.startsWith("image/")) return null;
     const name =
       decodeURIComponent(
-        (url.match(/\/[^/?#]+(?=(\?|#|$))/)?.[0] || "/image.png").slice(1),
+        (/\/[^/?#]+(?=(\?|#|$))/.exec(url)?.[0] || "/image.png").slice(1),
       ) || "image.png";
     return new File([blob], name, { type: blob.type });
   } catch (error) {
@@ -164,7 +164,7 @@ export async function resolveDroppedImageSource(
 
   // Browser-dragged URL (possibly with link text appended, e.g.
   // "https://example.com/image.jpg 45 - phalanx").
-  const urlMatch = value.match(/https?:\/\/[^\s]+/i);
+  const urlMatch = /https?:\/\/[^\s]+/i.exec(value);
   if (urlMatch) {
     const url = urlMatch[0];
     if (isProbablyImageUrl(url)) return { kind: "url", url };
