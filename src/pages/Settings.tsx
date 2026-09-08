@@ -262,7 +262,15 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     title: "Streamer / OPSEC Mode",
     description: "Mask user names, emails and the server URL with placeholders",
     category: "appearance",
-    keywords: ["streamer", "opsec", "privacy", "mask", "anon", "placeholder"],
+    keywords: [
+      "streamer",
+      "opsec",
+      "privacy",
+      "mask",
+      "anon",
+      "placeholder",
+      "hotkey",
+    ],
   },
   // Sound
   {
@@ -2113,7 +2121,7 @@ export default function Settings() {
                       <SettingsRow>
                         <SettingsLabel
                           title="Streamer / OPSEC Mode"
-                          description="Replaces user names, emails and the server URL with funny placeholder text so your stream capture never leaks real identities or your server address."
+                          description="Replaces user names, emails and the server URL with funny placeholder text so your stream capture never leaks real identities or your server address. Tip: press Ctrl/Cmd+Shift+O to toggle it from anywhere."
                         />
                         <div className="shrink-0">
                           <StreamerModeToggle />
