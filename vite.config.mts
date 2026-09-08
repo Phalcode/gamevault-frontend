@@ -38,6 +38,8 @@ export default defineConfig({
     ),
   },
   test: {
+    globals: true,
+    setupFiles: ["./src/testing/setup.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],

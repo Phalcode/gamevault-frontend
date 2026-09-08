@@ -31,8 +31,8 @@ export function UserAvatar({
   const showPlaceholder = streamerMode || !media?.id;
   const placeholderSeed = seed || alt || "anonymous";
   const placeholderSrc = useMemo(
-    () => createDicebearAvatar(placeholderSeed),
-    [placeholderSeed],
+    () => (showPlaceholder ? createDicebearAvatar(placeholderSeed) : ""),
+    [showPlaceholder, placeholderSeed],
   );
   if (showPlaceholder) {
     return (
