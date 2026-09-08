@@ -29,7 +29,7 @@ export function Media({
   square = false,
   fit = "contain",
   fallback,
-  onClick = () => {},
+  onClick,
   gameId,
   mediaSlot,
 }: Props) {
@@ -119,7 +119,19 @@ export function Media({
           loading="lazy"
           decoding="async"
           draggable={false}
+          role={onClick ? "button" : undefined}
+          tabIndex={onClick ? 0 : undefined}
           onClick={onClick}
+          onKeyDown={
+            onClick
+              ? (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onClick(e as any);
+                  }
+                }
+              : undefined
+          }
           onError={retryAfterDecodeError}
         />
       )}

@@ -16,16 +16,21 @@ export default function NotFound() {
         }`}
       />
       <div className="relative z-10 flex flex-col items-center text-center px-4">
-        <img
-          src="/crackpipe.png"
-          alt="Dead End Roadsign"
-          width={160}
-          height={160}
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label="Play the wellerman tune"
           className={`mb-4 h-40 cursor-pointer motion-reduce:animate-none ${
             isPlaying ? "animate-[spin_7s_linear_infinite]" : ""
           }`}
-          onClick={toggle}
-        />
+        >
+          <img
+            src="/crackpipe.png"
+            alt="Dead End Roadsign"
+            width={160}
+            height={160}
+          />
+        </button>
         <h1 className="text-xl">404 - Page Not Found</h1>
         <h2 className="text-2xl sm:text-4xl mb-4 font-bold text-balance">
           „Arr... ye've taken a wrong turn at the seven seas!“
