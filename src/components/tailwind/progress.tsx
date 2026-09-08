@@ -34,19 +34,12 @@ export function ProgressBar({
           )}
         </div>
       )}
-      <div
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(percent)}
+      <progress
+        value={Math.round(percent)}
+        max={100}
         aria-label={label}
-        className="relative h-2 w-full overflow-hidden rounded-full bg-gv-line"
-      >
-        <div
-          className="absolute left-0 top-0 h-full rounded-full bg-gv-accent transition-[width] duration-300 ease-out motion-reduce:transition-none"
-          style={{ width: `${percent}%` }}
-        />
-      </div>
+        className="block h-2 w-full overflow-hidden rounded-full bg-gv-line text-gv-accent [&::-webkit-progress-bar]:bg-gv-line [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-gv-accent [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-gv-accent"
+      />
       {currentFile && (
         <p className="truncate text-xs text-gv-muted" title={currentFile}>
           {currentFile}
