@@ -183,9 +183,8 @@ async function bindGameMedia(
   const readTxn = database.transaction("gameMediaBindings", "readonly");
   const existing = await readTxn.store.get(bindingKey);
   if (
-    existing &&
-    existing.mediaKey === mediaKey &&
-    now - existing.lastSeenAt <= ACCESS_UPDATE_THRESHOLD_MS
+    existing?.mediaKey === mediaKey &&
+    now - (existing?.lastSeenAt ?? 0) <= ACCESS_UPDATE_THRESHOLD_MS
   ) {
     return;
   }

@@ -118,10 +118,10 @@ async function readLocalFile(path: string): Promise<File | null> {
     const bytes = new Uint8Array(arr);
     const name = path.split(/[\\/]/).pop() || "image.png";
     const ext = (name.split(".").pop() || "").toLowerCase();
-    const type =
-      /^(png|jpe?g|gif|webp|avif|svg)$/i.test(ext)
-        ? `image/${ext === "jpg" ? "jpeg" : ext}`
-        : "application/octet-stream";
+    let type = "application/octet-stream";
+    if (/^(png|jpe?g|gif|webp|avif|svg)$/i.test(ext)) {
+      type = `image/${ext === "jpg" ? "jpeg" : ext}`;
+    }
     return new File([bytes], name, { type });
   } catch (error) {
     console.error("Failed to read dropped file:", error);

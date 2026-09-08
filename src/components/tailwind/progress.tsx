@@ -18,7 +18,7 @@ export function ProgressBar({
   valueText,
   currentFile,
   className,
-}: ProgressBarProps) {
+}: Readonly<ProgressBarProps>) {
   const percent =
     typeof value === "number" && Number.isFinite(value)
       ? Math.min(100, Math.max(0, value))

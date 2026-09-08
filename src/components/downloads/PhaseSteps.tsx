@@ -15,7 +15,7 @@ export type PhaseStep = {
   valueText?: string;
 };
 
-function StepIcon({ state }: { state: StepState }) {
+function StepIcon({ state }: Readonly<{ state: StepState }>) {
   if (state === "done") {
     return (
       <CheckCircleIcon
@@ -50,17 +50,17 @@ function StepIcon({ state }: { state: StepState }) {
   );
 }
 
-export function PhaseSteps({ steps }: { steps: PhaseStep[] }) {
+export function PhaseSteps({ steps }: Readonly<{ steps: PhaseStep[] }>) {
   return (
     <ol className="flex items-center gap-2 sm:gap-3" aria-label="Download phases">
       {steps.map((step, index) => {
         const isLast = index === steps.length - 1;
-        const labelClass =
-          step.state === "error"
-            ? "text-gv-danger"
-            : step.state === "pending"
-              ? "text-gv-muted"
-              : "text-gv-text";
+        let labelClass = "text-gv-text";
+        if (step.state === "error") {
+          labelClass = "text-gv-danger";
+        } else if (step.state === "pending") {
+          labelClass = "text-gv-muted";
+        }
         return (
           <Fragment key={step.id}>
             <li

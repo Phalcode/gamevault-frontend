@@ -14,7 +14,7 @@ import {
  * Volume slider for the central audio system: drag to set the level,
  * click the speaker icon to mute/unmute, shows the percentage.
  */
-export function VolumeControl({ className }: { className?: string }) {
+export function VolumeControl({ className }: Readonly<{ className?: string }>) {
   const [volume, setVolume] = useState(getAudioVolume());
 
   useEffect(() => {

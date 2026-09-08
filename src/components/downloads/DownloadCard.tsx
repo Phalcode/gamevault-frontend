@@ -106,10 +106,10 @@ function getInstallationStepState(download: ActiveDownload): StepState {
 export function DownloadCard({
   download,
   index = 0,
-}: {
+}: Readonly<{
   download: ActiveDownload;
   index?: number;
-}) {
+}>) {
   const {
     cancelDownload,
     pauseDownload,

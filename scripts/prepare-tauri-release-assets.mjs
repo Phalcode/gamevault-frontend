@@ -219,8 +219,10 @@ for (const updater of config.updaters) {
     archLabel,
   );
 
-  releaseFiles.push({ source: assetPath, target: assetName });
-  releaseFiles.push({ source: signaturePath, target: `${assetName}.sig` });
+  releaseFiles.push(
+    { source: assetPath, target: assetName },
+    { source: signaturePath, target: `${assetName}.sig` },
+  );
 
   updaters.push({ installer: updater.installer, assetName, signaturePath });
 }

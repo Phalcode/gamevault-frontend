@@ -92,8 +92,8 @@ export function Login() {
     // Prefill demo credentials when the demo server is selected.
     if (!confirmedServer) return;
     if (normalizeServerUrl(confirmedServer) === DEMO_SERVER_URL) {
-      setUsername((u) => (u ? u : DEMO_USERNAME));
-      setPassword((p) => (p ? p : DEMO_PASSWORD));
+      setUsername((u) => u || DEMO_USERNAME);
+      setPassword((p) => p || DEMO_PASSWORD);
     }
   }, [confirmedServer]);
 

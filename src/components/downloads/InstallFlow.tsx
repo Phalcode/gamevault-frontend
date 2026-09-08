@@ -34,7 +34,7 @@ export function InstallFlow({
   onClose,
   onSetUndetectedMode,
   onForceInstall,
-}: InstallFlowProps) {
+}: Readonly<InstallFlowProps>) {
   const { copyInstallationFiles, launchInstallationExecutable } =
     useDownloads();
   const { showAlert } = useAlertDialog();

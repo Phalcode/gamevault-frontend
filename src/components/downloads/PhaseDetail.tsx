@@ -24,7 +24,7 @@ type PhaseDetailProps = {
   onForceInstall: () => void;
 };
 
-function ErrorNote({ message }: { message: string }) {
+function ErrorNote({ message }: Readonly<{ message: string }>) {
   return (
     <div className="flex items-start gap-2 text-xs text-red-600 dark:text-red-400">
       <ExclamationTriangleIcon
@@ -46,7 +46,7 @@ export function PhaseDetail({
   onCloseInstallView,
   onSetUndetectedMode,
   onForceInstall,
-}: PhaseDetailProps) {
+}: Readonly<PhaseDetailProps>) {
   const isDownloadingOrPaused =
     download.status === "downloading" || download.status === "paused";
   const isFailed =
