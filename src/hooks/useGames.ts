@@ -6,6 +6,13 @@ import { ProgressStateEnum } from "@/api/models/Progress";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { isTauriApp } from "@/utils/tauri";
+import {
+  buildCacheKey,
+  buildGamesQueryParams,
+  BookmarkFilter,
+  EarlyAccessFilter,
+} from "@/utils/gamesQuery";
+export type { BookmarkFilter, EarlyAccessFilter } from "@/utils/gamesQuery";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface PaginatedData<T> {
@@ -13,9 +20,6 @@ interface PaginatedData<T> {
   meta: { totalItems: number };
   links: { next?: string | null };
 }
-
-export type EarlyAccessFilter = "all" | "true" | "false";
-export type BookmarkFilter = "all" | "mine" | "others";
 
 export interface UseGamesOptions {
   search: string;
@@ -55,31 +59,6 @@ interface CachedGamesState {
 // This prevents losing infinite-scroll pages when navigating away and back
 // (e.g. Library → GameView → back).
 const gamesCache = new Map<string, CachedGamesState>();
-
-function buildCacheKey(
-  options: UseGamesOptions,
-  serverUrl: string,
-  userId: unknown,
-): string {
-  return JSON.stringify({
-    search: options.search,
-    sortBy: options.sortBy,
-    order: options.order,
-    limit: options.limit,
-    bookmarkFilter: options.bookmarkFilter,
-    gameTypes: options.gameTypes?.slice().sort(),
-    tags: options.tags?.slice().sort(),
-    genres: options.genres?.slice().sort(),
-    developers: options.developers?.slice().sort(),
-    publishers: options.publishers?.slice().sort(),
-    gameState: options.gameState,
-    releaseDateFrom: options.releaseDateFrom,
-    releaseDateTo: options.releaseDateTo,
-    earlyAccess: options.earlyAccess,
-    serverUrl,
-    userId: userId ?? null,
-  });
-}
 
 export function useGames({
   search,
@@ -181,76 +160,24 @@ export function useGames({
     setError(null);
     try {
       const base = serverUrl.replace(/\/+$/, "");
-      const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      if (sortBy) params.set("sortBy", `${sortBy}:${order}`);
-      if (limit) params.set("limit", String(limit));
-      // Bookmark filter
       const userId = (user as any)?.id ?? (user as any)?.ID;
-      if (bookmarkFilter === "mine" && userId != null) {
-        // My bookmarks: games bookmarked by me
-        params.set("filter.bookmarked_users.id", `$eq:${userId}`);
-      } else if (bookmarkFilter === "others" && userId != null) {
-        // Bookmarked by others: games that have bookmarks but NOT by me
-        // Use $not:$eq to exclude my bookmarks, combined with $not:$null to ensure it has some bookmarks
-        params.set("filter.bookmarked_users.id", `$not:$eq:${userId}`);
-      }
-      // Game type filter (use ref for current value)
-      const currentGameTypes = gameTypesRef.current;
-      if (currentGameTypes.length > 0) {
-        params.set("filter.type", `$in:${currentGameTypes.join(",")}`);
-      }
-      // Tag filter (use ref for current value)
-      const currentTags = tagsRef.current;
-      if (currentTags.length > 0) {
-        params.set("filter.metadata.tags.name", `$in:${currentTags.join(",")}`);
-      }
-      // Genre filter (use ref for current value)
-      const currentGenres = genresRef.current;
-      if (currentGenres.length > 0) {
-        params.set(
-          "filter.metadata.genres.name",
-          `$in:${currentGenres.join(",")}`,
-        );
-      }
-      // Developer filter (use ref for current value)
-      const currentDevelopers = developersRef.current;
-      if (currentDevelopers.length > 0) {
-        params.set(
-          "filter.metadata.developers.name",
-          `$in:${currentDevelopers.join(",")}`,
-        );
-      }
-      // Publisher filter (use ref for current value)
-      const currentPublishers = publishersRef.current;
-      if (currentPublishers.length > 0) {
-        params.set(
-          "filter.metadata.publishers.name",
-          `$in:${currentPublishers.join(",")}`,
-        );
-      }
-      // Game state filter
-      if (gameState && userId != null) {
-        params.set("filter.progresses.state", `$eq:${gameState}`);
-        params.set("filter.progresses.user.id", `$eq:${userId}`);
-      }
-      // Release date range filter
-      if (releaseDateFrom && releaseDateTo) {
-        params.set(
-          "filter.metadata.release_date",
-          `$btw:${releaseDateFrom},${releaseDateTo}`,
-        );
-      } else if (releaseDateFrom) {
-        params.set("filter.metadata.release_date", `$gte:${releaseDateFrom}`);
-      } else if (releaseDateTo) {
-        params.set("filter.metadata.release_date", `$lte:${releaseDateTo}`);
-      }
-      // Early access filter
-      if (earlyAccess === "true") {
-        params.set("filter.metadata.early_access", "$eq:true");
-      } else if (earlyAccess === "false") {
-        params.set("filter.metadata.early_access", "$eq:false");
-      }
+      const params = buildGamesQueryParams({
+        search,
+        sortBy,
+        order,
+        limit,
+        bookmarkFilter,
+        userId,
+        gameTypes: gameTypesRef.current,
+        tags: tagsRef.current,
+        genres: genresRef.current,
+        developers: developersRef.current,
+        publishers: publishersRef.current,
+        gameState,
+        releaseDateFrom,
+        releaseDateTo,
+        earlyAccess,
+      });
       const url = `${base}/api/games?${params.toString()}`;
       const res = await authFetch(url, { method: "GET", signal: ac.signal });
       if (!res.ok) throw new Error(`Games fetch failed (${res.status})`);

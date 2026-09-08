@@ -14,7 +14,15 @@ import { isTauriApp } from "@/utils/tauri";
 import { onGameUpdated } from "@/utils/gameUpdates";
 import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
 import { getRootPaths } from "@/utils/rootPaths";
-import { formatTrimmedNumber } from "@/utils/number";
+import {
+  computeSpeedBps,
+  formatBytes,
+  formatKBps,
+  formatLimit,
+  formatSpeed,
+  getSkipAutoResumeIds,
+  setSkipAutoResume,
+} from "@/utils/downloadFormat";
 import {
   pickPreferredInstaller,
   pickPreferredExecutable,
@@ -115,38 +123,6 @@ const DEFAULT_GAME_VAULT_CONFIG: GameVaultConfig = {
   downloadprogress: "",
 };
 
-// ── Auto-resume bookkeeping ─────────────────────────────────────────────────
-// The backend reports every non-completed download with progress as "paused",
-// so it cannot distinguish a user-initiated pause from a download interrupted
-// by the app exiting. We persist the set of game IDs the user intentionally
-// stopped (paused/cancelled) so only those stay paused after a restart; every
-// other recovered download auto-resumes.
-const SKIP_AUTO_RESUME_KEY = "skip_auto_resume_downloads";
-
-function getSkipAutoResumeIds(): Set<number> {
-  try {
-    const raw = localStorage.getItem(SKIP_AUTO_RESUME_KEY);
-    if (!raw) return new Set();
-    const arr = JSON.parse(raw);
-    return new Set(
-      (Array.isArray(arr) ? arr : []).map(Number).filter((n) => n > 0),
-    );
-  } catch {
-    return new Set();
-  }
-}
-
-function setSkipAutoResume(gameId: number, skip: boolean) {
-  if (gameId <= 0) return;
-  const ids = getSkipAutoResumeIds();
-  if (skip) ids.add(gameId);
-  else ids.delete(gameId);
-  try {
-    localStorage.setItem(SKIP_AUTO_RESUME_KEY, JSON.stringify([...ids]));
-  } catch {
-    /* ignore */
-  }
-}
 
 type StartDownloadParams = {
   gameId: number;
@@ -210,27 +186,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   ) => {
     while (samples.length && now - samples[0].t > SPEED_WINDOW_MS)
       samples.shift();
-  };
-  const computeSpeedBps = (
-    samples: { t: number; bytes: number }[],
-    received: number,
-    now: number,
-  ): number | undefined => {
-    if (!samples.length) return undefined;
-    const first = samples[0];
-    const elapsedSec = (now - first.t) / 1000;
-    if (elapsedSec <= 0) return undefined;
-    return (received - first.bytes) / elapsedSec;
-  };
-  const precision = (v: number) => (v < 10 ? 2 : v < 100 ? 1 : 0);
-  const scaleDecimal = (value: number, base: number, units: string[]) => {
-    let v = value;
-    let u = 0;
-    while (v >= base && u < units.length - 1) {
-      v /= base;
-      u++;
-    }
-    return { value: v, unit: units[u] };
   };
 
   const updateDownload = useCallback(
@@ -2324,51 +2279,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     };
 
     cleanupOrphanCaches();
-  }, []);
-
-  const formatBytes = useCallback((bytes: number) => {
-    if (!isFinite(bytes) || bytes <= 0) return "0 B";
-    if (bytes < 1024) return `${bytes} B`;
-    const units = ["KB", "MB", "GB", "TB", "PB"];
-    let v = bytes / 1024;
-    let u = 0;
-    while (v >= 1024 && u < units.length - 1) {
-      v /= 1024;
-      u++;
-    }
-    return `${formatTrimmedNumber(v, precision(v))} ${units[u]}`;
-  }, []);
-
-  const formatSpeed = useCallback((bps?: number) => {
-    if (bps === undefined || bps === null || !isFinite(bps)) return "";
-    if (bps < 1000) return `${formatTrimmedNumber(bps, 0)} B/s`;
-    // decimal scaling
-    let { value: v, unit } = scaleDecimal(bps / 1000, 1000, [
-      "KB",
-      "MB",
-      "GB",
-      "TB",
-      "PB",
-    ]);
-    return `${formatTrimmedNumber(v, precision(v))} ${unit}/s`;
-  }, []);
-
-  const formatKBps = useCallback((bps?: number) => {
-    if (bps === undefined || bps === null || !isFinite(bps) || bps <= 0)
-      return "0 KB/s";
-    const kb = bps / 1000;
-    return `${formatTrimmedNumber(kb, precision(kb))} KB/s`;
-  }, []);
-
-  const formatLimit = useCallback((kbPerSec: number) => {
-    if (!kbPerSec || kbPerSec <= 0) return "Unlimited";
-    let { value: v, unit } = scaleDecimal(kbPerSec, 1000, [
-      "KB/s",
-      "MB/s",
-      "GB/s",
-      "TB/s",
-    ]);
-    return `${formatTrimmedNumber(v, precision(v))} ${unit}`;
   }, []);
 
   // ── OS taskbar / dock indicator (progress + attention) ────────────────

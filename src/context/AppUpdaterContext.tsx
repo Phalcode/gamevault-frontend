@@ -8,9 +8,21 @@ import {
 } from "react";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { isTauriApp } from "@/utils/tauri";
+import {
+  channelLabel,
+  clearSkippedVersion,
+  compareVersions,
+  formatUpdateError,
+  formatUpdatePrompt,
+  isMissingUpdaterFeedError,
+  normalizeVersion,
+  readSkippedVersion,
+  readUpdateChannel,
+  writeSkippedVersion,
+  writeUpdateChannel,
+} from "@/utils/updater";
+import type { UpdateChannel } from "@/utils/updater";
 
-const SKIPPED_UPDATE_KEY = "gv_skipped_update_version";
-const UPDATE_CHANNEL_KEY = "gv_update_channel";
 const AUTO_CHECK_DELAY_MS = 1500;
 const APP_UPDATER_EVENT = "app-updater-progress";
 const GITHUB_RELEASE_API_URLS: Record<UpdateChannel, string> = {
@@ -28,8 +40,6 @@ const GITHUB_RELEASE_PAGE_URLS: Record<UpdateChannel, string> = {
   unstable:
     "https://github.com/Phalcode/gamevault-frontend/releases/tag/unstable",
 };
-
-export type UpdateChannel = "stable" | "early-access" | "unstable";
 
 type UpdateDownloadEvent =
   | {
@@ -89,135 +99,6 @@ const AppUpdaterContext = createContext<AppUpdaterContextValue | undefined>(
   undefined,
 );
 
-function channelLabel(channel: UpdateChannel): string {
-  return channel;
-}
-
-function readSkippedVersion(channel: UpdateChannel): string | null {
-  try {
-    return localStorage.getItem(`${SKIPPED_UPDATE_KEY}:${channel}`);
-  } catch {
-    return null;
-  }
-}
-
-function writeSkippedVersion(channel: UpdateChannel, version: string): void {
-  try {
-    localStorage.setItem(`${SKIPPED_UPDATE_KEY}:${channel}`, version);
-  } catch {
-    // localStorage unavailable
-  }
-}
-
-function clearSkippedVersion(channel: UpdateChannel): void {
-  try {
-    localStorage.removeItem(`${SKIPPED_UPDATE_KEY}:${channel}`);
-  } catch {
-    // localStorage unavailable
-  }
-}
-
-function defaultChannelForBuild(): UpdateChannel {
-  const buildChannel = __BUILD_CHANNEL__;
-  return buildChannel === "unstable" || buildChannel === "early-access"
-    ? buildChannel
-    : "stable";
-}
-
-function readUpdateChannel(): UpdateChannel {
-  const buildDefault = defaultChannelForBuild();
-  try {
-    const value = localStorage.getItem(UPDATE_CHANNEL_KEY);
-    if (
-      value === "stable" ||
-      value === "unstable" ||
-      value === "early-access"
-    ) {
-      return value;
-    }
-    return buildDefault;
-  } catch {
-    return buildDefault;
-  }
-}
-
-function formatReleaseNotes(notes?: string | null): string {
-  if (!notes) return "";
-
-  const collapsed = notes.replace(/\s+/g, " ").trim();
-  if (!collapsed) return "";
-  if (collapsed.length <= 240) return collapsed;
-  return `${collapsed.slice(0, 237)}...`;
-}
-
-function formatUpdatePrompt(
-  version: string,
-  channel: UpdateChannel,
-  notes?: string | null,
-): string {
-  const releaseNotes = formatReleaseNotes(notes);
-  const parts = [
-    `You are running GameVault v${__APP_VERSION__}.`,
-    `GameVault v${version} is available on the ${channelLabel(channel)} channel and can be downloaded from GitHub now.`,
-  ];
-
-  if (releaseNotes) {
-    parts.push(`Release notes: ${releaseNotes}`);
-  }
-
-  parts.push("Do you want to download and install this update now?");
-  return parts.join(" ");
-}
-
-function formatUpdateError(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message.trim();
-  }
-
-  if (typeof error === "string" && error.trim()) {
-    return error.trim();
-  }
-
-  return "GameVault could not complete the update check.";
-}
-
-function normalizeVersion(version: string): string {
-  return version.replace(/^v/i, "").trim();
-}
-
-function compareVersions(left: string, right: string): number {
-  const leftParts = normalizeVersion(left)
-    .split("-")[0]
-    .split(".")
-    .map((part) => Number.parseInt(part, 10));
-  const rightParts = normalizeVersion(right)
-    .split("-")[0]
-    .split(".")
-    .map((part) => Number.parseInt(part, 10));
-
-  const length = Math.max(leftParts.length, rightParts.length);
-  for (let index = 0; index < length; index += 1) {
-    const leftValue = Number.isFinite(leftParts[index]) ? leftParts[index] : 0;
-    const rightValue = Number.isFinite(rightParts[index])
-      ? rightParts[index]
-      : 0;
-
-    if (leftValue > rightValue) return 1;
-    if (leftValue < rightValue) return -1;
-  }
-
-  return 0;
-}
-
-function isMissingUpdaterFeedError(error: unknown): boolean {
-  const message = formatUpdateError(error).toLowerCase();
-  return (
-    message.includes("404") ||
-    message.includes("not found") ||
-    message.includes("target")
-  );
-}
-
 async function fetchGithubReleaseFallback(
   channel: UpdateChannel,
 ): Promise<GithubReleaseFallback> {
@@ -260,12 +141,7 @@ export function AppUpdaterProvider({
 
   const setUpdateChannel = useCallback((channel: UpdateChannel) => {
     setUpdateChannelState(channel);
-
-    try {
-      localStorage.setItem(UPDATE_CHANNEL_KEY, channel);
-    } catch {
-      console.warn("Failed to persist update channel preference");
-    }
+    writeUpdateChannel(channel);
   }, []);
 
   useEffect(() => {
