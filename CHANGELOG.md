@@ -58,6 +58,7 @@
 - Fixed downloads aborting with a 401 error when you refresh (F5) mid-download: auto-resumed downloads now wait for a valid session token instead of firing before login has finished.
 - Added a keyboard shortcut (Ctrl/Cmd+Shift+O) to toggle Streamer/OPSEC mode from anywhere in the app.
 - OPSEC mode placeholders are now shorter (two words: adjective + animal) and the placeholder name, handle and email all line up for each user, so a stream capture never leaks a real identity or address.
+- Cleaned up the Community Page UI
 
 ## 17.0.0
 
