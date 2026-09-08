@@ -59,20 +59,24 @@ export function PhaseDetail({
     download.installationStatus === "copying" ||
     download.installationStatus === "launching";
 
-  const extractionProgressText =
+  let extractionProgressText = "In progress";
+  if (
     download.extractionProgress !== null &&
     download.extractionProgress !== undefined
-      ? `${formatDecimal(download.extractionProgress, 1)}%`
-      : "In progress";
+  ) {
+    extractionProgressText = `${formatDecimal(download.extractionProgress, 1)}%`;
+  }
 
-  const installProgressText =
+  let installProgressText = "In progress";
+  if (
     download.installationStatus === "copying" &&
     download.installationProgress !== null &&
     download.installationProgress !== undefined
-      ? `${formatDecimal(download.installationProgress, 1)}%`
-      : download.installationStatus === "launching"
-        ? "Starting"
-        : "In progress";
+  ) {
+    installProgressText = `${formatDecimal(download.installationProgress, 1)}%`;
+  } else if (download.installationStatus === "launching") {
+    installProgressText = "Starting";
+  }
 
   return (
     <div className="surface-panel-soft rounded-xl p-4">
