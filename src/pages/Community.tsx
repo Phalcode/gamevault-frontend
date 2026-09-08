@@ -26,11 +26,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useScrollRestoration } from "@/hooks/useScrollRestoration";
-import {
-  maskDisplayName,
-  maskHandle,
-  useStreamerMode,
-} from "@/utils/streamerMode";
+import { maskUser, useStreamerMode } from "@/utils/streamerMode";
 import type { GamevaultGame, GamevaultUser, Progress } from "../api";
 
 type UserDetailsMap = Record<number, GamevaultUser>;
@@ -318,12 +314,9 @@ function NetworkUserCard({
   const stats = getUserStats(user);
   const recent = getRecentProgresses(user, 3);
   const streamerMode = useStreamerMode();
-  const displayName = streamerMode
-    ? maskDisplayName(getDisplayName(user))
-    : getDisplayName(user);
-  const handle = streamerMode
-    ? maskHandle(getUserHandle(user))
-    : getUserHandle(user);
+  const masked = streamerMode ? maskUser(user) : null;
+  const displayName = masked?.displayName ?? getDisplayName(user);
+  const handle = masked?.handle ?? getUserHandle(user);
 
   return (
     <Link
@@ -345,6 +338,7 @@ function NetworkUserCard({
                 size={76}
                 alt={displayName}
                 fallback={getAvatarFallback(user)}
+                seed={String(user.id)}
                 className="border border-gv-line/70 bg-gv-panel-soft shadow-sm"
               />
               <div className="min-w-0 space-y-2">
@@ -357,9 +351,7 @@ function NetworkUserCard({
                     {getRoleLabel(Number(user.role))}
                   </Badge>
                 </div>
-                <div className="truncate text-sm text-gv-muted">
-                  @{handle}
-                </div>
+                <div className="truncate text-sm text-gv-muted">@{handle}</div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gv-muted">
                   <span
                     title={formatFullDateTime(stats.lastPlayed) ?? undefined}

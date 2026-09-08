@@ -58,10 +58,7 @@ import { GameSettings } from "@/components/admin/GameSettings";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { isTauriApp } from "@/utils/tauri";
-import {
-  maskDisplayName,
-  useStreamerMode,
-} from "@/utils/streamerMode";
+import { maskDisplayName, useStreamerMode } from "@/utils/streamerMode";
 import { LayoutGroup, motion } from "motion/react";
 import { EASE_OUT } from "@/lib/motion";
 
@@ -1267,8 +1264,9 @@ export default function GameView() {
                         const uid = p.user?.id ?? (p.user as any)?.ID;
                         const rawUname =
                           (p.user as any)?.username || `User #${uid}`;
+                        const userSeed = uid != null ? String(uid) : rawUname;
                         const uname = streamerMode
-                          ? maskDisplayName(rawUname)
+                          ? maskDisplayName(userSeed)
                           : rawUname;
                         const avatarMedia = (p.user as any)?.avatar;
                         const lastPlayedStr = p.last_played_at
@@ -1282,6 +1280,7 @@ export default function GameView() {
                               media={avatarMedia}
                               size={32}
                               alt={uname}
+                              seed={userSeed}
                               fallback={
                                 <div className="flex h-full w-full items-center justify-center rounded-[20%] bg-gv-panel-soft text-[10px] font-semibold text-gv-text">
                                   {uname.slice(0, 2).toUpperCase()}

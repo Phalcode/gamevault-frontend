@@ -10,59 +10,22 @@
  */
 
 import { useEffect, useState } from "react";
+import {
+  adjectives,
+  animals,
+  colors,
+  uniqueNamesGenerator,
+} from "unique-names-generator";
 
 const STREAMER_MODE_KEY = "gv_streamer_mode";
 const STREAMER_MODE_EVENT = "gv:streamer-mode-change";
 
-const FAKE_DISPLAY_NAMES = [
-  "Dr. Wobble",
-  "Noodle McFuzzle",
-  "Captain Clutch",
-  "Salty Sam",
-  "Lazy Llama",
-  "Pixel Peeker",
-  "Glitch Goblin",
-  "Space Cadet",
-  "Turbo Turtle",
-  "Waffle Wizard",
-  "Sir Loin",
-  "Mystery Meat",
-  "Bongo Bop",
-  "Sticky Keys",
-  "Ping Pong Brain",
-];
-
-const FAKE_HANDLES = [
-  "night_owl",
-  "spicy_noodle",
-  "quiet_llama",
-  "pixel_drifter",
-  "wobbly_waffle",
-  "galaxy_goblin",
-  "turbo_snail",
-  "sleepy_guardian",
-  "mellow_peeper",
-  "burst_bubble",
-  "calm_biscuit",
-  "crispy_moth",
-  "fuzzy_signal",
-  "chill_cactus",
-];
-
 const FAKE_SERVER_URL = "https://my.secret.server";
+const FAKE_EMAIL_DOMAIN = "masked.example";
 
-/** Deterministic djb2-style hash of a string, used to pick a stable placeholder. */
-function hash(input: string): number {
-  let value = 0;
-  for (let index = 0; index < input.length; index += 1) {
-    value = (value << 5) - value + input.charCodeAt(index);
-    value |= 0;
-  }
-  return Math.abs(value);
-}
-
-function pick<T>(items: T[], seed: string): T {
-  return items[hash(seed) % items.length];
+/** True for an empty/null/undefined seed (no identifiable user). */
+function isEmptySeed(seed: string | number): boolean {
+  return seed === "" || seed == null;
 }
 
 export function getStreamerMode(): boolean {
@@ -103,22 +66,55 @@ export function useStreamerMode(): boolean {
   return enabled;
 }
 
-export function maskDisplayName(name: string): string {
-  return name ? pick(FAKE_DISPLAY_NAMES, name) : "Anonymous";
+/** Deterministic stand-in display name, seeded from the user's stable id. */
+export function maskDisplayName(seed: string | number): string {
+  if (isEmptySeed(seed)) return "Anonymous";
+  return uniqueNamesGenerator({
+    dictionaries: [adjectives, colors, animals],
+    length: 3,
+    separator: " ",
+    style: "capital",
+    seed: String(seed),
+  });
 }
 
-export function maskHandle(handle: string): string {
-  return handle ? pick(FAKE_HANDLES, handle) : "_anon";
+/** Deterministic stand-in handle, seeded from the user's stable id. */
+export function maskHandle(seed: string | number): string {
+  if (isEmptySeed(seed)) return "_anon";
+  return uniqueNamesGenerator({
+    dictionaries: [adjectives, animals],
+    length: 2,
+    separator: "_",
+    style: "lowerCase",
+    seed: String(seed),
+  });
 }
 
-export function maskEmail(email: string): string {
-  if (!email) return "";
-  const atIndex = email.indexOf("@");
-  if (atIndex === -1) return "****@masked.example";
-  const domain = email.slice(atIndex + 1);
-  return `${pick(FAKE_HANDLES, email)}@${domain || "masked.example"}`;
+/** Deterministic stand-in email. The real domain is never leaked. */
+export function maskEmail(seed: string | number): string {
+  if (isEmptySeed(seed)) return "";
+  return `${maskHandle(seed)}@${FAKE_EMAIL_DOMAIN}`;
 }
 
 export function maskUrl(url: string): string {
   return url ? FAKE_SERVER_URL : "";
+}
+
+export interface MaskedUser {
+  displayName: string;
+  handle: string;
+  email: string;
+}
+
+/**
+ * Masks every identifier of a user with a single, stable stand-in seeded from
+ * `user.id`, so the same user always gets the same placeholder everywhere.
+ */
+export function maskUser(user: { id?: number }): MaskedUser {
+  const seed = user.id != null ? String(user.id) : "";
+  return {
+    displayName: maskDisplayName(seed),
+    handle: maskHandle(seed),
+    email: maskEmail(seed),
+  };
 }

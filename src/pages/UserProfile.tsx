@@ -16,11 +16,7 @@ import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { getGameCoverMediaId } from "@/hooks/useGames";
 import { getRoleLabel } from "@/utils/roles";
-import {
-  maskDisplayName,
-  maskHandle,
-  useStreamerMode,
-} from "@/utils/streamerMode";
+import { maskUser, useStreamerMode } from "@/utils/streamerMode";
 import { GamevaultUserRoleEnum } from "@/api";
 import clsx from "clsx";
 import {
@@ -374,6 +370,7 @@ export default function UserProfile() {
   const streamerMode = useStreamerMode();
 
   const [user, setUser] = useState<GamevaultUser | null>(null);
+  const masked = streamerMode && user ? maskUser(user) : null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -614,8 +611,9 @@ export default function UserProfile() {
               <UserAvatar
                 media={user.avatar}
                 size={110}
-                alt={streamerMode ? maskDisplayName(getDisplayName(user)) : getDisplayName(user)}
+                alt={masked?.displayName ?? getDisplayName(user)}
                 fallback={getAvatarFallback(user)}
+                seed={user?.id != null ? String(user.id) : undefined}
                 className="border-4 border-white/20 bg-gv-panel-soft/50 shadow-lg backdrop-blur-xl"
               />
               <div className="min-w-0 space-y-3">
@@ -628,15 +626,10 @@ export default function UserProfile() {
                 </div>
                 <div>
                   <h2 className="truncate text-3xl font-bold tracking-[-0.04em] text-white">
-                    {streamerMode
-                      ? maskDisplayName(getDisplayName(user))
-                      : getDisplayName(user)}
+                    {masked?.displayName ?? getDisplayName(user)}
                   </h2>
                   <p className="mt-1 text-base text-white/80">
-                    @
-                    {streamerMode
-                      ? maskHandle(getUserHandle(user))
-                      : getUserHandle(user)}
+                    @{masked?.handle ?? getUserHandle(user)}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3 text-sm text-white/80">

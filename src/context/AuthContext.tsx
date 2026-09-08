@@ -50,6 +50,8 @@ interface AuthContextValue {
   ) => Promise<{ auth: AuthTokens; user: GamevaultUser }>;
   logout: () => void;
   authFetch: (input: string, init?: RequestInit) => Promise<Response>;
+  /** Returns a fresh, valid access token (refreshing if needed), or null. */
+  getAccessToken: () => Promise<string | null>;
   refreshCurrentUser: () => Promise<GamevaultUser | null>;
 }
 
@@ -225,8 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Ensure the cached refresh token is populated so concurrent 401
       // handlers sharing this in-flight refresh never read an empty cache.
       await initTokenStorage();
-      const refreshToken =
-        authRef.current?.refresh_token || getRefreshToken();
+      const refreshToken = authRef.current?.refresh_token || getRefreshToken();
       if (!refreshToken) throw new Error("Missing refresh token");
       const data = await refreshWithToken(refreshToken);
       if (!data?.access_token)
@@ -267,9 +268,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // is recoverable — e.g. on a transient network blip, or a token that was
     // rotated between checks. The bootstrap itself handles genuine auth errors.
     if (bootstrapInProgressRef.current) {
-      console.log(
-        "[auth] handleSessionExpired suppressed during bootstrap",
-      );
+      console.log("[auth] handleSessionExpired suppressed during bootstrap");
       return;
     }
     console.log(
@@ -399,6 +398,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [ensureFreshToken, performRefresh, handleSessionExpired],
   );
 
+  /** Returns a fresh, valid access token (refreshing if needed), or null. */
+  const getAccessToken = useCallback(async () => {
+    try {
+      await ensureFreshToken();
+    } catch {
+      // Ignore refresh failures; fall through to the currently held token.
+    }
+    return authRef.current?.access_token ?? null;
+  }, [ensureFreshToken]);
+
   const loginBasic = useCallback(
     async ({ server, username, password }: LoginArgs) => {
       setError(null);
@@ -459,8 +468,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!tokens?.access_token) throw new Error("Missing access token");
         authRef.current = tokens;
         setAuth(tokens);
-        if (tokens.refresh_token)
-          await setRefreshToken(tokens.refresh_token);
+        if (tokens.refresh_token) await setRefreshToken(tokens.refresh_token);
         nextTokenRefreshRef.current = computeNextTokenRefresh(
           tokens.access_token,
         );
@@ -747,6 +755,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loginWithTokens,
     logout,
     authFetch,
+    getAccessToken,
     refreshCurrentUser,
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

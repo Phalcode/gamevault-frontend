@@ -31,12 +31,7 @@ import {
 } from "@tw/table";
 import { useMemo, useState } from "react";
 import Card from "../components/Card";
-import {
-  maskDisplayName,
-  maskEmail,
-  maskUrl,
-  useStreamerMode,
-} from "@/utils/streamerMode";
+import { maskUrl, maskUser, useStreamerMode } from "@/utils/streamerMode";
 import { RegisterUserModal } from "@/components/admin/RegisterUserModal";
 import { UserEditorModal } from "@/components/admin/UserEditorModal";
 import { GamevaultUser, GamevaultUserRoleEnum } from "../api";
@@ -300,10 +295,9 @@ export default function Administration() {
                   const last_name = u.last_name;
                   const email = u.email;
                   const roleNumeric = u.role ?? GamevaultUserRoleEnum._0;
-                  const displayName = streamerMode
-                    ? maskDisplayName(name)
-                    : name;
-                  const displayEmail = streamerMode ? maskEmail(email || "") : email;
+                  const masked = streamerMode ? maskUser(u) : null;
+                  const displayName = masked?.displayName ?? name;
+                  const displayEmail = masked?.email ?? email;
                   const displayFull = streamerMode
                     ? ""
                     : `${first_name ?? ""} ${last_name ?? ""}`.trim();
@@ -323,18 +317,18 @@ export default function Administration() {
                               media={u.avatar}
                               size={48}
                               alt={displayName}
+                              seed={String(u.id)}
                             />
                           </Link>
                           <div>
                             <div className="font-medium flex items-center gap-2">
                               <span>
                                 {displayName}{" "}
-                                {!streamerMode &&
-                                  (first_name || last_name) && (
-                                    <span className="font-normal">
-                                      ({displayFull})
-                                    </span>
-                                  )}
+                                {!streamerMode && (first_name || last_name) && (
+                                  <span className="font-normal">
+                                    ({displayFull})
+                                  </span>
+                                )}
                               </span>
                               {deleted && (
                                 <span className="rounded bg-red-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-400">
@@ -346,9 +340,7 @@ export default function Administration() {
                               <div className="text-gv-muted">
                                 <a
                                   href={
-                                    streamerMode
-                                      ? undefined
-                                      : `mailto:${email}`
+                                    streamerMode ? undefined : `mailto:${email}`
                                   }
                                   className="hover:text-gv-text"
                                 >

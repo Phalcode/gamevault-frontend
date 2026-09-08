@@ -20,6 +20,8 @@
     "postinstall": "node scripts/ensure-api-client.mjs"
   },
   "dependencies": {
+    "@dicebear/collection": "^9.4.2",
+    "@dicebear/core": "^9.4.3",
     "@headlessui/react": "^2.2.10",
     "@heroicons/react": "^2.2.0",
     "@tailwindcss/vite": "^4.3.3",
@@ -38,6 +40,7 @@
     "react-router": "^8.3.1",
     "swetrix": "^4.6.1",
     "tailwindcss": "^4.3.3",
+    "unique-names-generator": "^4.7.1",
     "use-dark-mode": "^2.3.1"
   },
   "devDependencies": {

@@ -161,7 +161,7 @@ type StartDownloadParams = {
 };
 
 export function DownloadProvider({ children }: { children: ReactNode }) {
-  const { serverUrl, authFetch, auth } = useAuth();
+  const { serverUrl, authFetch, auth, getAccessToken } = useAuth();
   const { isOnline } = useOnlineStatus();
   const { info: serverInfo } = useServerStatus();
   const [downloads, setDownloads] = useState<Record<number, ActiveDownload>>(
@@ -1109,9 +1109,8 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
           tauriUnlistenRef.current[gameId] = unlisten;
 
-          const authHeader = auth?.access_token
-            ? `Bearer ${auth.access_token}`
-            : null;
+          const token = await getAccessToken();
+          const authHeader = token ? `Bearer ${token}` : null;
 
           await invoke("download_game_version", {
             gameId,
@@ -1296,6 +1295,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       serverUrl,
       authFetch,
       auth,
+      getAccessToken,
       downloads,
       updateDownload,
       writeGameMetadata,
@@ -2251,7 +2251,17 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   // Resume downloads that were interrupted by the app exiting once the server
   // is reachable (serverUrl is set asynchronously during bootstrap).
   useEffect(() => {
-    if (!isTauriApp() || !serverUrl || !autoResumeIds.length) return;
+    // Wait until a real access token exists: firing these resumes while the
+    // bootstrap refresh is still in flight sends a null/refresh token to the
+    // Tauri download command, which the backend rejects with 401 and aborts
+    // the recovered download.
+    if (
+      !isTauriApp() ||
+      !serverUrl ||
+      !autoResumeIds.length ||
+      !auth?.access_token
+    )
+      return;
     const pending = pendingAutoResumeRef.current;
     pendingAutoResumeRef.current = [];
     setAutoResumeIds([]);
@@ -2268,7 +2278,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         downloadRootPath: d.downloadRootPath,
       });
     }
-  }, [serverUrl, autoResumeIds, startDownload]);
+  }, [serverUrl, autoResumeIds, startDownload, auth?.access_token]);
 
   // Cleanup orphaned offline caches on startup
   useEffect(() => {
