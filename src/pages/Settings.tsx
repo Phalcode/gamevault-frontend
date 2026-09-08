@@ -21,6 +21,11 @@ import {
   isDebugTauriOverride,
   setDebugTauriOverride,
 } from "@/utils/tauri";
+import {
+  filterSearchableSettings,
+  searchResultCategories as searchResultCategoriesFn,
+  searchSettings,
+} from "@/utils/settingsSearch";
 import { Button } from "@/components/tailwind/button";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
 import ThemeSelect from "@/components/ThemeSelect";
@@ -762,29 +767,21 @@ export default function Settings() {
   );
 
   const trimmedQuery = searchQuery.trim().toLowerCase();
+  const platformFlags = { isTauri, isDesktopApp, isLinux };
   // On the web build, desktop-only settings don't exist, so never suggest them.
-  const searchableSettings = SETTINGS_SEARCH_INDEX.filter(
-    (s) =>
-      (!s.desktopOnly || isTauri) &&
-      (!s.webOnly || !isDesktopApp) &&
-      (!s.linuxOnly || isLinux),
+  const searchableSettings = filterSearchableSettings(
+    SETTINGS_SEARCH_INDEX,
+    platformFlags,
   );
-  const matchesQuery = (s: SearchableSetting) =>
-    s.title.toLowerCase().includes(trimmedQuery) ||
-    (s.description?.toLowerCase().includes(trimmedQuery) ?? false) ||
-    s.keywords.some((k) => k.includes(trimmedQuery));
-
-  const searchResults = trimmedQuery
-    ? searchableSettings.filter(matchesQuery)
-    : [];
+  const searchResults = searchSettings(
+    SETTINGS_SEARCH_INDEX,
+    searchQuery,
+    platformFlags,
+  );
 
   // Categories that contain at least one matching setting, shown while
   // searching so the user can still jump straight to a whole area.
-  const searchResultCategories = trimmedQuery
-    ? (Array.from(
-        new Set(searchResults.map((s) => s.category)),
-      ) as SettingsCategory[])
-    : [];
+  const searchResultCategories = searchResultCategoriesFn(searchResults);
 
   const isSearching = trimmedQuery.length > 0;
 

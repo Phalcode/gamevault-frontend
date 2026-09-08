@@ -27,13 +27,24 @@ import { Strong, Text, TextLink } from "@/components/tailwind/text";
 import { isTauriApp } from "@/utils/tauri";
 import {
   useInstalledGames,
-  type InstalledGameInfo,
 } from "@/hooks/useInstalledGames";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { SectionExpander } from "@/components/SectionExpander";
 import { RowCountControl } from "@/components/RowCountControl";
 import { motion } from "motion/react";
 import { DURATION_SLOW, EASE_OUT } from "@/lib/motion";
+import {
+  activeFilterCount as computeActiveFilterCount,
+  buildInstalledGameMap,
+  filterAndSortInstalledGames,
+  getParamValues,
+  hasActiveFilters as computeHasActiveFilters,
+  isBookmark,
+  isEarlyAccess,
+  isGameType,
+  isProgressState,
+  setParamValues,
+} from "@/utils/libraryFilters";
 
 const SORT_BY: { label: string; value: string }[] = [
   { label: "Title", value: "sort_title" },
@@ -140,18 +151,18 @@ export default function Library() {
 
   // Check if any filters are active
   const hasActiveFilters = useMemo(() => {
-    return (
-      bookmarkFilter !== "all" ||
-      selectedGameTypes.length > 0 ||
-      selectedTags.length > 0 ||
-      selectedGenres.length > 0 ||
-      selectedDevelopers.length > 0 ||
-      selectedPublishers.length > 0 ||
-      selectedGameState !== "" ||
-      releaseDateFrom !== "" ||
-      releaseDateTo !== "" ||
-      earlyAccess !== "all"
-    );
+    return computeHasActiveFilters({
+      bookmarkFilter,
+      earlyAccess,
+      gameState: selectedGameState,
+      releaseDateFrom,
+      releaseDateTo,
+      gameTypes: selectedGameTypes,
+      tags: selectedTags,
+      genres: selectedGenres,
+      developers: selectedDevelopers,
+      publishers: selectedPublishers,
+    });
   }, [
     bookmarkFilter,
     selectedGameTypes,
@@ -167,19 +178,18 @@ export default function Library() {
 
   // Number of active filter selections (for the badge on the Filters toggle)
   const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (bookmarkFilter !== "all") count++;
-    if (earlyAccess !== "all") count++;
-    if (selectedGameState !== "") count++;
-    if (releaseDateFrom !== "") count++;
-    if (releaseDateTo !== "") count++;
-    count +=
-      selectedGameTypes.length +
-      selectedTags.length +
-      selectedGenres.length +
-      selectedDevelopers.length +
-      selectedPublishers.length;
-    return count;
+    return computeActiveFilterCount({
+      bookmarkFilter,
+      earlyAccess,
+      gameState: selectedGameState,
+      releaseDateFrom,
+      releaseDateTo,
+      gameTypes: selectedGameTypes,
+      tags: selectedTags,
+      genres: selectedGenres,
+      developers: selectedDevelopers,
+      publishers: selectedPublishers,
+    });
   }, [
     bookmarkFilter,
     selectedGameTypes,
@@ -263,54 +273,6 @@ export default function Library() {
       localStorage.setItem(LIB_ORDER_KEY, order);
     } catch {}
   }, [sortBy, order]);
-
-  const getParamValues = useCallback((params: URLSearchParams, key: string) => {
-    const repeated = params.getAll(key).filter(Boolean);
-    if (repeated.length > 0) return repeated;
-    const single = params.get(key);
-    if (!single) return [];
-    return single
-      .split(",")
-      .map((v) => v.trim())
-      .filter(Boolean);
-  }, []);
-
-  const setParamValues = useCallback(
-    (params: URLSearchParams, key: string, values: string[]) => {
-      params.delete(key);
-      values.forEach((v) => params.append(key, v));
-    },
-    [],
-  );
-
-  const isProgressState = useCallback(
-    (value: string): value is ProgressStateEnum =>
-      Object.values(ProgressStateEnum).includes(value as ProgressStateEnum),
-    [],
-  );
-
-  const isGameType = useCallback(
-    (value: string): value is GamevaultGameTypeEnum =>
-      Object.values(GamevaultGameTypeEnum).includes(
-        value as GamevaultGameTypeEnum,
-      ),
-    [],
-  );
-
-  const isEarlyAccess = useCallback(
-    (value: string): value is EarlyAccessFilter =>
-      value === "all" || value === "true" || value === "false",
-    [],
-  );
-
-  const isBookmark = useCallback(
-    (value: string): value is BookmarkFilter | "1" =>
-      value === "all" ||
-      value === "mine" ||
-      value === "others" ||
-      value === "1",
-    [],
-  );
 
   // Initialize from URL (first render)
   useEffect(() => {
@@ -550,111 +512,21 @@ export default function Library() {
 
   // Map installed game id -> installation info so server games that are
   // already installed locally can be marked (e.g. a small "Installed" badge).
-  const installedByGameId = useMemo(() => {
-    const map = new Map<number, InstalledGameInfo>();
-    for (const ig of installedGames) {
-      if (ig.gameId > 0) {
-        map.set(ig.gameId, ig);
-      }
-    }
-    return map;
-  }, [installedGames]);
+  const installedByGameId = useMemo(
+    () => buildInstalledGameMap(installedGames),
+    [installedGames],
+  );
 
   // Client-side filter + sort installed games with the same Library criteria
   const filteredInstalledGames = useMemo(() => {
-    let filtered = installedAsGames;
-
-    // Search filter
-    if (deferredSearch.trim()) {
-      const q = deferredSearch.trim().toLowerCase();
-      filtered = filtered.filter((g) =>
-        (g.title ?? g.sort_title ?? "").toLowerCase().includes(q),
-      );
-    }
-
-    // Game type filter
-    if (gameTypeValues.length > 0) {
-      filtered = filtered.filter(
-        (g) => g.type && gameTypeValues.includes(g.type),
-      );
-    }
-
-    // Tag filter
-    if (tagNames.length > 0) {
-      filtered = filtered.filter((g) => {
-        const gameTags = (g.metadata as any)?.tags;
-        if (!Array.isArray(gameTags)) return false;
-        return tagNames.some((t) =>
-          gameTags.some(
-            (gt: any) =>
-              (gt.name ?? gt)?.toString().toLowerCase() === t.toLowerCase(),
-          ),
-        );
-      });
-    }
-
-    // Genre filter
-    if (genreNames.length > 0) {
-      filtered = filtered.filter((g) => {
-        const gameGenres = (g.metadata as any)?.genres;
-        if (!Array.isArray(gameGenres)) return false;
-        return genreNames.some((gn) =>
-          gameGenres.some(
-            (gg: any) =>
-              (gg.name ?? gg)?.toString().toLowerCase() === gn.toLowerCase(),
-          ),
-        );
-      });
-    }
-
-    // Developer filter
-    if (developerNames.length > 0) {
-      filtered = filtered.filter((g) => {
-        const gameDevs = (g.metadata as any)?.developers;
-        if (!Array.isArray(gameDevs)) return false;
-        return developerNames.some((d) =>
-          gameDevs.some(
-            (gd: any) =>
-              (gd.name ?? gd)?.toString().toLowerCase() === d.toLowerCase(),
-          ),
-        );
-      });
-    }
-
-    // Publisher filter
-    if (publisherNames.length > 0) {
-      filtered = filtered.filter((g) => {
-        const gamePubs = (g.metadata as any)?.publishers;
-        if (!Array.isArray(gamePubs)) return false;
-        return publisherNames.some((p) =>
-          gamePubs.some(
-            (gp: any) =>
-              (gp.name ?? gp)?.toString().toLowerCase() === p.toLowerCase(),
-          ),
-        );
-      });
-    }
-
-    // Sort: most recently installed or played games first (leftmost in the
-    // installed carousel). Ties are broken by title for a stable order.
-    const sorted = [...filtered].sort((a, b) => {
-      const ia = (a as any)._installedInfo;
-      const ib = (b as any)._installedInfo;
-      const ra = Math.max(
-        Number(ia?.installedAt) || 0,
-        Number(ia?.lastPlayedAt) || 0,
-      );
-      const rb = Math.max(
-        Number(ib?.installedAt) || 0,
-        Number(ib?.lastPlayedAt) || 0,
-      );
-      if (rb !== ra) return rb - ra;
-      return (a.sort_title ?? a.title ?? "").localeCompare(
-        b.sort_title ?? b.title ?? "",
-      );
+    return filterAndSortInstalledGames(installedAsGames, {
+      search: deferredSearch,
+      gameTypes: gameTypeValues,
+      tags: tagNames,
+      genres: genreNames,
+      developers: developerNames,
+      publishers: publisherNames,
     });
-
-    return sorted;
   }, [
     installedAsGames,
     deferredSearch,

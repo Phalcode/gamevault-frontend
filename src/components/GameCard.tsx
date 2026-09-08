@@ -17,8 +17,11 @@ import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
 import { isTauriApp } from "@/utils/tauri";
-import { formatShortDate } from "@/utils/date";
-import { formatDecimal } from "@/utils/number";
+import {
+  formatGameSize,
+  initialGameBookmarked,
+  resolveSortMetric,
+} from "@/utils/gameCard";
 import { Alert, AlertTitle } from "@tw/alert";
 import {
   Dropdown,
@@ -57,12 +60,10 @@ const GameCard = memo(function GameCard({
   const isInstalled = !!installedInfo;
   // Derive initial bookmarked state from raw API shape (bookmarked_users or bookmarkedUsers)
   const currentUserId = (user as any)?.id ?? (user as any)?.ID;
-  const initialBookmarked = useMemo(() => {
-    if (!currentUserId) return false;
-    const raw = (game as any).bookmarked_users || (game as any).bookmarkedUsers;
-    if (!Array.isArray(raw)) return false;
-    return raw.some((u: any) => (u?.id ?? u?.ID) === currentUserId);
-  }, [game, currentUserId]);
+  const initialBookmarked = useMemo(
+    () => initialGameBookmarked(game, currentUserId),
+    [game, currentUserId],
+  );
   const [bookmarked, setBookmarked] = useState<boolean>(initialBookmarked);
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -126,52 +127,15 @@ const GameCard = memo(function GameCard({
 
   const rawSize = localGame.size;
 
-  const formatBytes = useCallback((bytes?: number) => {
-    if (bytes === undefined || bytes === null || isNaN(bytes)) return null;
-    if (bytes < 1024) return `${bytes} B`;
-    const units = ["KB", "MB", "GB", "TB", "PB"];
-    let value = bytes / 1024;
-    let unitIndex = 0;
-    while (value >= 1024 && unitIndex < units.length - 1) {
-      value /= 1024;
-      unitIndex++;
-    }
-    return `${formatDecimal(value, value < 10 ? 2 : value < 100 ? 1 : 0)} ${units[unitIndex]}`;
-  }, []);
-
-  const formattedSize = formatBytes(
+  const formattedSize = formatGameSize(
     typeof rawSize === "number" ? rawSize : Number(rawSize),
   );
 
   // Dynamic metric based on current sort
-  const sortMetric = useMemo(() => {
-    switch (sortBy) {
-      case "size":
-        return formattedSize;
-      case "created_at":
-        return localGame.created_at
-          ? formatShortDate(localGame.created_at)
-          : null;
-      case "metadata.release_date":
-        return localGame.metadata?.release_date
-          ? formatShortDate(localGame.metadata.release_date)
-          : null;
-      case "metadata.rating":
-        return localGame.metadata?.rating != null
-          ? `${formatDecimal(localGame.metadata.rating, 1)}%`
-          : null;
-      case "download_count":
-        return localGame.download_count != null
-          ? localGame.download_count.toLocaleString()
-          : null;
-      case "metadata.average_playtime":
-        return (localGame as any).metadata?.average_playtime != null
-          ? `${Math.round((localGame as any).metadata.average_playtime / 60)}h`
-          : null;
-      default:
-        return formattedSize;
-    }
-  }, [sortBy, formattedSize, localGame]);
+  const sortMetric = useMemo(
+    () => resolveSortMetric(sortBy, localGame, formattedSize),
+    [sortBy, formattedSize, localGame],
+  );
 
   const resolveVersions = useCallback(async (): Promise<GameVersion[]> => {
     if (Array.isArray(localGame.versions) && localGame.versions.length > 0) {
