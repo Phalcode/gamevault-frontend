@@ -36,6 +36,7 @@ const Downloads = lazy(() => import("./pages/Downloads"));
 import { applyTheme, getStoredTheme } from "./utils/theme";
 import { applyZoom, getStoredZoom, registerZoomHotkeys } from "./utils/zoom";
 import { registerReloadHotkey } from "./utils/reload";
+import { registerStreamerModeHotkey } from "./utils/streamerMode";
 import {
   registerExternalLinkHandler,
   isTauriApp,
@@ -70,6 +71,8 @@ if (isTauriApp()) {
   registerZoomHotkeys();
   // F5 reloads the app in the Tauri webview (packaged builds have no native F5)
   registerReloadHotkey();
+  // Ctrl/Cmd+Shift+O toggles OPSEC/streamer mode
+  registerStreamerModeHotkey();
   // Open every external link (target=_blank, http(s), mailto, tel) through
   // the native OS opener instead of being swallowed by the webview.
   registerExternalLinkHandler();

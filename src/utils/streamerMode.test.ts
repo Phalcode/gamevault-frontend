@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it } from "vitest";
 import {
+  getStreamerMode,
   maskDisplayName,
   maskEmail,
   maskHandle,
   maskUrl,
   maskUser,
+  registerStreamerModeHotkey,
 } from "./streamerMode";
 
 describe("maskDisplayName", () => {
@@ -24,13 +27,21 @@ describe("maskDisplayName", () => {
         maskDisplayName(id),
       ),
     );
-    // The adjective+colour+animal space is huge, so collisions are virtually
+    // The adjective+animal space is huge, so collisions are virtually
     // impossible; all stand-ins should be distinct and look like a name.
     expect(names.size).toBe(8);
     for (const name of names) {
       expect(name.trim()).not.toBe("");
-      expect(name).toMatch(/^\S+ \S+ \S+$/);
+      expect(name).toMatch(/^\S+ \S+$/);
     }
+  });
+
+  it("lines up with the handle and email (same adjective + animal)", () => {
+    const seed = "5";
+    const display = maskDisplayName(seed);
+    const handle = maskHandle(seed);
+    expect(display.toLowerCase().replace(" ", "_")).toBe(handle);
+    expect(maskEmail(seed)).toBe(`${handle}@masked.example`);
   });
 
   it("treats the numeric id string the same as the number", () => {
@@ -98,5 +109,34 @@ describe("maskUser", () => {
   it("treats id 0 as a valid (empty) seed, not as anonymous", () => {
     const masked = maskUser({ id: 0 });
     expect(masked.displayName).not.toBe("Anonymous");
+  });
+});
+
+describe("registerStreamerModeHotkey", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("toggles streamer mode on Ctrl+Shift+O", () => {
+    const off = registerStreamerModeHotkey();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "o",
+        ctrlKey: true,
+        shiftKey: true,
+        cancelable: true,
+      }),
+    );
+    expect(getStreamerMode()).toBe(true);
+    off();
+  });
+
+  it("does not toggle without the modifier combination", () => {
+    const off = registerStreamerModeHotkey();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "o", cancelable: true }),
+    );
+    expect(getStreamerMode()).toBe(false);
+    off();
   });
 });
