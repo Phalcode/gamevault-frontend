@@ -321,16 +321,16 @@ function NetworkUserCard({
   return (
     <Link
       to={`/community/${user.id}`}
-      className="group block rounded-[1.75rem] focus:outline-none focus:ring-2 focus:ring-gv-accent-cool"
+      className="group block h-full rounded-[1.75rem] focus:outline-none focus:ring-2 focus:ring-gv-accent-cool"
     >
       <article
         className={clsx(
-          "surface-panel relative overflow-hidden rounded-[1.75rem] p-5 transition-[transform,translate,scale,box-shadow] duration-200 ease-out hover:-translate-y-1 hover:shadow-(--shadow-shell)",
+          "surface-panel relative flex h-full flex-col overflow-hidden rounded-[1.75rem] p-5 transition-[transform,translate,scale,box-shadow] duration-200 ease-out hover:-translate-y-1 hover:shadow-(--shadow-shell)",
           isCurrentUser && "ring-1 ring-gv-accent/35",
         )}
       >
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[radial-gradient(circle_at_top_left,rgba(132,123,237,0.16),transparent_72%)]" />
-        <div className="relative">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-[radial-gradient(120%_90%_at_50%_0%,rgba(132,123,237,0.14),transparent_65%)]" />
+        <div className="relative flex flex-1 flex-col">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
               <UserAvatar
@@ -342,12 +342,19 @@ function NetworkUserCard({
                 className="border border-gv-line/70 bg-gv-panel-soft shadow-sm"
               />
               <div className="min-w-0 space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="truncate text-lg font-semibold tracking-[-0.02em] text-gv-text">
+                <div className="flex min-w-0 items-center gap-2">
+                  <h3 className="min-w-0 truncate text-lg font-semibold tracking-[-0.02em] text-gv-text">
                     {displayName}
                   </h3>
-                  {isCurrentUser && <Badge color="indigo">You</Badge>}
-                  <Badge color={getRoleBadgeColor(user.role)}>
+                  {isCurrentUser && (
+                    <Badge color="indigo" className="shrink-0">
+                      You
+                    </Badge>
+                  )}
+                  <Badge
+                    color={getRoleBadgeColor(user.role)}
+                    className="shrink-0"
+                  >
                     {getRoleLabel(Number(user.role))}
                   </Badge>
                 </div>
@@ -390,7 +397,7 @@ function NetworkUserCard({
             ))}
           </div>
 
-          <div className="mt-5">
+          <div className="mt-auto pt-5">
             <div className="mb-2 text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
               Recently played
             </div>
