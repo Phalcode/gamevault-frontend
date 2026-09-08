@@ -56,6 +56,8 @@
 - OPSEC mode now gives every user a unique, consistent placeholder name, handle and email (seeded by their user id instead of their real name), and fully masks the email domain so no real address is revealed on stream.
 - OPSEC mode now hides profile pictures behind a deterministic DiceBear "fun-emoji" avatar for each user, and any user without a profile picture gets a DiceBear avatar by default instead of a blank box.
 - Fixed downloads aborting with a 401 error when you refresh (F5) mid-download: auto-resumed downloads now wait for a valid session token instead of firing before login has finished.
+- Added a keyboard shortcut (Ctrl/Cmd+Shift+O) to toggle Streamer/OPSEC mode from anywhere in the app.
+- OPSEC mode placeholders are now shorter (two words: adjective + animal) and the placeholder name, handle and email all line up for each user, so a stream capture never leaks a real identity or address.
 
 ## 17.0.0
 
