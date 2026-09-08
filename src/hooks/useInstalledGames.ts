@@ -5,6 +5,7 @@ import { useOnlineStatus } from "@/context/OfflineContext";
 import { getRootPaths } from "@/utils/rootPaths";
 import { onGameUpdated } from "@/utils/gameUpdates";
 import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
+import { normalizeInstalledGame } from "@/utils/installedGames";
 
 export interface InstalledGameInfo {
   gameId: number;
@@ -171,20 +172,7 @@ export function useInstalledGames() {
         }).catch(() => [] as any[]);
 
         for (const r of rawResults) {
-          const info: InstalledGameInfo = {
-            gameId: r.gameId ?? r.game_id ?? 0,
-            gameTitle: r.gameTitle ?? r.game_title ?? "",
-            gameMetadata: r.gameMetadata ?? r.game_metadata ?? null,
-            cachedMetadata: r.cachedMetadata ?? r.cached_metadata ?? null,
-            gameType: r.gameType ?? r.game_type ?? null,
-            versionId: r.versionId ?? r.version_id ?? 0,
-            versionName: r.versionName ?? r.version_name ?? "",
-            installationDirectory:
-              r.installationDirectory ?? r.installation_directory ?? "",
-            versionDirectory: r.versionDirectory ?? r.version_directory ?? "",
-            installedAt: Number(r.installedAt ?? r.installed_at ?? 0),
-            lastPlayedAt: 0,
-          };
+          const info = normalizeInstalledGame(r);
           const key = `${info.gameId}:${info.versionDirectory}`;
           if (info.gameId > 0 && !seen.has(key)) {
             seen.add(key);

@@ -81,13 +81,16 @@ function getGamepad(): Gamepad | null {
   return null;
 }
 
-function axisWithDeadzone(value: number | undefined, deadzone: number): number {
+export function axisWithDeadzone(
+  value: number | undefined,
+  deadzone: number,
+): number {
   const v = value ?? 0;
   if (Number.isNaN(v) || Math.abs(v) < deadzone) return 0;
   return ((Math.abs(v) - deadzone) / (1 - deadzone)) * Math.sign(v);
 }
 
-function resolveDirection(gamepad: Gamepad): GamepadDirection | null {
+export function resolveDirection(gamepad: Gamepad): GamepadDirection | null {
   // D-pad wins over the left stick.
   for (const [indexStr, direction] of Object.entries(
     DIRECTION_BY_DPAD_BUTTON,
@@ -101,7 +104,7 @@ function resolveDirection(gamepad: Gamepad): GamepadDirection | null {
   return y > 0 ? "down" : "up";
 }
 
-function resolvePressed(gamepad: Gamepad): Set<GamepadAction> {
+export function resolvePressed(gamepad: Gamepad): Set<GamepadAction> {
   const pressed = new Set<GamepadAction>();
   for (const [indexStr, action] of Object.entries(ACTION_BY_BUTTON)) {
     if (gamepad.buttons[Number(indexStr)]?.pressed) pressed.add(action);
