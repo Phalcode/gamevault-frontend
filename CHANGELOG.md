@@ -45,9 +45,6 @@
 - Added a Streamer / OPSEC mode (Settings → Appearance) that masks user names, emails and the server URL with funny placeholder text across the sidebar, community, profiles, administration and game activity, so a stream capture doesn't leak real identities or your server address.
 - Fixed "Open Folder" still doing nothing on Linux for KDE Plasma (Dolphin) users running the AppImage: the AppImage's bundled `xdg-open` no longer intercepts the request — folders and URLs are now opened with the host system's launchers instead.
 - Deleting a download card for a game that was downloaded but never installed now also removes the leftover empty Installation folder and its empty parent folder.
-
----
-
 - Moved the "Smooth Scrolling" toggle out of the Developer Tools menu and into Settings → Appearance (Linux desktop builds), so it's easier to find.
 - Fixed the WebKitGTK hardware-acceleration policy setting not sticking on Linux: it no longer reverts to "Never" when you leave the settings page or restart the app, and the value you choose is now remembered.
 - Fixed a flash when switching between tabs: the outgoing page no longer briefly shows the incoming tab's content or loading state, so the main content now switches smoothly.
@@ -57,8 +54,12 @@
 - OPSEC mode now hides profile pictures behind a deterministic DiceBear "fun-emoji" avatar for each user, and any user without a profile picture gets a DiceBear avatar by default instead of a blank box.
 - Fixed downloads aborting with a 401 error when you refresh (F5) mid-download: auto-resumed downloads now wait for a valid session token instead of firing before login has finished.
 - Added a keyboard shortcut (Ctrl/Cmd+Shift+O) to toggle Streamer/OPSEC mode from anywhere in the app.
-- OPSEC mode placeholders are now shorter (two words: adjective + animal) and the placeholder name, handle and email all line up for each user, so a stream capture never leaks a real identity or address.
 - Cleaned up the Community Page UI
+
+---
+
+- Administrators can now view a game's files (their paths, sizes and other metadata) in the game settings and delete individual game files from the server.
+- Made the game settings and user settings dialogs more responsive and easier to use on tablets and phones, and removed the release date from the game files list.
 
 ## 17.0.0
 

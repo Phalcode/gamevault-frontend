@@ -11,10 +11,13 @@ import {
   GamevaultGame,
   GamevaultGameTypeEnum,
 } from "@/api/models/GamevaultGame";
+import { GameVersion } from "@/api/models/GameVersion";
+import { GamevaultUserRoleEnum } from "@/api/models/GamevaultUser";
 import { UpdateGameDto } from "@/api/models/UpdateGameDto";
 import { MetadataProviderDto } from "@/api/models/MetadataProviderDto";
 import { GameMetadata } from "@/api/models/GameMetadata";
 import { MapGameDto } from "@/api/models/MapGameDto";
+import { formatBytes } from "@/utils/downloadFormat";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
@@ -31,10 +34,7 @@ import {
 } from "@/utils/droppedImage";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { emitGameUpdated } from "@/utils/gameUpdates";
-import {
-  GameMediaSlot,
-  resolveApiMediaBlob,
-} from "@/utils/mediaCache";
+import { GameMediaSlot, resolveApiMediaBlob } from "@/utils/mediaCache";
 import {
   PhotoIcon,
   CircleStackIcon,
@@ -46,6 +46,7 @@ import {
   FolderOpenIcon,
   LinkSlashIcon,
   TrashIcon,
+  DocumentTextIcon,
 } from "@heroicons/react/24/outline";
 import { PaintBrushIcon } from "@heroicons/react/16/solid";
 import { Switch, SwitchField } from "../tailwind/switch";
@@ -60,27 +61,29 @@ interface Props {
 
 // No cool object binding in react, so we manually pick fields for custom metadata. But at least this is type save
 type CustomMetadataForm = {
-  [K in keyof Pick<
-    GameMetadata,
-    | "title"
-    | "description"
-    | "notes"
-    | "average_playtime"
-    | "age_rating"
-    | "release_date"
-    | "rating"
-    | "early_access"
-    | "launch_executable"
-    | "launch_parameters"
-    | "installer_executable"
-    | "installer_parameters"
-    | "uninstaller_executable"
-    | "uninstaller_parameters"
-    | "url_websites"
-    | "url_trailers"
-    | "url_gameplays"
-    | "url_screenshots"
-  >]: string;
+  [
+    K in keyof Pick<
+      GameMetadata,
+      | "title"
+      | "description"
+      | "notes"
+      | "average_playtime"
+      | "age_rating"
+      | "release_date"
+      | "rating"
+      | "early_access"
+      | "launch_executable"
+      | "launch_parameters"
+      | "installer_executable"
+      | "installer_parameters"
+      | "uninstaller_executable"
+      | "uninstaller_parameters"
+      | "url_websites"
+      | "url_trailers"
+      | "url_gameplays"
+      | "url_screenshots"
+    >
+  ]: string;
 } & {
   sort_title: string;
   genres: string;
@@ -158,13 +161,23 @@ type TabKey =
   | "metadata"
   | "custom-metadata"
   | "installation"
-  | "launch-options";
+  | "launch-options"
+  | "game-files";
 
-export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Props) {
-  const { serverUrl, authFetch } = useAuth() as any;
+export function GameSettings({
+  game,
+  onClose,
+  onGameUpdated,
+  onUninstalled,
+}: Props) {
+  const { serverUrl, authFetch, user } = useAuth() as any;
   const { showAlert } = useAlertDialog();
+  const isAdmin = Number(user?.role) >= Number(GamevaultUserRoleEnum._3);
   const [activeTab, setActiveTab] = useState<TabKey>("images");
   const [saving, setSaving] = useState(false);
+  const [deletingVersionId, setDeletingVersionId] = useState<number | null>(
+    null,
+  );
   const [fullGame, setFullGame] = useState<GamevaultGame | null>(null);
   const [loadingFullGame, setLoadingFullGame] = useState(true);
   const [installedGame, setInstalledGame] = useState<InstalledGameInfo | null>(
@@ -252,7 +265,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   // Launch options state
   const [launchExecutables, setLaunchExecutables] = useState<string[]>([]);
   const [selectedLaunchExe, setSelectedLaunchExe] = useState<string>("");
-  const [nonExecutableScripts, setNonExecutableScripts] = useState<string[]>([]);
+  const [nonExecutableScripts, setNonExecutableScripts] = useState<string[]>(
+    [],
+  );
   const [makingExecutable, setMakingExecutable] = useState(false);
   const [launchParams, setLaunchParams] = useState<string>("");
   const [launchAsAdmin, setLaunchAsAdmin] = useState<boolean>(false);
@@ -353,71 +368,81 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     [isTauri, showAlert, workingGame.metadata?.title, workingGame.title],
   );
 
-  const findInstalledGame = useCallback(async (): Promise<InstalledGameInfo | null> => {
-    if (!isTauri) return null;
-    const rootPaths = getRootPaths();
-    if (!rootPaths.length) return null;
+  const findInstalledGame =
+    useCallback(async (): Promise<InstalledGameInfo | null> => {
+      if (!isTauri) return null;
+      const rootPaths = getRootPaths();
+      if (!rootPaths.length) return null;
 
-    const { invoke } = await import("@tauri-apps/api/core");
+      const { invoke } = await import("@tauri-apps/api/core");
 
-    const allResults: any[] = [];
-    const seen = new Set<string>();
+      const allResults: any[] = [];
+      const seen = new Set<string>();
 
-    for (const root of rootPaths) {
-      const rawResults = await invoke<any[]>("list_installed_games", {
-        selectedRoot: root.path,
-      }).catch(() => [] as any[]);
+      for (const root of rootPaths) {
+        const rawResults = await invoke<any[]>("list_installed_games", {
+          selectedRoot: root.path,
+        }).catch(() => [] as any[]);
 
-      for (const r of rawResults) {
-        const id = r.gameId ?? r.game_id ?? 0;
-        const vd = r.versionDirectory ?? r.version_directory ?? "";
-        const key = `${id}:${vd}`;
-        if (id > 0 && !seen.has(key)) {
-          seen.add(key);
-          allResults.push(r);
+        for (const r of rawResults) {
+          const id = r.gameId ?? r.game_id ?? 0;
+          const vd = r.versionDirectory ?? r.version_directory ?? "";
+          const key = `${id}:${vd}`;
+          if (id > 0 && !seen.has(key)) {
+            seen.add(key);
+            allResults.push(r);
+          }
         }
       }
-    }
 
-    const match = allResults
-      .filter(
-        (r) =>
-          Number(r.gameId ?? r.game_id ?? 0) === workingGame.id &&
-          typeof (r.installationDirectory ?? r.installation_directory) === "string" &&
-          (r.installationDirectory ?? r.installation_directory ?? "").trim().length > 0 &&
-          typeof (r.versionDirectory ?? r.version_directory) === "string" &&
-          (r.versionDirectory ?? r.version_directory ?? "").trim().length > 0,
-      )
-      .sort(
-        (a, b) =>
-          Number(b.versionId ?? b.version_id ?? 0) -
-          Number(a.versionId ?? a.version_id ?? 0),
-      )[0];
+      const match = allResults
+        .filter(
+          (r) =>
+            Number(r.gameId ?? r.game_id ?? 0) === workingGame.id &&
+            typeof (r.installationDirectory ?? r.installation_directory) ===
+              "string" &&
+            (r.installationDirectory ?? r.installation_directory ?? "").trim()
+              .length > 0 &&
+            typeof (r.versionDirectory ?? r.version_directory) === "string" &&
+            (r.versionDirectory ?? r.version_directory ?? "").trim().length > 0,
+        )
+        .sort(
+          (a, b) =>
+            Number(b.versionId ?? b.version_id ?? 0) -
+            Number(a.versionId ?? a.version_id ?? 0),
+        )[0];
 
-    if (!match) return null;
+      if (!match) return null;
 
-    return {
-      gameId: Number(match.gameId ?? match.game_id ?? workingGame.id),
-      gameTitle:
-        String(match.gameTitle ?? match.game_title ?? "").trim() ||
-        workingGame.metadata?.title ||
-        workingGame.title ||
-        "Game",
-      gameType:
-        typeof (match.gameType ?? match.game_type) === "string" &&
-        (match.gameType ?? match.game_type ?? "").trim().length > 0
-          ? (match.gameType ?? match.game_type)
-          : undefined,
-      versionId: Number(match.versionId ?? match.version_id ?? 0),
-      versionName: String(match.versionName ?? match.version_name ?? "").trim(),
-      installationDirectory: String(
-        match.installationDirectory ?? match.installation_directory ?? "",
-      ),
-      versionDirectory: String(
-        match.versionDirectory ?? match.version_directory ?? "",
-      ),
-    };
-  }, [isTauri, workingGame.id, workingGame.metadata?.title, workingGame.title]);
+      return {
+        gameId: Number(match.gameId ?? match.game_id ?? workingGame.id),
+        gameTitle:
+          String(match.gameTitle ?? match.game_title ?? "").trim() ||
+          workingGame.metadata?.title ||
+          workingGame.title ||
+          "Game",
+        gameType:
+          typeof (match.gameType ?? match.game_type) === "string" &&
+          (match.gameType ?? match.game_type ?? "").trim().length > 0
+            ? (match.gameType ?? match.game_type)
+            : undefined,
+        versionId: Number(match.versionId ?? match.version_id ?? 0),
+        versionName: String(
+          match.versionName ?? match.version_name ?? "",
+        ).trim(),
+        installationDirectory: String(
+          match.installationDirectory ?? match.installation_directory ?? "",
+        ),
+        versionDirectory: String(
+          match.versionDirectory ?? match.version_directory ?? "",
+        ),
+      };
+    }, [
+      isTauri,
+      workingGame.id,
+      workingGame.metadata?.title,
+      workingGame.title,
+    ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -452,7 +477,12 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
   // If offline, redirect away from server-dependent tabs
   useEffect(() => {
-    const serverTabs: TabKey[] = ["images", "metadata", "custom-metadata"];
+    const serverTabs: TabKey[] = [
+      "images",
+      "metadata",
+      "custom-metadata",
+      "game-files",
+    ];
     if (isTauri && !isOnline && serverTabs.includes(activeTab)) {
       if (installationTabsVisible) {
         setActiveTab("installation");
@@ -495,7 +525,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         );
         if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
           try {
-            const raw = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath }));
+            const raw = JSON.parse(
+              await invoke<string>("fs_read_text_file", { path: configPath }),
+            );
             if (!cancelled) {
               setSelectedLaunchExe(raw.launchexecutable || "");
               setLaunchParams(raw.launchparameters || "");
@@ -505,7 +537,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
               setUmuProtonPath(raw.umuprotonpath || "");
               setUmuWinePrefix(raw.umuwineprefix || "");
             }
-          } catch { }
+          } catch {}
         }
         if (!cancelled) launchOptionsLoadedRef.current = true;
       } catch (err) {
@@ -572,47 +604,55 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     workingGame.title,
   ]);
 
-  const persistLaunchOptions = useCallback(async (
-    exe: string,
-    params: string,
-    runAsAdmin: boolean,
-    umuGameId: string,
-    umuStore: string,
-    umuProtonPath: string,
-    umuWinePrefix: string,
-  ) => {
-    if (!installedGame) return;
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const { join } = await import("@tauri-apps/api/path");
+  const persistLaunchOptions = useCallback(
+    async (
+      exe: string,
+      params: string,
+      runAsAdmin: boolean,
+      umuGameId: string,
+      umuStore: string,
+      umuProtonPath: string,
+      umuWinePrefix: string,
+    ) => {
+      if (!installedGame) return;
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const { join } = await import("@tauri-apps/api/path");
 
-      const configPath = await join(
-        installedGame.versionDirectory,
-        ".gamevault.game.config.json",
-      );
+        const configPath = await join(
+          installedGame.versionDirectory,
+          ".gamevault.game.config.json",
+        );
 
-      let current: Record<string, any> = {};
-      if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
-        try {
-          current = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath }));
-        } catch {
-          current = {};
+        let current: Record<string, any> = {};
+        if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
+          try {
+            current = JSON.parse(
+              await invoke<string>("fs_read_text_file", { path: configPath }),
+            );
+          } catch {
+            current = {};
+          }
         }
+
+        current.launchexecutable = exe || undefined;
+        current.launchparameters = params.trim() || undefined;
+        current.launchasadmin = runAsAdmin || undefined;
+        current.umugameid = umuGameId.trim() || undefined;
+        current.umustore = umuStore.trim() || undefined;
+        current.umuprotonpath = umuProtonPath.trim() || undefined;
+        current.umuwineprefix = umuWinePrefix.trim() || undefined;
+
+        await invoke("fs_write_text_file", {
+          path: configPath,
+          content: JSON.stringify(current, null, 2),
+        });
+      } catch (err: any) {
+        console.error("Failed to save launch options:", err);
       }
-
-      current.launchexecutable = exe || undefined;
-      current.launchparameters = params.trim() || undefined;
-      current.launchasadmin = runAsAdmin || undefined;
-      current.umugameid = umuGameId.trim() || undefined;
-      current.umustore = umuStore.trim() || undefined;
-      current.umuprotonpath = umuProtonPath.trim() || undefined;
-      current.umuwineprefix = umuWinePrefix.trim() || undefined;
-
-      await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(current, null, 2) });
-    } catch (err: any) {
-      console.error("Failed to save launch options:", err);
-    }
-  }, [installedGame]);
+    },
+    [installedGame],
+  );
 
   // Auto-save launch options on change (debounced)
   useEffect(() => {
@@ -645,12 +685,18 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       const { invoke } = await import("@tauri-apps/api/core");
       const { join } = await import("@tauri-apps/api/path");
 
-      const configPath = await join(versionDirectory, ".gamevault.game.config.json");
-      if (!(await invoke<boolean>("fs_path_exists", { path: configPath }))) return;
+      const configPath = await join(
+        versionDirectory,
+        ".gamevault.game.config.json",
+      );
+      if (!(await invoke<boolean>("fs_path_exists", { path: configPath })))
+        return;
 
       let current: Partial<GameVaultConfig> = {};
       try {
-        current = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath })) as Partial<GameVaultConfig>;
+        current = JSON.parse(
+          await invoke<string>("fs_read_text_file", { path: configPath }),
+        ) as Partial<GameVaultConfig>;
       } catch {
         current = {};
       }
@@ -670,7 +716,10 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         launchparameters: current.launchparameters,
       };
 
-      await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(next, null, 2) });
+      await invoke("fs_write_text_file", {
+        path: configPath,
+        content: JSON.stringify(next, null, 2),
+      });
     },
     [],
   );
@@ -732,7 +781,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     if (!installedGame) return;
 
     const resolvedTitle =
-      workingGame.metadata?.title || workingGame.title || installedGame.gameTitle;
+      workingGame.metadata?.title ||
+      workingGame.title ||
+      installedGame.gameTitle;
 
     if (isPortableInstallType(installedGame.gameType)) {
       const confirmed = await showAlert({
@@ -746,8 +797,15 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       setUninstalling(true);
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        if (await invoke<boolean>("fs_path_exists", { path: installedGame.installationDirectory })) {
-          await invoke("fs_remove", { path: installedGame.installationDirectory, recursive: true });
+        if (
+          await invoke<boolean>("fs_path_exists", {
+            path: installedGame.installationDirectory,
+          })
+        ) {
+          await invoke("fs_remove", {
+            path: installedGame.installationDirectory,
+            recursive: true,
+          });
         }
         await updateInstallationFinishedFlag(
           installedGame.versionDirectory,
@@ -822,8 +880,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         } catch (error: any) {
           await showAlert({
             title: "Error",
-            description:
-              error?.message || "Failed to run uninstall executable",
+            description: error?.message || "Failed to run uninstall executable",
             affirmativeText: "OK",
           });
         } finally {
@@ -876,7 +933,8 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
     await showAlert({
       title: "Unsupported game type",
-      description: "Only portable and setup games can be uninstalled right now.",
+      description:
+        "Only portable and setup games can be uninstalled right now.",
       affirmativeText: "OK",
     });
   }, [
@@ -892,6 +950,81 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     workingGame.metadata?.uninstaller_parameters,
     workingGame.title,
   ]);
+
+  /** Re-fetches the full game so the version list reflects server state. */
+  const refetchGame = useCallback(async (): Promise<GamevaultGame | null> => {
+    if (!serverUrl) return null;
+    const base = serverUrl.replace(/\/+$/, "");
+    const res = await authFetch(`${base}/api/games/${workingGame.id}`, {
+      method: "GET",
+    });
+    if (!res.ok) throw new Error(`Failed to reload game (${res.status})`);
+    return (await res.json()) as GamevaultGame;
+  }, [authFetch, serverUrl, workingGame.id]);
+
+  const handleDeleteGameVersion = useCallback(
+    async (version: GameVersion) => {
+      const versionLabel = version.version || `Version ${version.id}`;
+
+      const confirmed = await showAlert({
+        title: `Delete game file "${versionLabel}"?`,
+        description:
+          `This will permanently delete "${version.file_path}" from the server. ` +
+          `The game's metadata is kept, but this file can no longer be downloaded.`,
+        affirmativeText: "Delete",
+        negativeText: "Cancel",
+      });
+      if (!confirmed) return;
+
+      setDeletingVersionId(version.id);
+      try {
+        const base = serverUrl?.replace(/\/+$/, "");
+        if (!base) throw new Error("Missing server URL");
+        const res = await authFetch(
+          `${base}/api/game/${workingGame.id}/versions/${version.id}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(
+            `Failed to delete game file (${res.status}): ${txt || res.statusText}`,
+          );
+        }
+
+        const updatedGame = await refetchGame();
+        if (updatedGame) {
+          setFullGame(updatedGame);
+          onGameUpdated?.(updatedGame);
+          emitGameUpdated(updatedGame);
+        }
+
+        await showAlert({
+          title: "Game file deleted",
+          description: `"${versionLabel}" was removed from the server.`,
+          affirmativeText: "OK",
+        });
+      } catch (e: any) {
+        await showAlert({
+          title: "Error",
+          description: e?.message || "Failed to delete game file",
+          affirmativeText: "OK",
+        });
+      } finally {
+        setDeletingVersionId(null);
+      }
+    },
+    [
+      authFetch,
+      emitGameUpdated,
+      onGameUpdated,
+      refetchGame,
+      serverUrl,
+      showAlert,
+      workingGame.id,
+      workingGame.metadata?.title,
+      workingGame.title,
+    ],
+  );
 
   // Computed: Current shown mapped game
   const currentShownMappedGame = useMemo<GameMetadata | null>(() => {
@@ -1187,7 +1320,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       revokeRef.current.forEach((u) => {
         try {
           URL.revokeObjectURL(u);
-        } catch { }
+        } catch {}
       });
     },
     [],
@@ -1197,10 +1330,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   const backgroundMediaId = workingGame.metadata?.background?.id;
 
   const fetchMediaBlobUrl = useCallback(
-    async (
-      id: number,
-      slot?: GameMediaSlot,
-    ): Promise<string | null> => {
+    async (id: number, slot?: GameMediaSlot): Promise<string | null> => {
       if (!serverUrl || !id) return null;
       try {
         const blob = await resolveApiMediaBlob({
@@ -1956,7 +2086,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       open
       onClose={onClose}
       size="7xl"
-      className="!max-w-[min(95vw,1200px)] sm:!max-w-[min(65vw,1200px)] !h-[min(90vh,900px)] !w-full flex flex-col"
+      className="!max-w-[min(95vw,1200px)] sm:!max-w-[min(85vw,1200px)] !h-[min(90vh,900px)] !w-full flex flex-col"
     >
       <DialogTitle className="flex items-center justify-between gap-2 sm:gap-4 pb-1 flex-shrink-0">
         <span>Game Settings</span>
@@ -1967,7 +2097,13 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
           aria-label="Close"
           disabled={saving}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            fill="none"
+          >
             <path strokeWidth="2" strokeLinecap="round" d="M6 6 18 18" />
             <path strokeWidth="2" strokeLinecap="round" d="M18 6 6 18" />
           </svg>
@@ -1986,44 +2122,58 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
             <div className="w-full sm:w-52 border-b sm:border-b-0 sm:border-r border-gv-line py-2 sm:py-4">
               <nav className="flex flex-row sm:flex-col gap-1 px-2 sm:px-3 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 {(!isTauri || isOnline) && (
-                <>
-                <button
-                  onClick={() => setActiveTab("images")}
-                  className={
-                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
-                    (activeTab === "images"
-                      ? "bg-gv-accent text-white"
-                      : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
-                  }
-                >
-                  <PhotoIcon className="w-5 h-5 flex-shrink-0" />
-                  <span>Edit Images</span>
-                </button>
-                <button
-                  onClick={() => setActiveTab("metadata")}
-                  className={
-                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
-                    (activeTab === "metadata"
-                      ? "bg-gv-accent text-white"
-                      : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
-                  }
-                >
-                  <CircleStackIcon className="w-5 h-5 flex-shrink-0" />
-                  <span>Metadata</span>
-                </button>
-                <button
-                  onClick={() => setActiveTab("custom-metadata")}
-                  className={
-                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
-                    (activeTab === "custom-metadata"
-                      ? "bg-gv-accent text-white"
-                      : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
-                  }
-                >
-                  <PencilIcon className="w-5 h-5 flex-shrink-0" />
-                  <span className="whitespace-nowrap">Custom Metadata</span>
-                </button>
-                </>
+                  <>
+                    <button
+                      onClick={() => setActiveTab("images")}
+                      className={
+                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                        (activeTab === "images"
+                          ? "bg-gv-accent text-white"
+                          : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
+                      }
+                    >
+                      <PhotoIcon className="w-5 h-5 flex-shrink-0" />
+                      <span>Edit Images</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("metadata")}
+                      className={
+                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                        (activeTab === "metadata"
+                          ? "bg-gv-accent text-white"
+                          : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
+                      }
+                    >
+                      <CircleStackIcon className="w-5 h-5 flex-shrink-0" />
+                      <span>Metadata</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("custom-metadata")}
+                      className={
+                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                        (activeTab === "custom-metadata"
+                          ? "bg-gv-accent text-white"
+                          : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
+                      }
+                    >
+                      <PencilIcon className="w-5 h-5 flex-shrink-0" />
+                      <span className="whitespace-nowrap">Custom Metadata</span>
+                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => setActiveTab("game-files")}
+                        className={
+                          "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                          (activeTab === "game-files"
+                            ? "bg-gv-accent text-white"
+                            : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
+                        }
+                      >
+                        <DocumentTextIcon className="w-5 h-5 flex-shrink-0" />
+                        <span>Game Files</span>
+                      </button>
+                    )}
+                  </>
                 )}
                 {installationTabsVisible && (
                   <>
@@ -2060,7 +2210,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
             <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
               <DialogBody className="flex-1 px-6 py-4 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gv-panel-strong [&::-webkit-scrollbar-thumb]:rounded-full">
                 {activeTab === "images" && (
-                  <div className="grid gap-8 md:grid-cols-2">
+                  <div className="grid gap-6 md:gap-8 md:grid-cols-2">
                     {/* Cover zone */}
                     <div className="flex flex-col gap-4">
                       <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-gv-muted">
@@ -3562,7 +3712,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               }
                             >
                               <ListboxOption value="">
-                                <ListboxLabel>-- Select executable --</ListboxLabel>
+                                <ListboxLabel>
+                                  -- Select executable --
+                                </ListboxLabel>
                               </ListboxOption>
                               {launchExecutables.map((exe) => (
                                 <ListboxOption key={exe} value={exe}>
@@ -3642,8 +3794,8 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                   placeholder="UMU-Proton"
                                 />
                                 <p className="mt-1 text-xs text-gv-muted">
-                                  Proton directory, version name
-                                  (GE-Proton9-5) or codename (GE-Proton).
+                                  Proton directory, version name (GE-Proton9-5)
+                                  or codename (GE-Proton).
                                 </p>
                               </div>
                               <div>
@@ -3687,7 +3839,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                         </div>
 
                         {/* Run as Admin */}
-                        <div>                         
+                        <div>
                           <SwitchField>
                             <Switch
                               name="launchAsAdmin"
@@ -3704,6 +3856,121 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                           </p>
                         </div>
                       </>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === "game-files" && isAdmin && (
+                  <div className="max-w-3xl space-y-6">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gv-text">
+                        Game Files
+                      </h3>
+                      <p className="mt-1 text-sm text-gv-muted">
+                        View the files that make up this game on the server.
+                        Only admins can delete a file; the game's metadata is
+                        kept after deletion.
+                      </p>
+                    </div>
+
+                    {!workingGame.versions ||
+                    workingGame.versions.length === 0 ? (
+                      <div className="rounded-xl border border-gv-line bg-gv-panel-soft p-6 text-center text-sm text-gv-muted">
+                        No indexed game files found for this game.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {[...workingGame.versions]
+                          .sort(
+                            (a, b) =>
+                              new Date(b.indexed_at).getTime() -
+                              new Date(a.indexed_at).getTime(),
+                          )
+                          .map((version) => {
+                            const versionLabel =
+                              version.version || "Unspecified";
+                            const isDeleting = deletingVersionId === version.id;
+                            const bytes = Number(version.size);
+                            const fileSize = Number.isFinite(bytes)
+                              ? formatBytes(bytes)
+                              : "Unknown";
+                            const filePath = version.file_path || "";
+                            const gameType = version.type
+                              ? version.type
+                                  .replace(/_/g, " ")
+                                  .toLowerCase()
+                                  .replace(/\b\w/g, (c) => c.toUpperCase())
+                              : "Undetectable";
+                            const indexedAt = (() => {
+                              const d = new Date(version.indexed_at);
+                              return Number.isNaN(d.getTime())
+                                ? "-"
+                                : d.toLocaleString();
+                            })();
+
+                            return (
+                              <div
+                                key={version.id}
+                                className="rounded-xl border border-gv-line bg-gv-panel-soft p-4"
+                              >
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="font-medium text-gv-text">
+                                        {versionLabel}
+                                      </span>
+                                      {version.early_access && (
+                                        <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-300">
+                                          Early Access
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div
+                                      className="mt-1 break-all font-mono text-xs text-gv-muted"
+                                      title={filePath}
+                                    >
+                                      {filePath}
+                                    </div>
+                                  </div>
+                                  <Button
+                                    color="rose"
+                                    onClick={() =>
+                                      void handleDeleteGameVersion(version)
+                                    }
+                                    disabled={
+                                      isDeleting || deletingVersionId !== null
+                                    }
+                                    aria-label={`Delete ${versionLabel}`}
+                                  >
+                                    <TrashIcon className="w-4 h-4" />
+                                    {isDeleting ? "Deleting..." : "Delete"}
+                                  </Button>
+                                </div>
+
+                                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-gv-line pt-3 text-xs sm:grid-cols-3">
+                                  <div>
+                                    <dt className="text-gv-muted">Size</dt>
+                                    <dd className="mt-0.5 text-gv-text">
+                                      {fileSize}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt className="text-gv-muted">Type</dt>
+                                    <dd className="mt-0.5 text-gv-text">
+                                      {gameType}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt className="text-gv-muted">Added</dt>
+                                    <dd className="mt-0.5 text-gv-text">
+                                      {indexedAt}
+                                    </dd>
+                                  </div>
+                                </dl>
+                              </div>
+                            );
+                          })}
+                      </div>
                     )}
                   </div>
                 )}

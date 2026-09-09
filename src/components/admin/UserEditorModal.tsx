@@ -500,7 +500,12 @@ export function UserEditorModal({
   };
 
   return (
-    <Dialog open onClose={onClose} size="3xl" className="!h-[min(85vh,850px)] flex flex-col">
+    <Dialog
+      open
+      onClose={onClose}
+      size="3xl"
+      className="!h-[min(85vh,850px)] flex flex-col"
+    >
       <DialogTitle>User Settings</DialogTitle>
       <div className="px-6 mt-1 flex gap-2 border-b border-gv-line text-sm">
         <button
@@ -529,7 +534,7 @@ export function UserEditorModal({
       {/* Fixed panel height so switching tabs does not visually resize the dialog */}
       <DialogBody className="pt-4 overflow-y-auto space-y-8 flex-1 min-h-0">
         {activeTab === "images" && (
-          <div className="grid gap-8 md:grid-cols-2">
+          <div className="grid gap-6 md:gap-8 md:grid-cols-2">
             {/* Avatar zone */}
             <div className="flex flex-col gap-4">
               <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-gv-muted">
@@ -545,7 +550,7 @@ export function UserEditorModal({
                 onPaste={(e) => handlePaste(e, "avatar")}
                 onDrop={(e) => handleDrop(e, "avatar")}
                 onDragOver={(e) => handleDragOver(e, "avatar")}
-                className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
+                className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-40 sm:h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                 onClick={() => avatarFileInputRef.current?.click()}
               >
                 {avatarImg.preview ? (
@@ -623,7 +628,7 @@ export function UserEditorModal({
                 onPaste={(e) => handlePaste(e, "bg")}
                 onDrop={(e) => handleDrop(e, "bg")}
                 onDragOver={(e) => handleDragOver(e, "bg")}
-                className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
+                className="relative rounded-2xl border-2 border-dashed border-gv-line bg-gv-panel-soft h-40 sm:h-56 flex items-center justify-center cursor-pointer overflow-hidden transition-colors hover:border-gv-accent/50 hover:bg-gv-panel"
                 onClick={() => bgFileInputRef.current?.click()}
               >
                 {bgImg.preview ? (
