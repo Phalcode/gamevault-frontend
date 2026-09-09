@@ -58,6 +58,7 @@ import { GameSettings } from "@/components/admin/GameSettings";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { isTauriApp } from "@/utils/tauri";
+import { onGameDeleted } from "@/utils/gameUpdates";
 import { maskDisplayName, useStreamerMode } from "@/utils/streamerMode";
 import { LayoutGroup, motion } from "motion/react";
 import { EASE_OUT } from "@/lib/motion";
@@ -110,6 +111,16 @@ export default function GameView() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [navigate]);
+
+  // If the currently-viewed game is removed from the library (e.g. its last
+  // version file was deleted), close the settings modal and return to library.
+  useEffect(() => {
+    return onGameDeleted((gameId) => {
+      if (gameId !== numericId) return;
+      setSettingsOpen(false);
+      navigate("/library", { replace: true });
+    });
+  }, [numericId, navigate]);
   const backgroundMediaId = game?.metadata?.background?.id;
   const { url: backgroundUrl } = useAuthMediaUrl(
     backgroundMediaId,

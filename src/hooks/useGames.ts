@@ -13,6 +13,7 @@ import {
   EarlyAccessFilter,
 } from "@/utils/gamesQuery";
 export type { BookmarkFilter, EarlyAccessFilter } from "@/utils/gamesQuery";
+import { onGameDeleted } from "@/utils/gameUpdates";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface PaginatedData<T> {
@@ -59,6 +60,27 @@ interface CachedGamesState {
 // This prevents losing infinite-scroll pages when navigating away and back
 // (e.g. Library → GameView → back).
 const gamesCache = new Map<string, CachedGamesState>();
+
+// Game IDs that have been fully removed from the library (e.g. by deleting a
+// game's last version file). Kept at module scope so the game stays out of the
+// list even when the Library remounts and re-fetches from the server.
+const removedGameIds = new Set<number>();
+
+// Keep the module-level cache in sync even when no Library instance is mounted
+// (e.g. a game is deleted while the user is on the game view).
+onGameDeleted((gameId) => {
+  removedGameIds.add(gameId);
+  for (const [key, state] of gamesCache) {
+    if (state.games.some((g) => g.id === gameId)) {
+      gamesCache.set(key, {
+        count: Math.max(0, state.count - 1),
+        games: state.games.filter((g) => g.id !== gameId),
+        next: state.next,
+        loadedPages: state.loadedPages,
+      });
+    }
+  }
+});
 
 export function useGames({
   search,
@@ -112,6 +134,8 @@ export function useGames({
   const loadedPagesRef = useRef(cached?.loadedPages ?? 0);
   const cacheKeyRef = useRef(cacheKey);
   cacheKeyRef.current = cacheKey;
+  const gamesRef = useRef<GamevaultGame[]>(games);
+  gamesRef.current = games;
 
   // Serialize arrays to stable strings to use as dependencies (prevent re-fetching when array reference changes but contents are same)
   const gameTypesKey = useMemo(
@@ -182,15 +206,24 @@ export function useGames({
       const res = await authFetch(url, { method: "GET", signal: ac.signal });
       if (!res.ok) throw new Error(`Games fetch failed (${res.status})`);
       const json: PaginatedData<GamevaultGame> = await res.json();
-      setCount(json.meta.totalItems);
-      setGames(json.data || []);
+      // Drop games that were removed from the library (e.g. their last version
+      // was deleted) so they don't reappear after a re-fetch.
+      const fetchedGames = (json.data || []).filter(
+        (g) => !removedGameIds.has(g.id),
+      );
+      const fetchedCount = Math.max(
+        0,
+        json.meta.totalItems - removedGameIds.size,
+      );
+      setCount(fetchedCount);
+      setGames(fetchedGames);
       setNext(json.links?.next || null);
       loadedPagesRef.current = 1;
       // Persist page 1 results to the module-level cache so that navigating
       // away and back (e.g. Library → GameView → back) restores instantly.
       gamesCache.set(cacheKeyRef.current, {
-        count: json.meta.totalItems,
-        games: json.data || [],
+        count: fetchedCount,
+        games: fetchedGames,
         next: json.links?.next || null,
         loadedPages: 1,
       });
@@ -239,7 +272,9 @@ export function useGames({
       if (!res.ok) throw new Error(`Games fetch failed (${res.status})`);
       const json: PaginatedData<GamevaultGame> = await res.json();
       setGames((prev) => {
-        const merged = [...prev, ...(json.data || [])];
+        const merged = [...prev, ...(json.data || [])].filter(
+          (g) => !removedGameIds.has(g.id),
+        );
         loadedPagesRef.current += 1;
         // Persist all loaded pages so infinite-scroll position is preserved
         // when navigating back to the library.
@@ -263,6 +298,16 @@ export function useGames({
     fetchGames();
     return () => abortRef.current?.abort();
   }, [fetchGames]);
+
+  // Drop a deleted game from the live list as soon as the event fires, so the
+  // Library updates without waiting for a refresh.
+  useEffect(() => {
+    return onGameDeleted((gameId) => {
+      if (!gamesRef.current.some((g) => g.id === gameId)) return;
+      setGames((prev) => prev.filter((g) => g.id !== gameId));
+      setCount((c) => Math.max(0, c - 1));
+    });
+  }, []);
 
   return {
     count,

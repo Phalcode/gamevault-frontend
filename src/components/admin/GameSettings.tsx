@@ -33,7 +33,7 @@ import {
   pickBestImageUrl,
 } from "@/utils/droppedImage";
 import { useOnlineStatus } from "@/context/OfflineContext";
-import { emitGameUpdated } from "@/utils/gameUpdates";
+import { emitGameDeleted, emitGameUpdated } from "@/utils/gameUpdates";
 import { GameMediaSlot, resolveApiMediaBlob } from "@/utils/mediaCache";
 import {
   PhotoIcon,
@@ -103,6 +103,7 @@ type InstalledGameInfo = {
 };
 
 import { getRootPaths } from "@/utils/rootPaths";
+import { getErrorMessage } from "@/utils/apiError";
 import { useDiskUsage } from "@/hooks/useDiskUsage";
 import DiskUsageChart from "@/components/DiskUsageChart";
 
@@ -978,6 +979,9 @@ export function GameSettings({
 
       setDeletingVersionId(version.id);
       try {
+        // Deleting the only version removes the game from the library.
+        const wasLastVersion = (workingGame.versions?.length ?? 0) <= 1;
+
         const base = serverUrl?.replace(/\/+$/, "");
         if (!base) throw new Error("Missing server URL");
         const res = await authFetch(
@@ -985,13 +989,33 @@ export function GameSettings({
           { method: "DELETE" },
         );
         if (!res.ok) {
-          const txt = await res.text();
-          throw new Error(
-            `Failed to delete game file (${res.status}): ${txt || res.statusText}`,
+          const message = await getErrorMessage(
+            res,
+            "The server could not delete this game file.",
           );
+          throw new Error(message);
         }
 
-        const updatedGame = await refetchGame();
+        let updatedGame: GamevaultGame | null = null;
+        try {
+          updatedGame = await refetchGame();
+        } catch {
+          updatedGame = null;
+        }
+
+        const hasRemainingVersions =
+          !!updatedGame &&
+          Array.isArray(updatedGame.versions) &&
+          updatedGame.versions.length > 0;
+
+        // The game is fully removed once its last version file is gone: close
+        // the settings modal and let the library/game view react.
+        if (wasLastVersion || !hasRemainingVersions) {
+          emitGameDeleted(workingGame.id);
+          onClose();
+          return;
+        }
+
         if (updatedGame) {
           setFullGame(updatedGame);
           onGameUpdated?.(updatedGame);
@@ -1005,8 +1029,8 @@ export function GameSettings({
         });
       } catch (e: any) {
         await showAlert({
-          title: "Error",
-          description: e?.message || "Failed to delete game file",
+          title: "Unable to delete game file",
+          description: e?.message || "The server could not delete this game file.",
           affirmativeText: "OK",
         });
       } finally {
@@ -1015,6 +1039,7 @@ export function GameSettings({
     },
     [
       authFetch,
+      emitGameDeleted,
       emitGameUpdated,
       onGameUpdated,
       refetchGame,
@@ -1023,6 +1048,7 @@ export function GameSettings({
       workingGame.id,
       workingGame.metadata?.title,
       workingGame.title,
+      workingGame.versions,
     ],
   );
 
@@ -1988,10 +2014,11 @@ export function GameSettings({
       });
 
       if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(
-          `Failed to save custom metadata (${res.status}): ${txt || res.statusText}`,
+        const message = await getErrorMessage(
+          res,
+          "The server could not save your custom metadata.",
         );
+        throw new Error(message);
       }
 
       const updatedGame = await res.json();
@@ -2009,8 +2036,8 @@ export function GameSettings({
       setCustomMetadata(getEmptyCustomMetadata());
     } catch (e: any) {
       await showAlert({
-        title: "Error",
-        description: e?.message || "Failed to save custom metadata",
+        title: "Unable to save custom metadata",
+        description: e?.message || "The server could not save your custom metadata.",
         affirmativeText: "OK",
       });
     } finally {
@@ -2053,10 +2080,11 @@ export function GameSettings({
         });
 
         if (!res.ok) {
-          const txt = await res.text();
-          throw new Error(
-            `Failed to wipe custom metadata (${res.status}): ${txt || res.statusText}`,
+          const message = await getErrorMessage(
+            res,
+            "The server could not wipe your custom metadata.",
           );
+          throw new Error(message);
         }
 
         const updatedGame = await res.json();
@@ -2071,8 +2099,8 @@ export function GameSettings({
         });
       } catch (e: any) {
         await showAlert({
-          title: "Error",
-          description: e?.message || "Failed to wipe custom metadata",
+          title: "Unable to wipe custom metadata",
+          description: e?.message || "The server could not wipe your custom metadata.",
           affirmativeText: "OK",
         });
       } finally {
