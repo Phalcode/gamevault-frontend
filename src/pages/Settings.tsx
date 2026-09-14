@@ -379,9 +379,23 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
   {
     id: "about-system",
     title: "System information",
-    description: "Platform, operating system and hardware details",
+    description: "Operating system, hardware, GPU and display details",
     category: "about",
-    keywords: ["system", "info", "os", "platform", "hardware", "cpu"],
+    keywords: [
+      "system",
+      "info",
+      "os",
+      "platform",
+      "hardware",
+      "cpu",
+      "memory",
+      "gpu",
+      "webgl",
+      "webgpu",
+      "display",
+      "monitors",
+      "user agent",
+    ],
   },
   // Developer
   {
@@ -435,21 +449,6 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     keywords: ["settings", "dump", "export", "copy", "json", "diagnostics"],
   },
   {
-    id: "developer-rendering",
-    title: "Rendering & System",
-    description: "OS, GPU and display diagnostics plus WebKitGTK settings",
-    category: "developer",
-    keywords: [
-      "rendering",
-      "gpu",
-      "display",
-      "webkit",
-      "os",
-      "system",
-      "diagnostic",
-    ],
-  },
-  {
     id: "rendering-smooth-scroll",
     title: "Smooth Scrolling",
     description: "Toggle WebKitGTK smooth-scroll animation",
@@ -462,7 +461,7 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     title: "Hardware Acceleration",
     description:
       "WebKitGTK hardware acceleration policy. Only takes effect after restarting the app.",
-    category: "developer",
+    category: "appearance",
     keywords: ["gpu", "acceleration", "webkit", "hardware", "rendering"],
     desktopOnly: true,
   },
@@ -856,10 +855,11 @@ export default function Settings() {
   const [webkitHwAccel, setWebkitHwAccel] = useState("OnDemand");
   const [webkitSupported, setWebkitSupported] = useState(false);
 
-  // Load rendering diagnostics when the Developer Tools category is open, and
-  // also when Appearance is open (it shows the WebKitGTK smooth-scrolling toggle).
+  // Load rendering diagnostics when the About category is open (it shows the
+  // system diagnostics), and also when Appearance is open (it shows the
+  // WebKitGTK rendering toggles).
   const renderingCategoryActive =
-    activeCategory === "developer" || activeCategory === "appearance";
+    activeCategory === "about" || activeCategory === "appearance";
   useEffect(() => {
     if (!renderingCategoryActive) return;
     let cancelled = false;
@@ -2132,7 +2132,11 @@ export default function Settings() {
                     {webkitSupported && renderingDiagnostics?.webkit && (
                       <SettingsGroup
                         id="setting-rendering-smooth-scroll"
-                        className={rowHighlight("rendering-smooth-scroll")}
+                        className={clsx(
+                          rowHighlight("rendering-smooth-scroll"),
+                          rowHighlight("rendering-hw-accel"),
+                        )}
+                        caption="Rendering"
                       >
                         <SettingsRow>
                           <SettingsLabel
@@ -2148,6 +2152,31 @@ export default function Settings() {
                               void handleSetWebkitSmoothScroll(v)
                             }
                           />
+                        </SettingsRow>
+                        <SettingsRow id="setting-rendering-hw-accel">
+                          <SettingsLabel
+                            title="Hardware Acceleration"
+                            description="WebKitGTK hardware acceleration policy. Only takes effect after restarting the app."
+                          />
+                          <div className="w-36 shrink-0">
+                            <Listbox
+                              name="webkitHwAccel"
+                              value={webkitHwAccel}
+                              onChange={(v) =>
+                                void handleSetWebkitHwAccel(String(v))
+                              }
+                            >
+                              <ListboxOption value="Never">
+                                <ListboxLabel>Never</ListboxLabel>
+                              </ListboxOption>
+                              <ListboxOption value="OnDemand">
+                                <ListboxLabel>On-demand</ListboxLabel>
+                              </ListboxOption>
+                              <ListboxOption value="Always">
+                                <ListboxLabel>Always</ListboxLabel>
+                              </ListboxOption>
+                            </Listbox>
+                          </div>
                         </SettingsRow>
                       </SettingsGroup>
                     )}
@@ -2410,120 +2439,6 @@ export default function Settings() {
                           </Button>
                         </SettingsRow>
                       </SettingsGroup>
-
-                      <SettingsGroup
-                        id="setting-developer-rendering"
-                        className={rowHighlight("developer-rendering")}
-                        caption="Rendering & System"
-                      >
-                        <SettingsRow>
-                          <SettingsLabel
-                            title="Operating System"
-                            description="OS, version and architecture"
-                          />
-                          <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
-                            {osLabel}
-                          </span>
-                        </SettingsRow>
-                        <SettingsRow>
-                          <SettingsLabel
-                            title="Display"
-                            description="Resolution, DPR and colour depth"
-                          />
-                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
-                            {displayLabel}
-                          </span>
-                        </SettingsRow>
-                        <SettingsRow>
-                          <SettingsLabel title="Monitors" />
-                          <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
-                            {monitorsLabel}
-                          </span>
-                        </SettingsRow>
-                        <SettingsRow>
-                          <SettingsLabel
-                            title="GPU (WebGL)"
-                            description="GPU renderer reported by the WebGL context"
-                          />
-                          <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
-                            {gpuLabel}
-                          </span>
-                        </SettingsRow>
-                        <SettingsRow>
-                          <SettingsLabel title="WebGPU" />
-                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
-                            {webgpuLabel}
-                          </span>
-                        </SettingsRow>
-                        <SettingsRow>
-                          <SettingsLabel title="CPU / Memory" />
-                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
-                            {cpuMemoryLabel}
-                          </span>
-                        </SettingsRow>
-                        <SettingsRow>
-                          <SettingsLabel title="Platform" />
-                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
-                            {systemInfo.platform}
-                          </span>
-                        </SettingsRow>
-                        <SettingsRow>
-                          <SettingsLabel title="Language" />
-                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
-                            {systemInfo.language}
-                          </span>
-                        </SettingsRow>
-                        <SettingsRow>
-                          <SettingsLabel title="User Agent" />
-                          <span className="min-w-0 max-w-[55%] break-all text-right font-mono text-xs text-gv-muted">
-                            {systemInfo.userAgent}
-                          </span>
-                        </SettingsRow>
-
-                        {webkitSupported && renderingDiagnostics?.webkit && (
-                          <>
-                            <SettingsRow
-                              id="setting-rendering-hw-accel"
-                              className={rowHighlight("rendering-hw-accel")}
-                            >
-                              <SettingsLabel
-                                title="Hardware Acceleration"
-                                description="WebKitGTK hardware acceleration policy. Only takes effect after restarting the app."
-                              />
-                              <div className="w-36 shrink-0">
-                                <Listbox
-                                  name="webkitHwAccel"
-                                  value={webkitHwAccel}
-                                  onChange={(v) =>
-                                    void handleSetWebkitHwAccel(String(v))
-                                  }
-                                >
-                                  <ListboxOption value="Never">
-                                    <ListboxLabel>Never</ListboxLabel>
-                                  </ListboxOption>
-                                  <ListboxOption value="OnDemand">
-                                    <ListboxLabel>On-demand</ListboxLabel>
-                                  </ListboxOption>
-                                  <ListboxOption value="Always">
-                                    <ListboxLabel>Always</ListboxLabel>
-                                  </ListboxOption>
-                                </Listbox>
-                              </div>
-                            </SettingsRow>
-                            <SettingsRow>
-                              <SettingsLabel
-                                title="WebGL (WebKit)"
-                                description="Whether WebKitGTK reports WebGL as enabled"
-                              />
-                              <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
-                                {renderingDiagnostics.webkit.webgl_enabled
-                                  ? "Enabled"
-                                  : "Disabled"}
-                              </span>
-                            </SettingsRow>
-                          </>
-                        )}
-                      </SettingsGroup>
                     </>
                   )}
 
@@ -2629,47 +2544,81 @@ export default function Settings() {
                       caption="System"
                     >
                       <SettingsRow>
+                        <SettingsLabel
+                          title="Operating System"
+                          description="OS, version and architecture"
+                        />
+                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                          {osLabel}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Display"
+                          description="Resolution, DPR and colour depth"
+                        />
+                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                          {displayLabel}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel title="Monitors" />
+                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                          {monitorsLabel}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="GPU (WebGL)"
+                          description="GPU renderer reported by the WebGL context"
+                        />
+                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                          {gpuLabel}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel title="WebGPU" />
+                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                          {webgpuLabel}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel title="CPU / Memory" />
+                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                          {cpuMemoryLabel}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
                         <SettingsLabel title="Platform" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
+                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
                           {systemInfo.platform}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
-                        <SettingsLabel title="Operating System" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
-                          {systemInfo.os}
-                        </span>
-                      </SettingsRow>
-                      <SettingsRow>
-                        <SettingsLabel title="Architecture" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
-                          {systemInfo.architecture || "—"}
-                        </span>
-                      </SettingsRow>
-                      <SettingsRow>
                         <SettingsLabel title="Language" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
+                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
                           {systemInfo.language}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
-                        <SettingsLabel title="Screen" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
-                          {systemInfo.screen}
+                        <SettingsLabel title="User Agent" />
+                        <span className="min-w-0 max-w-[55%] break-all text-right font-mono text-xs text-gv-muted">
+                          {systemInfo.userAgent}
                         </span>
                       </SettingsRow>
-                      <SettingsRow>
-                        <SettingsLabel title="CPU Cores" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
-                          {systemInfo.cores}
-                        </span>
-                      </SettingsRow>
-                      <SettingsRow>
-                        <SettingsLabel title="Memory" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
-                          {systemInfo.memory}
-                        </span>
-                      </SettingsRow>
+                      {webkitSupported && renderingDiagnostics?.webkit && (
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="WebGL (WebKit)"
+                            description="Whether WebKitGTK reports WebGL as enabled"
+                          />
+                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                            {renderingDiagnostics.webkit.webgl_enabled
+                              ? "Enabled"
+                              : "Disabled"}
+                          </span>
+                        </SettingsRow>
+                      )}
                     </SettingsGroup>
 
                     {isTauri && (

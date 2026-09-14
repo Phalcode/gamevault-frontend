@@ -224,8 +224,8 @@ function fallbackOs(): OsInfo {
 /**
  * Collects the full rendering / GPU / display / OS diagnostics. In the desktop
  * app the OS + monitor + WebKit state come from Rust; GPU/WebGL/WebGPU/display
- * are read on the frontend. Same payload is surfaced in both the DevTools
- * "Rendering & System" section and the "Copy Settings Dump" output.
+ * are read on the frontend. Same payload is surfaced in both the About "System"
+ * section and the "Copy Settings Dump" output.
  */
 export async function getRenderingDiagnostics(): Promise<RenderingDiagnostics> {
   const [tauri, webgpu] = await Promise.all([

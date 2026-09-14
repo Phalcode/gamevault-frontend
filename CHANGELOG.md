@@ -61,6 +61,8 @@
 - Administrators can now view a game's files (their paths, sizes and other metadata) in the game settings and delete individual game files from the server.
 - Made the game settings and user settings dialogs more responsive and easier to use on tablets and phones, and removed the release date from the game files list.
 - Deleting a game's last version file now closes the settings, removes the game from the library, and returns you to the library if you were viewing that game.
+- Settings → About now shows the full system diagnostics (operating system, display and monitors, GPU/WebGL, WebGPU, CPU/memory, platform, language and user agent) that previously only lived in the Developer Tools menu, replacing the shorter system info list there.
+- Moved the Hardware Acceleration setting from the Developer Tools menu into Settings → Appearance (Linux desktop builds), where it now sits next to Smooth Scrolling.
 
 ## 17.0.0
 
