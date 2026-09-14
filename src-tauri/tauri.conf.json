@@ -48,6 +48,9 @@
       }
     },
     "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      },
       "deb": {
         "desktopTemplate": "linux/gamevault.desktop.hbs",
         "section": "games",

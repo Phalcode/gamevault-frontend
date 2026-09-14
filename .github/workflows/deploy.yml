@@ -180,11 +180,17 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt update
+          # The gstreamer plugin packages provide the elements WebKitGTK needs
+          # for audio/media playback (appsink, autoaudiosink, vorbis, ...). They
+          # are copied into the AppImage by `bundleMediaFramework: true`, so the
+          # packages have to be installed here for the bundler to find them.
           sudo apt install -y \
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
