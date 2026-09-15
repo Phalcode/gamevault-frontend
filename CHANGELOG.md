@@ -55,16 +55,15 @@
 - Fixed downloads aborting with a 401 error when you refresh (F5) mid-download: auto-resumed downloads now wait for a valid session token instead of firing before login has finished.
 - Added a keyboard shortcut (Ctrl/Cmd+Shift+O) to toggle Streamer/OPSEC mode from anywhere in the app.
 - Cleaned up the Community Page UI
-
----
-
 - Administrators can now view a game's files (their paths, sizes and other metadata) in the game settings and delete individual game files from the server.
 - Made the game settings and user settings dialogs more responsive and easier to use on tablets and phones, and removed the release date from the game files list.
 - Deleting a game's last version file now closes the settings, removes the game from the library, and returns you to the library if you were viewing that game.
 - Settings → About now shows the full system diagnostics (operating system, display and monitors, GPU/WebGL, WebGPU, CPU/memory, platform, language and user agent) that previously only lived in the Developer Tools menu, replacing the shorter system info list there.
 - Moved the Hardware Acceleration setting from the Developer Tools menu into Settings → Appearance (Linux desktop builds), where it now sits next to Smooth Scrolling.
-- Fixed the Linux AppImage failing to play sounds with `GStreamer element appsink not found. Please install it.`: the GStreamer plugins WebKitGTK needs are now bundled into the AppImage (which grows by ~15–35 MB), so no GStreamer packages have to be installed on the system.
+- Fixed the Linux AppImage failing to play sound effects and trailers with `GStreamer element appsink not found. Please install it.` (followed by `fakevideosink` and WebVTT encoder errors): the full GStreamer plugin set WebKitGTK needs — base, good and bad, including H.264/AAC decoding, MSE support and the WebVTT encoder — is now bundled into the AppImage, so no GStreamer packages have to be installed on the system.
 - Fixed the system information under Settings → About not matching the machine it runs on
+
+---
 
 ## 17.0.0
 
