@@ -65,6 +65,9 @@
 
 ---
 
+- Fixed the Linux AppImage failing to play sound effects and trailers with `GStreamer element appsink not found. Please install it.` (followed by `fakevideosink` and WebVTT encoder errors): the full GStreamer plugin set WebKitGTK needs — base, good and bad, including H.264/AAC decoding, MSE support and the WebVTT encoder — is now bundled into the AppImage, so no GStreamer packages have to be installed on the system.
+- Added a one-time warning on the first launch of an Early Access or unstable build, explaining that these builds are meant for the early access program/developers and testers, that extra setup steps may be needed, and that more issues are to be expected than on a stable release.
+
 ## 17.0.0
 
 ### Changes

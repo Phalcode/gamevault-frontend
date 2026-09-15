@@ -5,6 +5,7 @@ import { MotionConfig } from "motion/react";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
 import { PageLoader } from "./components/PageLoader";
+import { PrereleaseNotice } from "./components/PrereleaseNotice";
 import {
   AlertDialogProvider,
   GlobalAlertDialogBridge,
@@ -37,10 +38,7 @@ import { applyTheme, getStoredTheme } from "./utils/theme";
 import { applyZoom, getStoredZoom, registerZoomHotkeys } from "./utils/zoom";
 import { registerReloadHotkey } from "./utils/reload";
 import { registerStreamerModeHotkey } from "./utils/streamerMode";
-import {
-  registerExternalLinkHandler,
-  isTauriApp,
-} from "./utils/tauri";
+import { registerExternalLinkHandler, isTauriApp } from "./utils/tauri";
 import { isAnalyticsEnabled } from "./utils/analytics";
 import { startMediaCacheMaintenance } from "./utils/mediaCache";
 import * as Swetrix from "swetrix";
@@ -61,7 +59,10 @@ if (typeof document !== "undefined" && typeof navigator !== "undefined") {
 (window as any).global = window;
 
 if (isAnalyticsEnabled()) {
-  Swetrix.init("dBl2xaaJ9x3M", { preloadSessionReplay: true, apiURL: "https://analytics.platform.phalco.de/log" });
+  Swetrix.init("dBl2xaaJ9x3M", {
+    preloadSessionReplay: true,
+    apiURL: "https://analytics.platform.phalco.de/log",
+  });
   Swetrix.trackViews();
   Swetrix.trackErrors();
 }
@@ -89,6 +90,7 @@ createRoot(document.getElementById("root")!).render(
                 <AppUpdaterProvider>
                   <UmuProvider>
                     <GlobalAlertDialogBridge />
+                    <PrereleaseNotice />
                     <BrowserRouter>
                       <GamepadProvider>
                         <Suspense fallback={<PageLoader />}>
@@ -99,8 +101,15 @@ createRoot(document.getElementById("root")!).render(
                             </Route>
 
                             <Route element={<DashboardLayout />}>
-                              <Route index path="library" element={<Library />} />
-                              <Route path="library/:id" element={<GameView />} />
+                              <Route
+                                index
+                                path="library"
+                                element={<Library />}
+                              />
+                              <Route
+                                path="library/:id"
+                                element={<GameView />}
+                              />
                               <Route path="downloads" element={<Downloads />} />
                               <Route path="community" element={<Community />} />
                               <Route
