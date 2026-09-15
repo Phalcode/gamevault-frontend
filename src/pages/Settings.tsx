@@ -42,6 +42,9 @@ import { isAnalyticsEnabled, setAnalyticsEnabled } from "@/utils/analytics";
 import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
 import { clearImageCache } from "@/utils/mediaCache";
 import {
+  formatCpuMemoryLabel,
+  formatDisplayLabel,
+  formatMonitorsLabel,
   getRenderingDiagnostics,
   type RenderingDiagnostics,
 } from "@/utils/rendering";
@@ -631,8 +634,6 @@ interface SystemInfo {
   os: string;
   architecture: string;
   language: string;
-  cores: string;
-  memory: string;
   screen: string;
   userAgent: string;
 }
@@ -654,13 +655,6 @@ function collectSystemInfo(isTauri: boolean): SystemInfo {
     os,
     architecture,
     language: nav?.language || "Unknown",
-    cores: nav?.hardwareConcurrency
-      ? String(nav.hardwareConcurrency)
-      : "Unknown",
-    memory:
-      (nav as any)?.deviceMemory != null
-        ? `${(nav as any).deviceMemory} GB`
-        : "Unknown",
     screen,
     userAgent: nav?.userAgent || "Unknown",
   };
@@ -1291,22 +1285,12 @@ export default function Settings() {
       os.long_os_version || `${os.name} ${os.os_version}`.trim() || os.name;
     return `${base} (${os.arch})`;
   })();
-  const displayLabel = (() => {
-    const d = renderingDiagnostics?.display;
-    if (!d) return "Loading…";
-    return `${d.width}x${d.height} · ${d.devicePixelRatio}x DPR · ${d.colorDepth}-bit`;
-  })();
-  const monitorsLabel = (() => {
-    if (!renderingDiagnostics) return "Loading…";
-    const mons = renderingDiagnostics.monitors ?? [];
-    if (mons.length === 0) return "—";
-    return mons
-      .map(
-        (m) =>
-          `${m.width}x${m.height} @ ${m.scale_factor}x${m.name ? ` (${m.name})` : ""}`,
-      )
-      .join(", ");
-  })();
+  const displayLabel = renderingDiagnostics
+    ? formatDisplayLabel(renderingDiagnostics.display)
+    : "Loading…";
+  const monitorsLabel = renderingDiagnostics
+    ? formatMonitorsLabel(renderingDiagnostics.monitors ?? [])
+    : "Loading…";
   const gpuLabel = (() => {
     const gl = renderingDiagnostics?.webgl;
     if (gl == null) return "Loading…";
@@ -1325,12 +1309,9 @@ export default function Settings() {
     ].filter(Boolean);
     return parts.length ? parts.join(" · ") : "Available";
   })();
-  const cpuMemoryLabel = (() => {
-    const cores = navigator.hardwareConcurrency;
-    const memory = (navigator as unknown as { deviceMemory?: number })
-      .deviceMemory;
-    return `${cores ? `${cores} cores` : "—"}${memory != null ? ` · ${memory} GB` : ""}`;
-  })();
+  const cpuMemoryLabel = renderingDiagnostics
+    ? formatCpuMemoryLabel(renderingDiagnostics.system)
+    : "Loading…";
 
   const ignoreQuery = ignoreSearch.trim().toLowerCase();
   const filteredIgnoreList = ignoreQuery
@@ -2555,14 +2536,17 @@ export default function Settings() {
                       <SettingsRow>
                         <SettingsLabel
                           title="Display"
-                          description="Resolution, DPR and colour depth"
+                          description="Screen the window is on: panel resolution, scale factor and colour depth"
                         />
-                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word">
                           {displayLabel}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
-                        <SettingsLabel title="Monitors" />
+                        <SettingsLabel
+                          title="Monitors"
+                          description="Physical resolution and scale factor of every connected monitor"
+                        />
                         <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
                           {monitorsLabel}
                         </span>
@@ -2583,8 +2567,11 @@ export default function Settings() {
                         </span>
                       </SettingsRow>
                       <SettingsRow>
-                        <SettingsLabel title="CPU / Memory" />
-                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                        <SettingsLabel
+                          title="CPU / Memory"
+                          description="Processor and installed memory reported by the operating system"
+                        />
+                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word">
                           {cpuMemoryLabel}
                         </span>
                       </SettingsRow>

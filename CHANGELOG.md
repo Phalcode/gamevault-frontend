@@ -64,6 +64,7 @@
 - Settings → About now shows the full system diagnostics (operating system, display and monitors, GPU/WebGL, WebGPU, CPU/memory, platform, language and user agent) that previously only lived in the Developer Tools menu, replacing the shorter system info list there.
 - Moved the Hardware Acceleration setting from the Developer Tools menu into Settings → Appearance (Linux desktop builds), where it now sits next to Smooth Scrolling.
 - Fixed the Linux AppImage failing to play sounds with `GStreamer element appsink not found. Please install it.`: the GStreamer plugins WebKitGTK needs are now bundled into the AppImage (which grows by ~15–35 MB), so no GStreamer packages have to be installed on the system.
+- Fixed the system information under Settings → About not matching the machine it runs on
 
 ## 17.0.0
 

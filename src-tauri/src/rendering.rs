@@ -28,10 +28,35 @@ pub(crate) struct WebKitState {
 }
 
 #[derive(Serialize)]
+pub(crate) struct CpuInfo {
+  pub brand: Option<String>,
+  pub physical_cores: Option<usize>,
+  pub logical_cores: Option<usize>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct MemoryInfo {
+  pub total_bytes: Option<u64>,
+}
+
+/// Real CPU / RAM facts straight from the OS.
+///
+/// The browser APIs the frontend can reach are privacy-clipped
+/// (`hardwareConcurrency` counts logical CPUs, `deviceMemory` rounds the
+/// installed RAM down to a power of two), so the desktop build reports what the
+/// machine actually has instead.
+#[derive(Serialize)]
+pub(crate) struct SystemSpecs {
+  pub cpu: CpuInfo,
+  pub memory: MemoryInfo,
+}
+
+#[derive(Serialize)]
 pub(crate) struct RenderingDiagnostics {
   pub os: OsInfo,
   pub monitors: Vec<MonitorInfo>,
   pub webkit: Option<WebKitState>,
+  pub system: SystemSpecs,
 }
 
 fn get_os_info() -> OsInfo {
@@ -63,6 +88,56 @@ fn get_monitors(app: &AppHandle) -> Vec<MonitorInfo> {
     }
   }
   monitors
+}
+
+/**
+ * Total installed RAM in bytes.
+ *
+ * On Windows `sysinfo` mirrors `GlobalMemoryStatusEx`, i.e. the memory the OS
+ * can actually address — which is lower than the amount of RAM that is
+ * physically installed (hardware reserves a slice). Ask Windows directly so the
+ * value matches the "Installed RAM" figure users see in their system settings.
+ */
+fn get_total_memory(system: &sysinfo::System) -> Option<u64> {
+  #[cfg(target_os = "windows")]
+  {
+    use winapi::um::sysinfoapi::GetPhysicallyInstalledSystemMemory;
+    let mut kilobytes: u64 = 0;
+    // SAFETY: the call only writes to the provided out-parameter.
+    if unsafe { GetPhysicallyInstalledSystemMemory(&mut kilobytes) } != 0 {
+      return Some(kilobytes * 1024).filter(|bytes| *bytes > 0);
+    }
+  }
+  Some(system.total_memory()).filter(|bytes| *bytes > 0)
+}
+
+/// Reads the CPU model, core counts and installed RAM from the OS. Anything the
+/// platform refuses to report stays `None` so the UI can drop that part.
+fn get_system_specs() -> SystemSpecs {
+  let system = sysinfo::System::new_with_specifics(
+    sysinfo::RefreshKind::nothing()
+      .with_cpu(sysinfo::CpuRefreshKind::everything())
+      .with_memory(sysinfo::MemoryRefreshKind::everything()),
+  );
+
+  // All entries describe the same package; `cpus()` has one per logical CPU.
+  let brand = system
+    .cpus()
+    .first()
+    .map(|cpu| cpu.brand().trim().to_string())
+    .filter(|brand| !brand.is_empty());
+  let logical_cores = system.cpus().len();
+
+  SystemSpecs {
+    cpu: CpuInfo {
+      brand,
+      physical_cores: system.physical_core_count(),
+      logical_cores: (logical_cores > 0).then_some(logical_cores),
+    },
+    memory: MemoryInfo {
+      total_bytes: get_total_memory(&system),
+    },
+  }
 }
 
 #[cfg(target_os = "linux")]
@@ -160,6 +235,7 @@ pub(crate) async fn get_rendering_diagnostics(
 ) -> RenderingDiagnostics {
   let os = get_os_info();
   let monitors = get_monitors(&app);
+  let system = get_system_specs();
   #[cfg(target_os = "linux")]
   let webkit = read_webkit_state(&app).await;
   #[cfg(not(target_os = "linux"))]
@@ -168,6 +244,7 @@ pub(crate) async fn get_rendering_diagnostics(
     os,
     monitors,
     webkit,
+    system,
   }
 }
 
