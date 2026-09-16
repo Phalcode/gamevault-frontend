@@ -24,7 +24,18 @@ pub(crate) fn directory_has_entries(path: &Path) -> bool {
 use std::os::windows::process::CommandExt;
 
 #[tauri::command]
-pub(crate) fn list_installed_games(
+pub(crate) async fn list_installed_games(
+    selected_root: String,
+) -> Result<Vec<InstalledGameInfo>, String> {
+    // Scanning the library reads every version folder on disk, which can take a
+    // while and must not block the UI thread.
+    tauri::async_runtime::spawn_blocking(move || list_installed_games_blocking(selected_root))
+        .await
+        .map_err(|error| format!("Listing installed games failed: {error}"))?
+}
+
+/// Blocking implementation, also used by the time tracker on its own thread.
+pub(crate) fn list_installed_games_blocking(
     selected_root: String,
 ) -> Result<Vec<InstalledGameInfo>, String> {
     let candidate = PathBuf::from(&selected_root).join("GameVault");
@@ -172,7 +183,20 @@ pub(crate) struct DiskUsage {
 }
 
 #[tauri::command]
-pub(crate) fn get_disk_usage(
+pub(crate) async fn get_disk_usage(
+    selected_root: String,
+    current_version_dir: Option<String>,
+) -> Result<DiskUsage, String> {
+    // Walks every installed version on disk to size it up: blocking work that
+    // does not belong on the UI thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        get_disk_usage_blocking(selected_root, current_version_dir)
+    })
+    .await
+    .map_err(|error| format!("Disk usage scan failed: {error}"))?
+}
+
+fn get_disk_usage_blocking(
     selected_root: String,
     current_version_dir: Option<String>,
 ) -> Result<DiskUsage, String> {
@@ -492,7 +516,19 @@ fn collect_non_executable_scripts(
 }
 
 #[tauri::command]
-pub(crate) fn list_launch_executables(
+pub(crate) async fn list_launch_executables(
+    app: tauri::AppHandle,
+    installation_path: String,
+) -> Result<LaunchExecutables, String> {
+    // Recursive scan of the installation folder: keep it off the UI thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        list_launch_executables_blocking(app, installation_path)
+    })
+    .await
+    .map_err(|error| format!("Listing launch executables failed: {error}"))?
+}
+
+fn list_launch_executables_blocking(
     app: tauri::AppHandle,
     installation_path: String,
 ) -> Result<LaunchExecutables, String> {
@@ -557,8 +593,41 @@ pub(crate) fn make_script_executable(
 }
 
 #[tauri::command]
+pub(crate) async fn launch_game(
+    app: tauri::AppHandle,
+    game_title: String,
+    installation_path: String,
+    executable_relative_path: String,
+    launch_parameters: Option<String>,
+    run_as_admin: Option<bool>,
+    umu_game_id: Option<String>,
+    umu_store: Option<String>,
+    umu_proton_path: Option<String>,
+    umu_wine_prefix: Option<String>,
+) -> Result<(), String> {
+    // Launching can first install umu-launcher (a multi-megabyte download) and
+    // spawns processes, so it must not run on the UI thread: the setup overlay
+    // has to stay responsive while it happens.
+    tauri::async_runtime::spawn_blocking(move || {
+        launch_game_blocking(
+            app,
+            game_title,
+            installation_path,
+            executable_relative_path,
+            launch_parameters,
+            run_as_admin,
+            umu_game_id,
+            umu_store,
+            umu_proton_path,
+            umu_wine_prefix,
+        )
+    })
+    .await
+    .map_err(|error| format!("Launching the game failed: {error}"))?
+}
+
 #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
-pub(crate) fn launch_game(
+fn launch_game_blocking(
     app: tauri::AppHandle,
     game_title: String,
     installation_path: String,

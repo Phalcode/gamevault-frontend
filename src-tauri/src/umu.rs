@@ -221,6 +221,24 @@ async fn install_umu_launcher_inner(app: &tauri::AppHandle, game_title: Option<&
     return Ok(());
   }
 
+  // Another run may already be installing umu-launcher (e.g. it was started
+  // before the page was reloaded, or by a launch that is still waiting). Wait
+  // for that one instead of downloading a second copy over it.
+  if crate::state::is_umu_install_running() {
+    for _ in 0..2_400 {
+      tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+      if find_umu_run().is_some() {
+        return Ok(());
+      }
+      if !crate::state::is_umu_install_running() {
+        break;
+      }
+    }
+    if find_umu_run().is_some() {
+      return Ok(());
+    }
+  }
+
   let home = home_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
   let install_dir = home.join(UMU_INSTALL_DIR);
   fs::create_dir_all(&install_dir).map_err(|e| format!("Failed to create umu-launcher directory: {e}"))?;
@@ -336,8 +354,14 @@ pub(crate) async fn install_umu_launcher(
   app: tauri::AppHandle,
   game_title: Option<String>,
 ) -> Result<(), String> {
-  match install_umu_launcher_inner(&app, game_title.as_deref()).await {
-    Ok(()) => Ok(()),
+  let result = install_umu_launcher_inner(&app, game_title.as_deref()).await;
+  match result {
+    Ok(()) => {
+      // Clear the "installing" marker so a reloaded UI knows there is nothing
+      // left to re-attach to.
+      crate::state::set_umu_snapshot(None);
+      Ok(())
+    }
     Err(error) => {
       emit_umu_status(&app, game_title.as_deref(), "error", None, Some(error.clone()));
       Err(error)
@@ -367,10 +391,14 @@ pub(crate) fn ensure_umu_installed(app: &tauri::AppHandle, game_title: Option<&s
   #[cfg(target_os = "linux")]
   {
     if find_umu_run().is_some() {
+      crate::state::set_umu_snapshot(None);
       return Ok(());
     }
     match tauri::async_runtime::block_on(install_umu_launcher_inner(app, game_title)) {
-      Ok(()) => Ok(()),
+      Ok(()) => {
+        crate::state::set_umu_snapshot(None);
+        Ok(())
+      }
       Err(error) => {
         emit_umu_status(app, game_title, "error", None, Some(error.clone()));
         Err(error)

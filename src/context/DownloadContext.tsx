@@ -78,6 +78,50 @@ export interface ActiveDownload {
 export type SimulatedDownloadKind =
   "downloading" | "paused" | "error" | "aborted" | "completed" | "installing";
 
+/**
+ * Extraction state as reported by the Rust backend. Extraction runs on a
+ * detached backend task, so it outlives page reloads and navigations.
+ */
+interface ExtractionStatePayload {
+  gameId: number;
+  status: "extracting" | "completed" | "needs-password" | "error";
+  processed?: number;
+  total?: number | null;
+  progress?: number | null;
+  currentFile?: string | null;
+  error?: string | null;
+}
+
+/** Installation state (file copy or installer run) as reported by the backend. */
+interface InstallationStatePayload {
+  gameId: number;
+  step: "copy" | "installer";
+  status: "copying" | "launching" | "running" | "completed" | "error";
+  progress?: number | null;
+  currentFile?: string | null;
+  exitCode?: number | null;
+  error?: string | null;
+}
+
+/**
+ * Snapshot of every long-running task the backend keeps going when the webview
+ * is reloaded or the route changes. Used to re-attach the UI on startup.
+ */
+interface BackgroundStatesPayload {
+  extractions?: ExtractionStatePayload[];
+  installations?: InstallationStatePayload[];
+  umu?: {
+    status: string;
+    message?: string | null;
+    gameTitle?: string | null;
+  } | null;
+  appUpdate?: {
+    status: string;
+    version?: string | null;
+    error?: string | null;
+  } | null;
+}
+
 interface DownloadContextValue {
   downloads: Record<number, ActiveDownload>;
   startDownload: (params: {
@@ -122,7 +166,6 @@ const DEFAULT_GAME_VAULT_CONFIG: GameVaultConfig = {
   installationfinished: false,
   downloadprogress: "",
 };
-
 
 type StartDownloadParams = {
   gameId: number;
@@ -188,6 +231,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       samples.shift();
   };
 
+  // Keep the latest downloads reachable from long-lived callbacks (event
+  // listeners, startup recovery) without re-creating them on every update.
+  const downloadsRef = useRef<Record<number, ActiveDownload>>({});
+  downloadsRef.current = downloads;
+
   const updateDownload = useCallback(
     (gameId: number, patch: Partial<ActiveDownload>) => {
       setDownloads((prev) => {
@@ -198,7 +246,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
-
   // ── Simulated (debug) downloads ────────────────────────────────────────────
   // Fake cards are keyed by negative game IDs so they are excluded from
   // real backend polling (downloadGameIdsKey filters gameId > 0).
@@ -696,6 +743,14 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     ((gameId: number, installerRelativePath: string) => Promise<void>) | null
   >(null);
   const pendingAutoResumeRef = useRef<ActiveDownload[]>([]);
+  /** Games whose finished extraction was already handled in this page session. */
+  const extractionCompletionHandledRef = useRef<Set<number>>(new Set());
+  /** Games whose finished installation was already handled in this page session. */
+  const installationCompletionHandledRef = useRef<Set<number>>(new Set());
+  /** Set after render so the startup recovery can re-attach to extractions. */
+  const reconcileBackgroundStatesRef = useRef<
+    ((recovered: Record<number, ActiveDownload>) => Promise<void>) | null
+  >(null);
 
   const startDownload = useCallback(
     async ({
@@ -1486,11 +1541,193 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [downloads],
   );
 
+  // Extraction runs in the Rust backend on a detached task, so it keeps going
+  // when the webview is reloaded (F5) or the route changes. These helpers keep
+  // the UI in sync with that task instead of losing track of it.
+
+  /**
+   * Reads the backend's background task state (downloads outlive the page too,
+   * but they are re-attached through their own listener below).
+   */
+  const fetchBackgroundStates =
+    useCallback(async (): Promise<BackgroundStatesPayload> => {
+      if (!isTauriApp()) return {};
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        return await invoke<BackgroundStatesPayload>("get_background_states");
+      } catch (error) {
+        console.debug("Could not read background states:", error);
+        return {};
+      }
+    }, []);
+
+  const isExtractionRunning = useCallback(
+    async (gameId: number) => {
+      const states = await fetchBackgroundStates();
+      return (states.extractions ?? []).some(
+        (state) =>
+          Number(state?.gameId) === gameId && state.status === "extracting",
+      );
+    },
+    [fetchBackgroundStates],
+  );
+
+  // Handles a finished extraction. Idempotent per game, because both the
+  // invoke result and the terminal `extract-progress` event report it.
+  const handleExtractionCompleted = useCallback(
+    async (gameId: number) => {
+      if (extractionCompletionHandledRef.current.has(gameId)) return;
+      extractionCompletionHandledRef.current.add(gameId);
+      const d = downloadsRef.current[gameId];
+
+      updateDownload(gameId, {
+        extractionStatus: "completed",
+        extractionProgress: 100,
+        extractionCurrentFile: undefined,
+        extractionError: undefined,
+        extractionPasswordRequired: false,
+      });
+
+      if (d?.versionDirectory) {
+        try {
+          await writeVersionConfig(d.versionDirectory, {
+            extractionfinished: true,
+          });
+        } catch (error) {
+          console.warn("Failed to persist extraction state:", error);
+        }
+      }
+
+      // Start installation only after extraction has actually completed.
+      try {
+        if (
+          typeof localStorage !== "undefined" &&
+          localStorage.getItem("tauri_auto_install") === "1"
+        ) {
+          const gameType = d?.gameType;
+          const isPortable =
+            gameType === "WINDOWS_PORTABLE" ||
+            gameType === "LINUX_PORTABLE" ||
+            gameType === "WINDOWS_SOFTWARE" ||
+            gameType === "LINUX_SOFTWARE";
+          const isSetup = gameType === "WINDOWS_SETUP";
+
+          if (isPortable) {
+            await copyInstallationFilesRef.current?.(gameId);
+          } else if (isSetup) {
+            const candidates =
+              (await listInstallExecutablesRef.current?.(gameId)) ?? [];
+            if (candidates.length > 0) {
+              const preferredInstaller = pickPreferredInstaller(
+                candidates,
+                (d?.gameMetadata as GameMetadata | undefined)
+                  ?.installer_executable,
+              );
+              await launchInstallationExecutableRef.current?.(
+                gameId,
+                preferredInstaller,
+              );
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Auto-install failed:", e);
+      }
+    },
+    [updateDownload, writeVersionConfig],
+  );
+
+  /**
+   * Subscribes to `extract-progress` for a game, replacing any previous
+   * subscription. Needed both when starting an extraction and when re-attaching
+   * to one that is still running after the page was reloaded.
+   */
+  const attachExtractionListener = useCallback(
+    async (gameId: number) => {
+      if (!isTauriApp()) return;
+      const { listen } = await import("@tauri-apps/api/event");
+
+      const existing = tauriExtractUnlistenRef.current[gameId];
+      if (existing) {
+        existing();
+        delete tauriExtractUnlistenRef.current[gameId];
+      }
+
+      const detach = () => {
+        const stop = tauriExtractUnlistenRef.current[gameId];
+        if (stop) {
+          stop();
+          delete tauriExtractUnlistenRef.current[gameId];
+        }
+      };
+
+      const unlisten = await listen<any>("extract-progress", (event) => {
+        const payload = event.payload;
+        if (!payload || payload.gameId !== gameId) return;
+
+        if (payload.status === "extracting") {
+          updateDownload(gameId, {
+            extractionStatus: "extracting",
+            extractionProgress:
+              typeof payload.progress === "number"
+                ? Math.max(0, Math.min(100, payload.progress))
+                : null,
+            extractionCurrentFile:
+              typeof payload.currentFile === "string" && payload.currentFile
+                ? payload.currentFile
+                : undefined,
+          });
+          return;
+        }
+
+        // Every other status is terminal for this extraction.
+        detach();
+
+        if (payload.status === "completed") {
+          void handleExtractionCompleted(gameId);
+        } else if (payload.status === "needs-password") {
+          updateDownload(gameId, {
+            extractionStatus: "needs-password",
+            extractionProgress: null,
+            extractionPasswordRequired: true,
+            extractionError:
+              (typeof payload.error === "string" && payload.error) ||
+              "Archive password required.",
+          });
+        } else if (payload.status === "error") {
+          updateDownload(gameId, {
+            extractionStatus: "error",
+            extractionProgress: null,
+            extractionError:
+              (typeof payload.error === "string" && payload.error) ||
+              "Extraction failed.",
+          });
+        }
+      });
+
+      tauriExtractUnlistenRef.current[gameId] = unlisten;
+    },
+    [handleExtractionCompleted, updateDownload],
+  );
+
+  // Re-attaching to installations is set up further down, next to the install
+  // flow itself (see `reconcileBackgroundStates`).
+
   const extractArchive = useCallback(
     async (gameId: number, password?: string) => {
       if (!isTauriApp()) return;
       const d = downloads[gameId];
       if (!d?.downloadedFilePath || !d.extractionDirectory) return;
+
+      // An extraction started earlier may still be running in the backend (the
+      // page may have been reloaded with F5 mid-extraction). Re-sync with it
+      // instead of starting a second task over the same files.
+      if (await isExtractionRunning(gameId)) {
+        await reconcileBackgroundStatesRef.current?.({ [gameId]: d });
+        return;
+      }
+
+      extractionCompletionHandledRef.current.delete(gameId);
 
       updateDownload(gameId, {
         extractionStatus: "extracting",
@@ -1502,51 +1739,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const { listen } = await import("@tauri-apps/api/event");
-
-        if (tauriExtractUnlistenRef.current[gameId]) {
-          tauriExtractUnlistenRef.current[gameId]();
-          delete tauriExtractUnlistenRef.current[gameId];
-        }
-
-        const unlisten = await listen<any>("extract-progress", (event) => {
-          const payload = event.payload;
-          if (!payload || payload.gameId !== gameId) return;
-
-          if (payload.status === "extracting") {
-            updateDownload(gameId, {
-              extractionStatus: "extracting",
-              extractionProgress:
-                typeof payload.progress === "number"
-                  ? Math.max(0, Math.min(100, payload.progress))
-                  : null,
-              extractionCurrentFile:
-                typeof payload.currentFile === "string" && payload.currentFile
-                  ? payload.currentFile
-                  : undefined,
-            });
-            return;
-          }
-
-          if (payload.status === "needs-password") {
-            updateDownload(gameId, {
-              extractionStatus: "needs-password",
-              extractionPasswordRequired: true,
-              extractionError:
-                (typeof payload.error === "string" && payload.error) ||
-                "Archive password required.",
-            });
-          } else if (payload.status === "error") {
-            updateDownload(gameId, {
-              extractionStatus: "error",
-              extractionError:
-                (typeof payload.error === "string" && payload.error) ||
-                "Extraction failed.",
-            });
-          }
-        });
-
-        tauriExtractUnlistenRef.current[gameId] = unlisten;
+        await attachExtractionListener(gameId);
 
         const result = await invoke<{
           success: boolean;
@@ -1560,54 +1753,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         });
 
         if (result.success) {
-          if (d.versionDirectory) {
-            await writeVersionConfig(d.versionDirectory, {
-              extractionfinished: true,
-            });
-          }
-          updateDownload(gameId, {
-            extractionStatus: "completed",
-            extractionProgress: 100,
-            extractionCurrentFile: undefined,
-            extractionError: undefined,
-            extractionPasswordRequired: false,
-          });
-
-          // Start installation only after extraction has actually completed.
-          try {
-            if (
-              typeof localStorage !== "undefined" &&
-              localStorage.getItem("tauri_auto_install") === "1"
-            ) {
-              const gameType = d.gameType;
-              const isPortable =
-                gameType === "WINDOWS_PORTABLE" ||
-                gameType === "LINUX_PORTABLE" ||
-                gameType === "WINDOWS_SOFTWARE" ||
-                gameType === "LINUX_SOFTWARE";
-              const isSetup = gameType === "WINDOWS_SETUP";
-
-              if (isPortable) {
-                await copyInstallationFilesRef.current?.(gameId);
-              } else if (isSetup) {
-                const candidates =
-                  (await listInstallExecutablesRef.current?.(gameId)) ?? [];
-                if (candidates.length > 0) {
-                  const preferredInstaller = pickPreferredInstaller(
-                    candidates,
-                    (d.gameMetadata as GameMetadata | undefined)
-                      ?.installer_executable,
-                  );
-                  await launchInstallationExecutableRef.current?.(
-                    gameId,
-                    preferredInstaller,
-                  );
-                }
-              }
-            }
-          } catch (e) {
-            console.error("Auto-install failed:", e);
-          }
+          await handleExtractionCompleted(gameId);
           return;
         }
 
@@ -1621,26 +1767,36 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        // The backend refuses to extract the same game twice at once. That is
+        // not a failure of this call: the running extraction reports its own
+        // outcome through the still-attached listener.
+        if (await isExtractionRunning(gameId)) return;
+
         updateDownload(gameId, {
           extractionStatus: "error",
           extractionProgress: null,
           extractionError: result.message || "Extraction failed.",
         });
       } catch (err) {
-        updateDownload(gameId, {
-          extractionStatus: "error",
-          extractionProgress: null,
-          extractionError: String(err),
-        });
-      } finally {
         const stop = tauriExtractUnlistenRef.current[gameId];
         if (stop) {
           stop();
           delete tauriExtractUnlistenRef.current[gameId];
         }
+        updateDownload(gameId, {
+          extractionStatus: "error",
+          extractionProgress: null,
+          extractionError: String(err),
+        });
       }
     },
-    [downloads, updateDownload, writeVersionConfig],
+    [
+      attachExtractionListener,
+      downloads,
+      handleExtractionCompleted,
+      isExtractionRunning,
+      updateDownload,
+    ],
   );
   extractArchiveRef.current = extractArchive;
 
@@ -1743,11 +1899,112 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [updateDownload, deleteDownloadCard],
   );
 
+  /**
+   * Completes an installation: persists the flag, applies the default launch
+   * config, caches the game and cleans up the source files.
+   *
+   * Idempotent per game, because the live events and the startup recovery both
+   * report the same result.
+   */
+  const finalizeInstallation = useCallback(
+    async (gameId: number, card?: ActiveDownload) => {
+      if (installationCompletionHandledRef.current.has(gameId)) return;
+      const d = downloadsRef.current[gameId] ?? card;
+      if (!d) return;
+      installationCompletionHandledRef.current.add(gameId);
+
+      if (d.versionDirectory) {
+        try {
+          await writeVersionConfig(d.versionDirectory, {
+            installationfinished: true,
+          });
+          await applyDefaultLaunchConfig(d);
+        } catch (error) {
+          console.warn("Failed to persist installation state:", error);
+        }
+      }
+
+      updateDownload(gameId, {
+        installationStatus: "completed",
+        installationProgress: 100,
+        installationCurrentFile: undefined,
+        installationError: undefined,
+      });
+
+      // Cache game data for offline use
+      cacheInstalledGameData(gameId);
+
+      // Auto-delete source files. Deletion is deferred and retried so that
+      // processes spawned by the install (e.g. quicksfv.exe) aren't left
+      // pointing at files we are about to remove.
+      void autoDeleteSourceFiles(gameId, d);
+    },
+    [
+      applyDefaultLaunchConfig,
+      autoDeleteSourceFiles,
+      cacheInstalledGameData,
+      updateDownload,
+      writeVersionConfig,
+    ],
+  );
+
+  /**
+   * Handles an installer that exited. The exit code alone is not a reliable
+   * success signal (many installers, e.g. NSIS-based ones, return 0 even when
+   * the user cancels), so the installation folder is checked for launchable
+   * executables first.
+   */
+  const handleInstallerCompleted = useCallback(
+    async (gameId: number, exitCode: number | null, card?: ActiveDownload) => {
+      if (installationCompletionHandledRef.current.has(gameId)) return;
+      const d = downloadsRef.current[gameId] ?? card;
+      if (!d) return;
+
+      let installVerified = false;
+      if (d.installationDirectory) {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const { executables: installedExecutables } = await invoke<{
+            executables: string[];
+          }>("list_launch_executables", {
+            installationPath: d.installationDirectory,
+          });
+          installVerified = installedExecutables.length > 0;
+        } catch {
+          installVerified = false;
+        }
+      }
+
+      if (!installVerified) {
+        installationCompletionHandledRef.current.add(gameId);
+        updateDownload(gameId, {
+          installationStatus: "error",
+          installationCurrentFile: undefined,
+          installationError:
+            "The installer appeared to exit successfully but no game " +
+            "executable was found in the installation folder. The " +
+            "install may have been canceled or failed, so no source " +
+            "files were deleted.",
+          installationExitCode: exitCode,
+        });
+        return;
+      }
+
+      updateDownload(gameId, { installationExitCode: exitCode ?? 0 });
+      await finalizeInstallation(gameId, card);
+    },
+    [finalizeInstallation, updateDownload],
+  );
+
   const copyInstallationFiles = useCallback(
-    async (gameId: number) => {
+    async (gameId: number, card?: ActiveDownload) => {
       if (!isTauriApp()) return;
-      const d = downloads[gameId];
+      const d = downloads[gameId] ?? card;
       if (!d?.extractionDirectory || !d.installationDirectory) return;
+
+      // A fresh copy (or a re-attach to one that is still running) resets the
+      // "already handled" marker for this game.
+      installationCompletionHandledRef.current.delete(gameId);
 
       if (d.versionDirectory) {
         await writeVersionConfig(d.versionDirectory, {
@@ -1795,25 +2052,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             }
 
             if (payload.status === "completed") {
-              if (d.versionDirectory) {
-                await writeVersionConfig(d.versionDirectory, {
-                  installationfinished: true,
-                });
-                await applyDefaultLaunchConfig(d);
-              }
-              updateDownload(gameId, {
-                installationStatus: "completed",
-                installationProgress: 100,
-                installationCurrentFile: undefined,
-                installationError: undefined,
-              });
-              // Cache game data for offline use
-              cacheInstalledGameData(gameId);
-
-              // Auto-delete source files for portable games. Deletion is
-              // deferred and retried so that processes spawned by the install
-              // aren't left pointing at files we are about to remove.
-              void autoDeleteSourceFiles(gameId, d);
+              void finalizeInstallation(gameId);
             } else if (payload.status === "error") {
               updateDownload(gameId, {
                 installationStatus: "error",
@@ -1852,14 +2091,18 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [downloads, updateDownload, autoDeleteSourceFiles],
+    [downloads, finalizeInstallation, updateDownload, writeVersionConfig],
   );
   copyInstallationFilesRef.current = copyInstallationFiles;
 
   const launchInstallationExecutable = useCallback(
-    async (gameId: number, installerRelativePath: string) => {
+    async (
+      gameId: number,
+      installerRelativePath: string,
+      card?: ActiveDownload,
+    ) => {
       if (!isTauriApp()) return;
-      const d = downloads[gameId];
+      const d = downloads[gameId] ?? card;
       if (!d?.extractionDirectory || !d.installationDirectory) return;
 
       if (d.versionDirectory) {
@@ -1875,6 +2118,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         installationError: undefined,
         installationExitCode: null,
       });
+
+      // A fresh installer run (or a re-attach to a running one) resets the
+      // "already handled" marker for this game.
+      installationCompletionHandledRef.current.delete(gameId);
 
       try {
         const { invoke } = await import("@tauri-apps/api/core");
@@ -1916,67 +2163,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             }
 
             if (payload.status === "completed") {
-              // The installer reported exit code 0, but that is not a reliable
-              // success signal: many installers (e.g. NSIS-based ones) return 0
-              // even when the user cancels the setup. Verify the install
-              // directory actually got populated with launchable executables
-              // before treating the install as successful.
-              let installVerified = false;
-              try {
-                const { invoke } = await import("@tauri-apps/api/core");
-                const { executables: installedExecutables } = await invoke<{
-                  executables: string[];
-                }>("list_launch_executables", {
-                  installationPath: d.installationDirectory,
-                });
-                installVerified = installedExecutables.length > 0;
-              } catch {
-                installVerified = false;
-              }
-
-              if (!installVerified) {
-                updateDownload(gameId, {
-                  installationStatus: "error",
-                  installationCurrentFile: undefined,
-                  installationError:
-                    "The installer appeared to exit successfully but no game " +
-                    "executable was found in the installation folder. The " +
-                    "install may have been canceled or failed, so no source " +
-                    "files were deleted.",
-                  installationExitCode:
-                    typeof payload.exitCode === "number"
-                      ? payload.exitCode
-                      : null,
-                });
-                const stop = tauriInstallerUnlistenRef.current[gameId];
-                if (stop) {
-                  stop();
-                  delete tauriInstallerUnlistenRef.current[gameId];
-                }
-                return;
-              }
-
-              if (d.versionDirectory) {
-                await writeVersionConfig(d.versionDirectory, {
-                  installationfinished: true,
-                });
-                await applyDefaultLaunchConfig(d);
-              }
-              updateDownload(gameId, {
-                installationStatus: "completed",
-                installationCurrentFile: undefined,
-                installationError: undefined,
-                installationExitCode:
-                  typeof payload.exitCode === "number" ? payload.exitCode : 0,
-              });
-              // Cache game data for offline use
-              cacheInstalledGameData(gameId);
-
-              // Auto-delete source files for setup games. Deletion is deferred
-              // and retried so that processes spawned by the installer (e.g.
-              // quicksfv.exe) aren't left pointing at files we are about to
-              // remove.
-              void autoDeleteSourceFiles(gameId, d);
+              void handleInstallerCompleted(
+                gameId,
+                typeof payload.exitCode === "number" ? payload.exitCode : null,
+              );
             } else if (payload.status === "error") {
               updateDownload(gameId, {
                 installationStatus: "error",
@@ -2020,9 +2210,177 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [downloads, updateDownload, autoDeleteSourceFiles],
+    [downloads, handleInstallerCompleted, updateDownload, writeVersionConfig],
   );
   launchInstallationExecutableRef.current = launchInstallationExecutable;
+
+  /**
+   * Re-syncs the cards with the backend after startup.
+   *
+   * Extractions and installations (file copy / installer run) keep running in
+   * the backend when the webview is reloaded (F5), and their progress listeners
+   * are gone afterwards. This re-attaches to whatever is still running and
+   * applies results that finished while the page was away.
+   */
+  const reconcileBackgroundStates = useCallback(
+    async (recovered: Record<number, ActiveDownload>) => {
+      if (!isTauriApp()) return;
+      const gameIds = Object.keys(recovered).map(Number);
+      if (!gameIds.length) return;
+      const states = await fetchBackgroundStates();
+
+      // The recovered cards may not have made it into state yet, so merge into
+      // the recovered card as a fallback instead of losing the update.
+      const patch = (gameId: number, values: Partial<ActiveDownload>) => {
+        setDownloads((prev) => {
+          const existing = prev[gameId] ?? recovered[gameId];
+          if (!existing) return prev;
+          return { ...prev, [gameId]: { ...existing, ...values } };
+        });
+      };
+
+      // ── Extractions ──────────────────────────────────────────────────────
+      for (const state of states.extractions ?? []) {
+        const gameId = Number(state?.gameId || 0);
+        if (!gameId || !gameIds.includes(gameId)) continue;
+        const card = recovered[gameId];
+
+        if (state.status === "extracting") {
+          patch(gameId, {
+            extractionStatus: "extracting",
+            extractionProgress:
+              typeof state.progress === "number" ? state.progress : null,
+            extractionCurrentFile: state.currentFile || undefined,
+            extractionError: undefined,
+            extractionPasswordRequired: false,
+          });
+          await attachExtractionListener(gameId);
+          continue;
+        }
+
+        if (state.status === "completed") {
+          // Discovered after the fact: restore the state and persist the flag,
+          // but never re-run the auto-install for an extraction that finished
+          // before this page was loaded.
+          extractionCompletionHandledRef.current.add(gameId);
+          patch(gameId, {
+            extractionStatus: "completed",
+            extractionProgress: 100,
+            extractionCurrentFile: undefined,
+            extractionError: undefined,
+            extractionPasswordRequired: false,
+          });
+          if (card?.versionDirectory) {
+            try {
+              await writeVersionConfig(card.versionDirectory, {
+                extractionfinished: true,
+              });
+            } catch (error) {
+              console.warn("Failed to persist extraction state:", error);
+            }
+          }
+          continue;
+        }
+
+        if (state.status === "needs-password") {
+          patch(gameId, {
+            extractionStatus: "needs-password",
+            extractionProgress: null,
+            extractionPasswordRequired: true,
+            extractionError: state.error || "Archive password required.",
+          });
+          continue;
+        }
+
+        if (state.status === "error") {
+          // Never downgrade an extraction the version config says finished.
+          if (card?.extractionStatus === "completed") continue;
+          patch(gameId, {
+            extractionStatus: "error",
+            extractionProgress: null,
+            extractionError: state.error || "Extraction failed.",
+          });
+        }
+      }
+
+      // ── Installations (file copy / installer run) ─────────────────────────
+      for (const state of states.installations ?? []) {
+        const gameId = Number(state?.gameId || 0);
+        if (!gameId || !gameIds.includes(gameId)) continue;
+        const card = recovered[gameId];
+        // Already installed according to the version config / install folder:
+        // there is nothing left to recover.
+        if (card?.installationStatus === "completed") continue;
+
+        if (state.step === "copy") {
+          if (state.status === "copying") {
+            // Re-attach: the running copy keeps streaming progress, and the
+            // backend ignores the start request while a copy is already going.
+            await copyInstallationFiles(gameId, card);
+            patch(gameId, {
+              installationProgress:
+                typeof state.progress === "number" ? state.progress : null,
+              installationCurrentFile: state.currentFile || undefined,
+            });
+            continue;
+          }
+          if (state.status === "completed") {
+            await finalizeInstallation(gameId, card);
+            continue;
+          }
+          if (state.status === "error") {
+            patch(gameId, {
+              installationStatus: "error",
+              installationProgress: null,
+              installationError: state.error || "Installation copy failed.",
+            });
+          }
+          continue;
+        }
+
+        if (state.status === "launching" || state.status === "running") {
+          // Re-attach to the running installer. The backend ignores the start
+          // request while an installer for this game is already running.
+          await launchInstallationExecutable(
+            gameId,
+            state.currentFile || "",
+            card,
+          );
+          patch(gameId, {
+            installationCurrentFile: state.currentFile || undefined,
+          });
+          continue;
+        }
+        if (state.status === "completed") {
+          await handleInstallerCompleted(
+            gameId,
+            typeof state.exitCode === "number" ? state.exitCode : null,
+            card,
+          );
+          continue;
+        }
+        if (state.status === "error") {
+          patch(gameId, {
+            installationStatus: "error",
+            installationCurrentFile: undefined,
+            installationError: state.error || "Installer exited with an error.",
+            installationExitCode:
+              typeof state.exitCode === "number" ? state.exitCode : null,
+          });
+        }
+      }
+    },
+    [
+      attachExtractionListener,
+      copyInstallationFiles,
+      fetchBackgroundStates,
+      finalizeInstallation,
+      handleInstallerCompleted,
+      launchInstallationExecutable,
+      writeVersionConfig,
+    ],
+  );
+  reconcileBackgroundStatesRef.current = reconcileBackgroundStates;
 
   const setSpeedLimitKB = useCallback((v: number) => {
     const val = Math.max(0, v || 0);
@@ -2149,6 +2507,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
         if (!mounted || !Object.keys(recovered).length) return;
 
+        setDownloads((prev) => ({ ...recovered, ...prev }));
+
+        // Extraction keeps running in the backend while the page is reloaded
+        // (F5). Re-attach to extractions that are still running, and pick up
+        // results that finished while this page was away.
+        void reconcileBackgroundStatesRef.current?.(recovered);
+
         // Auto-resume any download interrupted by the app exiting, unless the
         // user intentionally stopped it (paused/cancelled) before quitting.
         const skipAutoResume = getSkipAutoResumeIds();
@@ -2158,8 +2523,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           if (skipAutoResume.has(dl.gameId)) continue;
           toResume.push(dl);
         }
-
-        setDownloads((prev) => ({ ...recovered, ...prev }));
 
         if (toResume.length) {
           pendingAutoResumeRef.current = toResume;

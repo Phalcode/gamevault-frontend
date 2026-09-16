@@ -784,6 +784,49 @@ fn run_extraction(
   }
 }
 
+/// Publishes the final state of an extraction.
+///
+/// The invoke response only reaches the webview that started the extraction,
+/// which may have been reloaded (F5) in the meantime. Emitting the terminal
+/// state as an event (which also records it in the extraction registry) keeps
+/// the UI in sync no matter what happened to the webview.
+fn finish_extraction(
+  app: &tauri::AppHandle,
+  game_id: i64,
+  outcome: &Result<ExtractArchiveResponse, String>,
+) {
+  match outcome {
+    Ok(response) if response.success => {
+      emit_extract_progress(app, game_id, "completed", 1, Some(1), None, None);
+    }
+    Ok(response) if response.needs_password => {
+      emit_extract_progress(
+        app,
+        game_id,
+        "needs-password",
+        0,
+        None,
+        None,
+        response.message.clone(),
+      );
+    }
+    Ok(response) => {
+      emit_extract_progress(
+        app,
+        game_id,
+        "error",
+        0,
+        None,
+        None,
+        response.message.clone(),
+      );
+    }
+    Err(err) => {
+      emit_extract_progress(app, game_id, "error", 0, None, None, Some(err.clone()));
+    }
+  }
+}
+
 #[tauri::command]
 pub(crate) async fn extract_archive(
   app: tauri::AppHandle,
@@ -795,12 +838,46 @@ pub(crate) async fn extract_archive(
   let archive = PathBuf::from(archive_path);
   let destination = PathBuf::from(destination_path);
 
+  // Two extractions writing into the same directory would corrupt the result.
+  // This can happen when the page is reloaded (F5) mid-extraction and the user
+  // starts another one before the UI re-attached to the running task.
+  if crate::state::is_extraction_running(game_id) {
+    return Ok(ExtractArchiveResponse {
+      success: false,
+      needs_password: false,
+      message: Some("An extraction for this game is already running.".to_string()),
+    });
+  }
+
+  // Record the running state before the work starts so a webview reload during
+  // the extraction can re-attach to it.
+  emit_extract_progress(&app, game_id, "extracting", 0, None, None, None);
+
   // Extraction is CPU- and I/O-bound blocking work. Offload it to a dedicated
   // blocking thread so the event loop / main thread stays responsive and the
   // UI does not freeze while large archives are being extracted.
-  tauri::async_runtime::spawn_blocking(move || {
-    run_extraction(app, game_id, archive, destination, password)
+  let blocking_app = app.clone();
+  let joined = tauri::async_runtime::spawn_blocking(move || {
+    let outcome = run_extraction(
+      blocking_app.clone(),
+      game_id,
+      archive,
+      destination,
+      password,
+    );
+    finish_extraction(&blocking_app, game_id, &outcome);
+    outcome
   })
-  .await
-  .map_err(|e| format!("Extraction task failed: {e}"))?
+  .await;
+
+  match joined {
+    Ok(outcome) => outcome,
+    Err(err) => {
+      // The blocking task panicked or was cancelled: make sure neither the
+      // registry nor the UI keeps showing an extraction that will never finish.
+      let message = format!("Extraction task failed: {err}");
+      emit_extract_progress(&app, game_id, "error", 0, None, None, Some(message.clone()));
+      Err(message)
+    }
+  }
 }

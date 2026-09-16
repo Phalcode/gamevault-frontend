@@ -1,4 +1,4 @@
-use crate::games::{list_installed_games, collect_launch_candidates};
+use crate::games::{collect_launch_candidates, list_installed_games_blocking};
 use crate::settings::load_settings;
 use crate::state::{tracker_config, tracker_stop_tx, TrackerConfig};
 use crate::util::{is_ignored_executable, paths_match};
@@ -106,7 +106,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     // Collect installed games from all root paths
     let mut installed = Vec::new();
     for path in &config.download_paths {
-      if let Ok(games) = list_installed_games(path.clone()) {
+      if let Ok(games) = list_installed_games_blocking(path.clone()) {
         installed.extend(games);
       }
     }
@@ -250,7 +250,7 @@ fn read_configured_launch_executable(version_dir: &Path) -> Option<PathBuf> {
 fn save_offline_time(download_paths: &[String], user_id: i64, game_id: i64) {
   let mut installed = Vec::new();
   for path in download_paths {
-    if let Ok(games) = list_installed_games(path.to_string()) {
+    if let Ok(games) = list_installed_games_blocking(path.to_string()) {
       installed.extend(games);
     }
   }
@@ -292,7 +292,18 @@ pub(crate) struct OfflineTimeFile {
 }
 
 #[tauri::command]
-pub(crate) fn get_offline_time_files(selected_root: String) -> Result<Vec<OfflineTimeFile>, String> {
+pub(crate) async fn get_offline_time_files(
+  selected_root: String,
+) -> Result<Vec<OfflineTimeFile>, String> {
+  // Walks the library for offline time files: off the UI thread.
+  tauri::async_runtime::spawn_blocking(move || get_offline_time_files_blocking(selected_root))
+    .await
+    .map_err(|error| format!("Reading offline time files failed: {error}"))?
+}
+
+fn get_offline_time_files_blocking(
+  selected_root: String,
+) -> Result<Vec<OfflineTimeFile>, String> {
   let candidate = PathBuf::from(&selected_root).join("GameVault");
   let base = if candidate.exists() { candidate } else { PathBuf::from(&selected_root) };
 
@@ -408,7 +419,17 @@ pub(crate) struct DebugProcessMatch {
 /// Debug helper: replays the exact scan the time tracker performs and reports
 /// which installed games, executable candidates and process matches it finds.
 #[tauri::command]
-pub(crate) fn debug_tracker_scan(
+pub(crate) async fn debug_tracker_scan(
+  app: tauri::AppHandle,
+  selected_root: Option<String>,
+) -> Result<DebugTrackerReport, String> {
+  // Replays a full library + process scan: off the UI thread.
+  tauri::async_runtime::spawn_blocking(move || debug_tracker_scan_blocking(app, selected_root))
+    .await
+    .map_err(|error| format!("Tracker scan failed: {error}"))?
+}
+
+fn debug_tracker_scan_blocking(
   _app: tauri::AppHandle,
   selected_root: Option<String>,
 ) -> Result<DebugTrackerReport, String> {
@@ -428,7 +449,7 @@ pub(crate) fn debug_tracker_scan(
 
   let mut installed = Vec::new();
   for root in &roots {
-    if let Ok(games) = list_installed_games(root.clone()) {
+    if let Ok(games) = list_installed_games_blocking(root.clone()) {
       installed.extend(games);
     }
   }

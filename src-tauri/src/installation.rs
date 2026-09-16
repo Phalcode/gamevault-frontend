@@ -186,7 +186,14 @@ fn copy_path_with_progress(
 }
 
 #[tauri::command]
-pub(crate) fn list_install_executables(extraction_path: String) -> Result<Vec<String>, String> {
+pub(crate) async fn list_install_executables(extraction_path: String) -> Result<Vec<String>, String> {
+  // Recursively scans the extraction folder for installers: off the UI thread.
+  tauri::async_runtime::spawn_blocking(move || list_install_executables_blocking(extraction_path))
+    .await
+    .map_err(|error| format!("Listing install executables failed: {error}"))?
+}
+
+fn list_install_executables_blocking(extraction_path: String) -> Result<Vec<String>, String> {
   let root = PathBuf::from(extraction_path);
   if !root.exists() || !root.is_dir() {
     return Ok(Vec::new());
@@ -260,10 +267,19 @@ pub(crate) fn copy_installation_files(
     return Err("Extraction folder does not exist".to_string());
   }
 
+  // The copy keeps running when the webview is reloaded (F5). Two copies into
+  // the same folder would fight over the same files, so keep the running one
+  // and let the UI re-attach to its progress events.
+  if crate::state::is_install_copy_running(game_id) {
+    return Ok(());
+  }
+
   fs::create_dir_all(&destination)
     .map_err(|e| format!("Failed to create installation directory: {e}"))?;
 
   std::thread::spawn(move || {
+    // Sizing the source and checking free space can take seconds on large
+    // games, so it runs on this thread rather than blocking the UI.
     let total = match compute_directory_size(&source) {
       Ok(total) => total,
       Err(error) => {
@@ -604,6 +620,13 @@ pub(crate) fn launch_installation_executable(
 
   let installation_path_resolved = installation_path.clone();
   let installer_relative = installer_relative_path.clone();
+
+  // An installer keeps running when the webview is reloaded (F5), and the UI
+  // cannot see it any more. Starting a second one would run two setup
+  // processes over the same folder, so keep the running one.
+  if crate::state::is_installer_running(game_id) {
+    return Ok(());
+  }
   let (_, saved_installer_parameters) = read_saved_installer_preferences(&extraction_root);
   let installer_parameters = installer_parameters
     .map(|value| value.trim().to_string())
@@ -850,8 +873,23 @@ fn run_uninstall_via_umu(
 }
 
 #[tauri::command]
+pub(crate) async fn launch_uninstall_executable(
+  app: tauri::AppHandle,
+  executable_path: String,
+  working_directory: Option<String>,
+  argument_list: Option<String>,
+) -> Result<Option<i32>, String> {
+  // The uninstaller is waited for, which takes as long as the user needs in its
+  // wizard: running that on the UI thread used to freeze the whole app.
+  tauri::async_runtime::spawn_blocking(move || {
+    launch_uninstall_executable_blocking(app, executable_path, working_directory, argument_list)
+  })
+  .await
+  .map_err(|error| format!("Uninstall task failed: {error}"))?
+}
+
 #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
-pub(crate) fn launch_uninstall_executable(
+fn launch_uninstall_executable_blocking(
   app: tauri::AppHandle,
   executable_path: String,
   working_directory: Option<String>,

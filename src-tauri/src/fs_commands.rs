@@ -96,31 +96,42 @@ fn dir_has_leftover_content(path: &std::path::Path) -> bool {
 }
 
 #[tauri::command]
-pub(crate) fn fs_has_leftover_content(path: String) -> Result<bool, String> {
-  let p = std::path::PathBuf::from(&path);
-  if !p.exists() {
-    return Ok(false);
-  }
-  if p.is_dir() {
-    Ok(dir_has_leftover_content(&p))
-  } else {
-    Ok(!is_gamevault_metadata_file(&p))
-  }
+pub(crate) async fn fs_has_leftover_content(path: String) -> Result<bool, String> {
+  // Walks the folder recursively: keep it off the UI thread.
+  tauri::async_runtime::spawn_blocking(move || {
+    let p = std::path::PathBuf::from(&path);
+    if !p.exists() {
+      return Ok(false);
+    }
+    if p.is_dir() {
+      Ok(dir_has_leftover_content(&p))
+    } else {
+      Ok(!is_gamevault_metadata_file(&p))
+    }
+  })
+  .await
+  .map_err(|e| format!("fs_has_leftover_content failed: {e}"))?
 }
 
 #[tauri::command]
-pub(crate) fn fs_remove(path: String, recursive: bool) -> Result<(), String> {
-  let p = std::path::Path::new(&path);
-  if !p.exists() {
-    return Ok(());
-  }
-  if recursive && p.is_dir() {
-    std::fs::remove_dir_all(&path).map_err(|e| format!("fs_remove (recursive) failed for '{}': {}", path, e))
-  } else if p.is_dir() {
-    std::fs::remove_dir(&path).map_err(|e| format!("fs_remove (dir) failed for '{}': {}", path, e))
-  } else {
-    std::fs::remove_file(&path).map_err(|e| format!("fs_remove (file) failed for '{}': {}", path, e))
-  }
+pub(crate) async fn fs_remove(path: String, recursive: bool) -> Result<(), String> {
+  // Removing a game folder can delete tens of gigabytes, which must not block
+  // the UI thread.
+  tauri::async_runtime::spawn_blocking(move || {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+      return Ok(());
+    }
+    if recursive && p.is_dir() {
+      std::fs::remove_dir_all(&path).map_err(|e| format!("fs_remove (recursive) failed for '{}': {}", path, e))
+    } else if p.is_dir() {
+      std::fs::remove_dir(&path).map_err(|e| format!("fs_remove (dir) failed for '{}': {}", path, e))
+    } else {
+      std::fs::remove_file(&path).map_err(|e| format!("fs_remove (file) failed for '{}': {}", path, e))
+    }
+  })
+  .await
+  .map_err(|e| format!("fs_remove failed: {e}"))?
 }
 
 /// Returns true if `path` contains no real content: no files other than

@@ -286,6 +286,54 @@ async fn download_and_install_app_update(
   app: AppHandle,
   channel: UpdateChannel,
 ) -> Result<Option<String>, String> {
+  // A reloaded page can ask again while the update task started earlier keeps
+  // running. Downloading the update twice (and installing it twice) would be a
+  // mess, so refuse while one is already in flight.
+  if crate::state::app_update_snapshot()
+    .map(|snapshot| snapshot.status == "downloading" || snapshot.status == "installing")
+    .unwrap_or(false)
+  {
+    return Err("An update is already being downloaded or installed.".to_string());
+  }
+
+  crate::state::set_app_update_snapshot(Some(crate::state::AppUpdateSnapshot {
+    status: "downloading".to_string(),
+    version: None,
+    error: None,
+  }));
+
+  match run_app_update(app, channel).await {
+    Ok(version) => {
+      crate::state::set_app_update_snapshot(Some(crate::state::AppUpdateSnapshot {
+        status: "finished".to_string(),
+        version: version.clone(),
+        error: None,
+      }));
+      Ok(version)
+    }
+    Err(error) => {
+      crate::state::set_app_update_snapshot(Some(crate::state::AppUpdateSnapshot {
+        status: "error".to_string(),
+        version: None,
+        error: Some(error.clone()),
+      }));
+      Err(error)
+    }
+  }
+}
+
+/// State of everything that keeps running in the background (downloads,
+/// extractions, installations, umu setup, app updates).
+///
+/// The frontend calls this right after loading so it can re-attach to work that
+/// is still in flight, and pick up results that finished while its page was
+/// reloaded or the app was restarted.
+#[tauri::command]
+fn get_background_states() -> crate::state::BackgroundStates {
+  crate::state::background_states()
+}
+
+async fn run_app_update(app: AppHandle, channel: UpdateChannel) -> Result<Option<String>, String> {
   let Some(update) = resolve_update_for_channel(&app, channel).await? else {
     return Ok(None);
   };
@@ -503,6 +551,7 @@ pub fn run() {
       util::open_devtools,
       youtube::youtube_embed_base,
       extraction::extract_archive,
+      get_background_states,
       installation::list_install_executables,
       installation::copy_installation_files,
       installation::launch_installation_executable,

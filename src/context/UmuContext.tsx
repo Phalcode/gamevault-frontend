@@ -56,8 +56,11 @@ export function UmuProvider({ children }: { children: React.ReactNode }) {
           line?: string | null;
           message?: string | null;
         }>("umu-status", (event) => {
-          const { phase: nextPhase, line, gameTitle: nextGameTitle } =
-            event.payload;
+          const {
+            phase: nextPhase,
+            line,
+            gameTitle: nextGameTitle,
+          } = event.payload;
           if (nextPhase === "installing" || nextPhase === "setup") {
             setPhase(nextPhase as UmuPhase);
             if (nextGameTitle) setGameTitle(nextGameTitle);
@@ -82,26 +85,72 @@ export function UmuProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const checkUmuStatus = useCallback(async (): Promise<UmuStatusInfo | null> => {
-    if (!isTauriApp()) return null;
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      return await invoke<UmuStatusInfo>("umu_status");
-    } catch {
-      return null;
-    }
+  // Re-attach to a umu setup that is still running in the backend.
+  //
+  // umu-launcher setup (download + extract) keeps going when the webview is
+  // reloaded, but the overlay above only reacts to live events and would be
+  // gone. Ask the backend what it is doing and show it again; the ongoing
+  // events keep the overlay updated from there on.
+  useEffect(() => {
+    if (!isTauriApp()) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const states = await invoke<{
+          umu?: {
+            status: string;
+            message?: string | null;
+            gameTitle?: string | null;
+          } | null;
+        }>("get_background_states");
+        const snapshot = states?.umu;
+        if (cancelled || !snapshot) return;
+        if (snapshot.status !== "installing" && snapshot.status !== "setup") {
+          return;
+        }
+
+        setPhase(snapshot.status as UmuPhase);
+        if (snapshot.gameTitle) setGameTitle(snapshot.gameTitle);
+        if (snapshot.message) {
+          setLines([snapshot.message].slice(-MAX_OVERLAY_LINES));
+        }
+        setVisible(true);
+      } catch {
+        // Non-Tauri environments won't have the IPC bridge; ignore.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const installUmu = useCallback(async (gameTitle?: string): Promise<boolean> => {
-    if (!isTauriApp()) return false;
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("install_umu_launcher", { gameTitle: gameTitle ?? null });
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
+  const checkUmuStatus =
+    useCallback(async (): Promise<UmuStatusInfo | null> => {
+      if (!isTauriApp()) return null;
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        return await invoke<UmuStatusInfo>("umu_status");
+      } catch {
+        return null;
+      }
+    }, []);
+
+  const installUmu = useCallback(
+    async (gameTitle?: string): Promise<boolean> => {
+      if (!isTauriApp()) return false;
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("install_umu_launcher", { gameTitle: gameTitle ?? null });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [],
+  );
 
   return (
     <UmuContext.Provider value={{ checkUmuStatus, installUmu }}>
