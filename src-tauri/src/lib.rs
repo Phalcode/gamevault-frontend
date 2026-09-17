@@ -598,6 +598,8 @@ pub fn run() {
       settings::set_ignore_list,
       settings::get_default_wine_prefix,
       settings::set_default_wine_prefix,
+      settings::get_prerelease_notice_channel,
+      settings::set_prerelease_notice_channel,
       rendering::get_rendering_diagnostics,
       rendering::get_webkit_settings,
       rendering::set_webkit_smooth_scrolling,

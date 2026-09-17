@@ -25,6 +25,14 @@ pub(crate) struct AppSettings {
   /// `None` = leave WebKit default.
   #[serde(default)]
   pub webkit_hw_accel_policy: Option<String>,
+  /// Pre-release channel ("unstable" or "early-access") whose one-time launch
+  /// warning has already been acknowledged on this installation.
+  ///
+  /// This is kept in the app settings file instead of the webview's
+  /// localStorage, because the webview data folder is cleared by the
+  /// installer on updates - which made the warning reappear after each one.
+  #[serde(default)]
+  pub prerelease_notice_channel: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -113,6 +121,25 @@ pub(crate) fn set_ignore_list(app: tauri::AppHandle, ignored: Vec<String>) -> Re
 
   settings.ignored_executables = clean;
   settings.ignore_list_initialized = true;
+  save_settings(&app, &settings)
+}
+
+#[tauri::command]
+pub(crate) fn get_prerelease_notice_channel(app: tauri::AppHandle) -> Option<String> {
+  load_settings(&app).prerelease_notice_channel
+}
+
+/// Records the pre-release channel whose warning was acknowledged. `None`
+/// clears it, which makes the warning show up again on the next launch.
+#[tauri::command]
+pub(crate) fn set_prerelease_notice_channel(
+  app: tauri::AppHandle,
+  channel: Option<String>,
+) -> Result<(), String> {
+  let mut settings = load_settings(&app);
+  settings.prerelease_notice_channel = channel
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty());
   save_settings(&app, &settings)
 }
 

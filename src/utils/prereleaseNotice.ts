@@ -1,3 +1,4 @@
+import { isTauriApp } from "./tauri";
 import { defaultChannelForBuild, type UpdateChannel } from "./updater";
 
 /** Build channels that are explicitly not meant for everyday use. */
@@ -6,6 +7,12 @@ export type PrereleaseChannel = "early-access" | "unstable";
 /**
  * Remembers which pre-release build the user has already been warned about, so
  * the warning is only shown once per channel.
+ *
+ * Desktop builds keep the acknowledgement in the app's settings file
+ * (`gamevault-settings.json`), which survives app updates. The webview's
+ * localStorage does not survive them, so older desktop builds showed the
+ * warning again after every update. The localStorage key is still used by the
+ * web build, as a fallback, and to migrate existing acknowledgements.
  */
 export const PRERELEASE_NOTICE_KEY = "gv_prerelease_notice_channel";
 
@@ -24,26 +31,76 @@ export function prereleaseChannelOfBuild(): PrereleaseChannel | null {
   return isPrereleaseChannel(channel) ? channel : null;
 }
 
-/** Whether the first-launch warning for `channel` still has to be shown. */
-export function shouldShowPrereleaseNotice(
-  channel: PrereleaseChannel,
-): boolean {
+function readLocalAcknowledgement(): string | null {
   try {
-    return localStorage.getItem(PRERELEASE_NOTICE_KEY) !== channel;
+    return localStorage.getItem(PRERELEASE_NOTICE_KEY);
   } catch {
-    // Storage unavailable (private mode / blocked): showing the warning once
-    // extra is harmless, so fail open.
-    return true;
+    // Storage unavailable (private mode / blocked)
+    return null;
   }
 }
 
-/** Acknowledges the warning for `channel` so it isn't shown again. */
-export function markPrereleaseNoticeSeen(channel: PrereleaseChannel): void {
+function writeLocalAcknowledgement(channel: string): void {
   try {
     localStorage.setItem(PRERELEASE_NOTICE_KEY, channel);
   } catch {
     // localStorage unavailable
   }
+}
+
+/**
+ * The pre-release channel whose warning was already acknowledged on this
+ * installation, or `null` if it still has to be shown.
+ */
+export async function readAcknowledgedPrereleaseChannel(): Promise<
+  string | null
+> {
+  const local = readLocalAcknowledgement();
+  if (!isTauriApp()) return local;
+
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const stored = await invoke<string | null>("get_prerelease_notice_channel");
+    if (stored) return stored;
+  } catch {
+    // Native settings unavailable: fall back to the webview copy.
+    return local;
+  }
+
+  // Desktop builds from before this setting existed recorded the
+  // acknowledgement in the webview's localStorage. Adopt it so the update that
+  // introduces the setting doesn't show the warning one last time.
+  if (local) await writeAcknowledgedPrereleaseChannel(local);
+  return local;
+}
+
+async function writeAcknowledgedPrereleaseChannel(
+  channel: string,
+): Promise<void> {
+  // Keep the webview copy in sync as a fallback for older builds.
+  writeLocalAcknowledgement(channel);
+  if (!isTauriApp()) return;
+
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("set_prerelease_notice_channel", { channel });
+  } catch {
+    // localStorage still holds the acknowledgement.
+  }
+}
+
+/** Whether the first-launch warning for `channel` still has to be shown. */
+export async function shouldShowPrereleaseNotice(
+  channel: PrereleaseChannel,
+): Promise<boolean> {
+  return (await readAcknowledgedPrereleaseChannel()) !== channel;
+}
+
+/** Acknowledges the warning for `channel` so it isn't shown again. */
+export async function markPrereleaseNoticeSeen(
+  channel: PrereleaseChannel,
+): Promise<void> {
+  await writeAcknowledgedPrereleaseChannel(channel);
 }
 
 export interface PrereleaseNoticeContent {

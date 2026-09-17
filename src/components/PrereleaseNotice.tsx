@@ -21,18 +21,25 @@ export function PrereleaseNotice() {
     if (shownRef.current) return;
 
     const channel = prereleaseChannelOfBuild();
-    if (!channel || !shouldShowPrereleaseNotice(channel)) return;
+    if (!channel) return;
 
     shownRef.current = true;
-    void showAlert({
-      tone: "warning",
-      affirmativeText: "I understand",
-      ...prereleaseNoticeContent(channel, __APP_VERSION__),
-    }).then(() => {
+
+    void (async () => {
+      // The acknowledgement lives in the app's settings file (desktop builds),
+      // so it survives updates and the warning stays a one-time thing.
+      if (!(await shouldShowPrereleaseNotice(channel))) return;
+
+      await showAlert({
+        tone: "warning",
+        affirmativeText: "I understand",
+        ...prereleaseNoticeContent(channel, __APP_VERSION__),
+      });
+
       // Only remember the warning once it was actually acknowledged, so a user
       // who closes the app before reading it still sees it on the next launch.
-      markPrereleaseNoticeSeen(channel);
-    });
+      await markPrereleaseNoticeSeen(channel);
+    })();
   }, [showAlert]);
 
   return null;
