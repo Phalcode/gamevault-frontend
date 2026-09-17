@@ -25,6 +25,10 @@ pub(crate) struct AppSettings {
   /// `None` = leave WebKit default.
   #[serde(default)]
   pub webkit_hw_accel_policy: Option<String>,
+  /// Whether the launch log window opens automatically when a game starts.
+  /// Logs are always recorded; this only controls the window.
+  #[serde(default)]
+  pub always_show_launch_logs: bool,
   /// Pre-release channel ("unstable" or "early-access") whose one-time launch
   /// warning has already been acknowledged on this installation.
   ///
@@ -128,7 +132,6 @@ pub(crate) fn set_ignore_list(app: tauri::AppHandle, ignored: Vec<String>) -> Re
 pub(crate) fn get_prerelease_notice_channel(app: tauri::AppHandle) -> Option<String> {
   load_settings(&app).prerelease_notice_channel
 }
-
 /// Records the pre-release channel whose warning was acknowledged. `None`
 /// clears it, which makes the warning show up again on the next launch.
 #[tauri::command]
@@ -147,7 +150,6 @@ pub(crate) fn set_prerelease_notice_channel(
 pub(crate) fn get_default_wine_prefix(app: tauri::AppHandle) -> Option<String> {
   load_settings(&app).default_wine_prefix
 }
-
 #[tauri::command]
 pub(crate) fn set_default_wine_prefix(
   app: tauri::AppHandle,
@@ -158,5 +160,21 @@ pub(crate) fn set_default_wine_prefix(
     .map(|value| value.trim().to_string())
     .filter(|value| !value.is_empty());
   settings.default_wine_prefix = trimmed;
+  save_settings(&app, &settings)
+}
+
+/// Whether the launch log window should open automatically on game start.
+#[tauri::command]
+pub(crate) fn get_always_show_launch_logs(app: tauri::AppHandle) -> bool {
+  load_settings(&app).always_show_launch_logs
+}
+
+#[tauri::command]
+pub(crate) fn set_always_show_launch_logs(
+  app: tauri::AppHandle,
+  enabled: bool,
+) -> Result<(), String> {
+  let mut settings = load_settings(&app);
+  settings.always_show_launch_logs = enabled;
   save_settings(&app, &settings)
 }

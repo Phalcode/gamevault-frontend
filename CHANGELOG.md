@@ -65,10 +65,19 @@
 
 ---
 
+as
+
 - Added a one-time warning on the first launch of an Early Access or unstable build, explaining that these builds are meant for the early access program/developers and testers, that extra setup steps may be needed, and that more issues are to be expected than on a stable release.
 - Refreshing the app (F5) or using the window's Refresh button no longer interrupts work in progress: downloads, extractions, installations, umu-launcher setup and app updates keep running in the background, their progress is picked back up instead of starting over, and a refresh can no longer start a second download, extraction, installation or update over the one that is still running.
 - Fixed the app freezing while uninstalling a game, while launching a Windows game that still needs umu-launcher set up, and while deleting or scanning large game folders.
 - The Early Access/unstable warning is now shown only once per installation instead of again after every app update.
+- Linux/umu-launcher defaults (GAMEID, STORE and Proton version) can now be defined once per game as custom metadata on the server: the game settings dialog has matching fields, and newly downloaded games inherit them automatically instead of needing per-client setup.
+- Fixed Linux/umu-launcher Wine/Proton prefixes: installing, launching and uninstalling a game now all use the same prefix per game (named like the game's install folder). Previously a game could run in a different prefix than it was installed into, and without a GAMEID every game shared umu's default prefix. Existing prefixes are reused, so nothing has to be moved and no save games are lost.
+- Uninstalling a game now offers to also delete its Wine/Proton prefix, showing the folder path and keeping it by default (local saves and game settings can live inside it). Only prefixes GameVault manages are offered.
+- The per-game Wine Prefix field now shows the path that is actually used (with a click-to-copy) instead of a path GameVault never used, and the prefix settings explain the real default location.
+- Fixed uninstalling a game silently dropping the per-game umu-launcher overrides (GAMEID, STORE, Proton version, Wine prefix) and the "run as administrator" flag from the game's configuration.
+- Added launch logs: the complete output of every game start (Proton/Wine/umu output included) is written to rotating log files and shown in a dedicated log window. A new setting ("Always show launch logs") opens that window automatically while a game starts, a failed launch opens it regardless, and earlier logs can be browsed or cleared from the window. Installer runs are logged too.
+- The per-game Proton (PROTONPATH) field now offers a dropdown with the Proton builds already installed in `compatibilitytools.d` (Steam and Flatpak Steam), so version names don't have to be typed by hand.
 
 ## 17.0.0
 

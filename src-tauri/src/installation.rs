@@ -421,13 +421,36 @@ fn wait_for_installation_populated(path: &Path) -> bool {
 fn run_installer_via_umu(
   app: tauri::AppHandle,
   game_id: i64,
+  version_directory: Option<&str>,
   installer_path: &Path,
   installer_relative: &str,
   installation_path_resolved: &str,
   installer_parameters: Option<String>,
   is_msi: bool,
+  umu_game_id: Option<&str>,
+  umu_store: Option<&str>,
+  umu_proton_path: Option<&str>,
+  umu_wine_prefix: Option<&str>,
 ) {
+  // Installer runs get their own log too: the window is not opened
+  // automatically (installs take a while), but the output can be opened from
+  // the settings at any time.
+  let log = crate::launch_log::begin_launch(
+    &app,
+    &format!("Installer: {installer_relative}"),
+    "installer",
+  );
+  log.push(
+    "info",
+    &format!("Installer: {}", installer_path.display()),
+  );
+  if let Some(parameters) = installer_parameters.as_deref() {
+    log.push("info", &format!("Parameters: {parameters}"));
+  }
+
   if let Err(error) = crate::umu::ensure_umu_installed(&app, None) {
+    log.push("err", &error);
+    log.finish_failed(&app, None);
     emit_installer_status(
       &app,
       game_id,
@@ -441,6 +464,8 @@ fn run_installer_via_umu(
 
   let Some(umu_run) = crate::umu::find_umu_run() else {
     let message = "umu-run was not found. Unable to launch Windows installer on Linux.".to_string();
+    log.push("err", &message);
+    log.finish_failed(&app, None);
     crate::events::emit_umu_status(&app, None, "error", None, Some(message.clone()));
     emit_installer_status(
       &app,
@@ -465,13 +490,27 @@ fn run_installer_via_umu(
   }
   command.arg(installer_path).current_dir(&working_dir);
 
-  // Use an isolated per-game Wine prefix. There is no per-game override on the
-  // installer path, so this resolves to `<default_base>/<game_id>` whenever a
-  // global default base directory is configured (otherwise umu's default).
-  if let Some(prefix) =
-    crate::umu::resolve_wine_prefix(&app, None, &format!("game-{}", game_id))
-  {
+  // Use the same isolated per-game prefix as the game launch, so a game is
+  // installed into the prefix it later runs in.
+  if let Some(prefix) = crate::umu::resolve_wine_prefix(
+    &app,
+    &crate::umu::PrefixContext {
+      per_game_prefix: umu_wine_prefix,
+      version_directory,
+      game_id: Some(game_id),
+      umu_game_id,
+    },
+  ) {
     command.env("WINEPREFIX", &prefix);
+  }
+  if let Some(value) = umu_game_id.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("GAMEID", value);
+  }
+  if let Some(value) = umu_store.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("STORE", value);
+  }
+  if let Some(value) = umu_proton_path.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("PROTONPATH", value);
   }
 
   let mut installer_args: Vec<String> = Vec::new();
@@ -524,7 +563,7 @@ fn run_installer_via_umu(
 
   let stdout = child.stdout.take();
   let stderr = child.stderr.take();
-  let handle = crate::umu::spawn_umu_streamers(&app, None, stdout, stderr);
+  let handle = crate::umu::spawn_umu_streamers(&app, None, stdout, stderr, Some(log.clone()));
 
   emit_installer_status(
     &app,
@@ -562,6 +601,11 @@ fn run_installer_via_umu(
   let exit_code = status.as_ref().ok().and_then(|s| s.code());
 
   if status.map(|s| s.success()).unwrap_or(false) {
+    log.push(
+      "info",
+      &format!("Installer exited with code {}.", exit_code.unwrap_or(0)),
+    );
+    log.finish_success(&app, exit_code);
     emit_installer_status(
       &app,
       game_id,
@@ -573,6 +617,14 @@ fn run_installer_via_umu(
   } else if wait_for_installation_populated(Path::new(installation_path_resolved)) {
     // Non-zero exit is not a reliable failure (GOG/NSIS wrappers detach a
     // child that keeps installing); verify the install dir got populated.
+    log.push(
+      "info",
+      &format!(
+        "Installer exited with code {}, but the installation directory was populated — treating it as success.",
+        exit_code.unwrap_or(-1)
+      ),
+    );
+    log.finish_success(&app, exit_code);
     emit_installer_status(
       &app,
       game_id,
@@ -582,16 +634,16 @@ fn run_installer_via_umu(
       None,
     );
   } else {
+    let message = format!("Installer exited with code {}.", exit_code.unwrap_or(-1));
+    log.push("err", &message);
+    log.finish_failed(&app, exit_code);
     emit_installer_status(
       &app,
       game_id,
       "error",
       Some(installer_relative.to_string()),
       exit_code,
-      Some(format!(
-        "Installer exited with code {}.",
-        exit_code.unwrap_or(-1)
-      )),
+      Some(message),
     );
   }
 }
@@ -600,10 +652,15 @@ fn run_installer_via_umu(
 pub(crate) fn launch_installation_executable(
   app: tauri::AppHandle,
   game_id: i64,
+  version_directory: Option<String>,
   extraction_path: String,
   installer_relative_path: String,
   installation_path: String,
   installer_parameters: Option<String>,
+  umu_game_id: Option<String>,
+  umu_store: Option<String>,
+  umu_proton_path: Option<String>,
+  umu_wine_prefix: Option<String>,
 ) -> Result<(), String> {
   let extraction_root = PathBuf::from(extraction_path);
   // Candidate paths are normalized to forward slashes; convert back to the
@@ -620,6 +677,7 @@ pub(crate) fn launch_installation_executable(
 
   let installation_path_resolved = installation_path.clone();
   let installer_relative = installer_relative_path.clone();
+  let version_directory = version_directory.clone();
 
   // An installer keeps running when the webview is reloaded (F5), and the UI
   // cannot see it any more. Starting a second one would run two setup
@@ -654,11 +712,16 @@ pub(crate) fn launch_installation_executable(
       run_installer_via_umu(
         app,
         game_id,
+        version_directory.as_deref(),
         &installer_path,
         &installer_relative,
         &installation_path_resolved,
         installer_parameters.clone(),
         is_msi,
+        umu_game_id.as_deref(),
+        umu_store.as_deref(),
+        umu_proton_path.as_deref(),
+        umu_wine_prefix.as_deref(),
       );
       return;
     }
@@ -829,10 +892,15 @@ pub(crate) fn launch_installation_executable(
 #[cfg(target_os = "linux")]
 fn run_uninstall_via_umu(
   app: tauri::AppHandle,
+  version_directory: Option<&str>,
   executable: &Path,
   working_directory: Option<&str>,
   arguments: Option<String>,
   is_msi: bool,
+  umu_game_id: Option<&str>,
+  umu_store: Option<&str>,
+  umu_proton_path: Option<&str>,
+  umu_wine_prefix: Option<&str>,
 ) -> Result<Option<i32>, String> {
   if let Err(error) = crate::umu::ensure_umu_installed(&app, None) {
     return Err(error);
@@ -855,6 +923,28 @@ fn run_uninstall_via_umu(
     }
   }
 
+  // The uninstaller must run in the prefix the game was installed into.
+  if let Some(prefix) = crate::umu::resolve_wine_prefix(
+    &app,
+    &crate::umu::PrefixContext {
+      per_game_prefix: umu_wine_prefix,
+      version_directory,
+      game_id: None,
+      umu_game_id,
+    },
+  ) {
+    command.env("WINEPREFIX", &prefix);
+  }
+  if let Some(value) = umu_game_id.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("GAMEID", value);
+  }
+  if let Some(value) = umu_store.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("STORE", value);
+  }
+  if let Some(value) = umu_proton_path.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("PROTONPATH", value);
+  }
+
   let mut child = command
     .spawn()
     .map_err(|error| format!("Failed to start uninstall executable: {error}"))?;
@@ -875,14 +965,29 @@ fn run_uninstall_via_umu(
 #[tauri::command]
 pub(crate) async fn launch_uninstall_executable(
   app: tauri::AppHandle,
+  version_directory: Option<String>,
   executable_path: String,
   working_directory: Option<String>,
   argument_list: Option<String>,
+  umu_game_id: Option<String>,
+  umu_store: Option<String>,
+  umu_proton_path: Option<String>,
+  umu_wine_prefix: Option<String>,
 ) -> Result<Option<i32>, String> {
   // The uninstaller is waited for, which takes as long as the user needs in its
   // wizard: running that on the UI thread used to freeze the whole app.
   tauri::async_runtime::spawn_blocking(move || {
-    launch_uninstall_executable_blocking(app, executable_path, working_directory, argument_list)
+    launch_uninstall_executable_blocking(
+      app,
+      version_directory,
+      executable_path,
+      working_directory,
+      argument_list,
+      umu_game_id,
+      umu_store,
+      umu_proton_path,
+      umu_wine_prefix,
+    )
   })
   .await
   .map_err(|error| format!("Uninstall task failed: {error}"))?
@@ -891,9 +996,14 @@ pub(crate) async fn launch_uninstall_executable(
 #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
 fn launch_uninstall_executable_blocking(
   app: tauri::AppHandle,
+  version_directory: Option<String>,
   executable_path: String,
   working_directory: Option<String>,
   argument_list: Option<String>,
+  umu_game_id: Option<String>,
+  umu_store: Option<String>,
+  umu_proton_path: Option<String>,
+  umu_wine_prefix: Option<String>,
 ) -> Result<Option<i32>, String> {
   let executable = PathBuf::from(&executable_path);
   if !executable.exists() || !executable.is_file() {
@@ -911,10 +1021,15 @@ fn launch_uninstall_executable_blocking(
   if crate::umu::is_windows_executable(&executable) {
     return run_uninstall_via_umu(
       app,
+      version_directory.as_deref(),
       &executable,
       working_directory.as_deref(),
       argument_list,
       is_msi,
+      umu_game_id.as_deref(),
+      umu_store.as_deref(),
+      umu_proton_path.as_deref(),
+      umu_wine_prefix.as_deref(),
     );
   }
 

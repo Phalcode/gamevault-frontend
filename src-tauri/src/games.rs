@@ -6,6 +6,7 @@ use crate::util::{
 };
 use serde::Serialize;
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -596,6 +597,8 @@ pub(crate) fn make_script_executable(
 pub(crate) async fn launch_game(
     app: tauri::AppHandle,
     game_title: String,
+    game_id: Option<i64>,
+    version_directory: Option<String>,
     installation_path: String,
     executable_relative_path: String,
     launch_parameters: Option<String>,
@@ -612,6 +615,8 @@ pub(crate) async fn launch_game(
         launch_game_blocking(
             app,
             game_title,
+            game_id,
+            version_directory,
             installation_path,
             executable_relative_path,
             launch_parameters,
@@ -630,6 +635,8 @@ pub(crate) async fn launch_game(
 fn launch_game_blocking(
     app: tauri::AppHandle,
     game_title: String,
+    game_id: Option<i64>,
+    version_directory: Option<String>,
     installation_path: String,
     executable_relative_path: String,
     launch_parameters: Option<String>,
@@ -646,7 +653,16 @@ fn launch_game_blocking(
     }
 
     let working_dir = exe_path.parent().unwrap_or(&root);
-    let restore_on_exit = load_settings(&app).minimize_on_game_launch;
+    let settings = load_settings(&app);
+    let restore_on_exit = settings.minimize_on_game_launch;
+
+    // Every launch gets its own log: written to a rotating file next to the
+    // app logs and streamed into the "Launch log" window, which also opens
+    // automatically when the user enabled that in the settings.
+    let log = crate::launch_log::begin_launch(&app, &game_title, "game");
+    if settings.always_show_launch_logs {
+        let _ = crate::launch_log::open_or_focus_log_window(&app);
+    }
 
     // On Linux a Windows executable cannot run natively; run it through
     // umu-launcher (Proton/Wine), auto-installing it when missing. This comes
@@ -658,6 +674,8 @@ fn launch_game_blocking(
         return crate::umu::launch_with_umu(
             app,
             game_title,
+            version_directory,
+            game_id,
             &exe_path,
             launch_parameters.as_deref(),
             umu_game_id.as_deref(),
@@ -665,6 +683,7 @@ fn launch_game_blocking(
             umu_proton_path.as_deref(),
             umu_wine_prefix.as_deref(),
             restore_on_exit,
+            Some(log),
         );
     }
 
@@ -717,6 +736,7 @@ fn launch_game_blocking(
                     err_path,
                     ADMIN_LAUNCH_GRACE,
                     restore_on_exit,
+                    log,
                 );
                 return Ok(());
             }
@@ -747,6 +767,7 @@ fn launch_game_blocking(
                     err_path,
                     ADMIN_LAUNCH_GRACE,
                     restore_on_exit,
+                    log,
                 );
                 Ok(())
             }
@@ -807,6 +828,7 @@ fn launch_game_blocking(
                 err_path,
                 LAUNCH_GRACE,
                 restore_on_exit,
+                log,
             );
             Ok(())
         }
@@ -997,6 +1019,7 @@ fn spawn_launch_monitor(
     err_path: PathBuf,
     grace: Duration,
     restore_on_exit: bool,
+    log: std::sync::Arc<crate::launch_log::LaunchLog>,
 ) {
     thread::spawn(move || {
         // When the user has enabled "minimize on launch", tuck the gamevault
@@ -1007,25 +1030,25 @@ fn spawn_launch_monitor(
 
         let start = Instant::now();
         let mut launched_running = false;
+        // Streams what the game writes to its output files while it runs, so the
+        // log is complete even for launches that outlive the grace window.
+        let mut tail = LaunchFileTail::new();
 
         let status = loop {
+            tail.read_new_lines(&log, &out_path, &err_path);
             match child.try_wait() {
                 Ok(Some(status)) => break status,
                 Ok(None) => {
-                    if start.elapsed() >= grace {
-                        // Still running after the grace window — the launch succeeded and
-                        // the game actually ran. If we are restoring on exit, keep watching
-                        // until the process quits so we can bring the window back;
-                        // otherwise stop watching (the process is already detached).
+                    if start.elapsed() >= grace && !launched_running {
+                        // Still running after the grace window — the launch succeeded
+                        // and the game actually ran.
                         launched_running = true;
-                        if !restore_on_exit {
-                            clean_up_launch_logs(&out_path, &err_path);
-                            return;
-                        }
+                        log.push("info", "The game is running.");
                     }
-                    thread::sleep(Duration::from_millis(50));
+                    thread::sleep(Duration::from_millis(100));
                 }
                 Err(_) => {
+                    log.finish_failed(&app, None);
                     clean_up_launch_logs(&out_path, &err_path);
                     restore_main_window(&app);
                     return;
@@ -1035,10 +1058,13 @@ fn spawn_launch_monitor(
 
         let stdout = fs::read_to_string(&out_path).unwrap_or_default();
         let stderr = fs::read_to_string(&err_path).unwrap_or_default();
-        clean_up_launch_logs(&out_path, &err_path);
 
         let exit_code = status.code();
         let message = format_launch_output(&stderr, &stdout);
+        // Everything the tailer has not pushed yet (e.g. output written between
+        // the last poll and the process exit) — read before the files go away.
+        tail.read_new_lines(&log, &out_path, &err_path);
+        clean_up_launch_logs(&out_path, &err_path);
 
         // Restore the window regardless of whether the game exited cleanly, so
         // the user is never left with a hidden gamevault window.
@@ -1050,9 +1076,95 @@ fn spawn_launch_monitor(
         // running, ignore benign shutdown console output (engine warnings, etc.)
         // so we don't report a false "exited with an error" alert.
         if !launched_running {
+            log.finish_failed(&app, exit_code);
             emit_game_launch_failed(&app, game_title, exit_code, message);
+        } else {
+            log.finish_success(&app, exit_code);
         }
     });
+}
+
+/// How many bytes of process output are streamed into the log at most.
+const MAX_CAPTURED_OUTPUT_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Follows the `.out`/`.err` files of a running game and pushes new lines into
+/// the launch log. The child writes to files instead of pipes (so a chatty game
+/// can never block on a full pipe buffer), which is why we tail them.
+struct LaunchFileTail {
+    out_offset: u64,
+    err_offset: u64,
+    out_partial: String,
+    err_partial: String,
+    captured: u64,
+}
+
+impl LaunchFileTail {
+    fn new() -> Self {
+        Self {
+            out_offset: 0,
+            err_offset: 0,
+            out_partial: String::new(),
+            err_partial: String::new(),
+            captured: 0,
+        }
+    }
+
+    fn read_new_lines(
+        &mut self,
+        log: &crate::launch_log::LaunchLog,
+        out_path: &Path,
+        err_path: &Path,
+    ) {
+        if self.captured >= MAX_CAPTURED_OUTPUT_BYTES {
+            return;
+        }
+        self.read_stream(log, out_path, "out", false);
+        self.read_stream(log, err_path, "err", true);
+    }
+
+    fn read_stream(
+        &mut self,
+        log: &crate::launch_log::LaunchLog,
+        path: &Path,
+        stream: &str,
+        is_err: bool,
+    ) {
+        let (offset, partial) = if is_err {
+            (&mut self.err_offset, &mut self.err_partial)
+        } else {
+            (&mut self.out_offset, &mut self.out_partial)
+        };
+
+        let Ok(mut file) = fs::File::open(path) else {
+            return;
+        };
+        if file.seek(SeekFrom::Start(*offset)).is_err() {
+            return;
+        }
+        let mut chunk = String::new();
+        let Ok(read) = file.read_to_string(&mut chunk) else {
+            return;
+        };
+        if read == 0 {
+            return;
+        }
+        *offset += read as u64;
+        self.captured = self.captured.saturating_add(read as u64);
+
+        partial.push_str(&chunk);
+        while let Some(index) = partial.find('\n') {
+            let line = partial[..index].trim_end_matches('\r').to_string();
+            partial.drain(..=index);
+            if !line.trim().is_empty() {
+                log.push(stream, &line);
+            }
+        }
+        if partial.len() > 8 * 1024 {
+            // Defensive: never keep an unbounded partial line around.
+            let line = std::mem::take(partial);
+            log.push(stream, &line);
+        }
+    }
 }
 
 #[cfg(test)]

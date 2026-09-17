@@ -23,10 +23,8 @@ import {
   getSkipAutoResumeIds,
   setSkipAutoResume,
 } from "@/utils/downloadFormat";
-import {
-  pickPreferredInstaller,
-  pickPreferredExecutable,
-} from "@/components/downloads/install-utils";
+import { pickPreferredInstaller } from "@/components/downloads/install-utils";
+import { mergeLaunchDefaults } from "@/components/downloads/launch-defaults";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import type { GameMetadata } from "@/api/models/GameMetadata";
 import type {
@@ -398,37 +396,53 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Never overwrite a user-configured launch executable
-    if (current.launchexecutable) return;
+    // Never overwrite the executable/parameters pair the user configured; the
+    // umu defaults below are filled independently, because they are separate
+    // launch options (and were not server-provided before).
+    const needsExecutableDefaults = !current.launchexecutable;
 
-    const metaExe = (d.gameMetadata as any)?.launch_executable as
-      string | undefined;
-    const metaParams = (d.gameMetadata as any)?.launch_parameters as
-      string | undefined;
+    const metadata = d.gameMetadata as
+      | (Record<string, unknown> & {
+          launch_executable?: string;
+          launch_parameters?: string;
+          umu_game_id?: string;
+          umu_store?: string;
+          umu_proton_path?: string;
+        })
+      | undefined;
 
     // Same source as the launch-executable Listbox (already excludes ignored
     // executables and is sorted), used to resolve and validate candidates.
-    const { executables: exeList } = await invoke<{ executables: string[] }>(
-      "list_launch_executables",
-      {
-        installationPath: d.installationDirectory,
-      },
-    );
+    let exeList: string[] = [];
+    if (needsExecutableDefaults) {
+      ({ executables: exeList } = await invoke<{ executables: string[] }>(
+        "list_launch_executables",
+        {
+          installationPath: d.installationDirectory,
+        },
+      ));
+    }
 
     // Prefer the metadata launch executable, falling back to auto-detecting the
-    // first available one (restoring the legacy client's auto-select behavior).
-    const resolvedExe = pickPreferredExecutable(exeList, metaExe);
+    // first available one (restoring the legacy client's auto-select behavior),
+    // and adopt the server's umu-launcher defaults for Linux.
+    const merged = mergeLaunchDefaults(
+      current,
+      {
+        launchExecutable: metadata?.launch_executable,
+        launchParameters: metadata?.launch_parameters,
+        umuGameId: metadata?.umu_game_id,
+        umuStore: metadata?.umu_store,
+        umuProtonPath: metadata?.umu_proton_path,
+      },
+      exeList,
+    );
 
-    const resolvedParams =
-      metaParams && metaParams.trim() ? metaParams.trim() : undefined;
+    if (!merged) return;
 
-    if (!resolvedExe && !resolvedParams) return;
-
-    if (resolvedExe) current.launchexecutable = resolvedExe;
-    if (resolvedParams !== undefined) current.launchparameters = resolvedParams;
     await invoke("fs_write_text_file", {
       path: configPath,
-      content: JSON.stringify(current, null, 2),
+      content: JSON.stringify(merged, null, 2),
     });
   }, []);
 
@@ -2190,12 +2204,43 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
         tauriInstallerUnlistenRef.current[gameId] = unlisten;
 
+        // The installer must run in the same prefix as the launch, including a
+        // per-game override the user configured in the game settings.
+        let umuWinePrefix: string | null = null;
+        try {
+          const { join } = await import("@tauri-apps/api/path");
+          const configPath = d.versionDirectory
+            ? await join(d.versionDirectory, ".gamevault.game.config.json")
+            : null;
+          if (
+            configPath &&
+            (await invoke<boolean>("fs_path_exists", { path: configPath }))
+          ) {
+            const raw = JSON.parse(
+              await invoke<string>("fs_read_text_file", { path: configPath }),
+            );
+            if (
+              typeof raw?.umuwineprefix === "string" &&
+              raw.umuwineprefix.trim()
+            ) {
+              umuWinePrefix = raw.umuwineprefix.trim();
+            }
+          }
+        } catch {
+          umuWinePrefix = null;
+        }
+
         await invoke("launch_installation_executable", {
           gameId,
+          versionDirectory: d.versionDirectory,
           extractionPath: d.extractionDirectory,
           installerRelativePath,
           installationPath: d.installationDirectory,
           installerParameters: d.gameMetadata?.installer_parameters ?? null,
+          umuGameId: (d.gameMetadata as any)?.umu_game_id ?? null,
+          umuStore: (d.gameMetadata as any)?.umu_store ?? null,
+          umuProtonPath: (d.gameMetadata as any)?.umu_proton_path ?? null,
+          umuWinePrefix,
         });
       } catch (err) {
         const stop = tauriInstallerUnlistenRef.current[gameId];

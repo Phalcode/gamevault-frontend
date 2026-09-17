@@ -473,8 +473,10 @@ fn stream_umu_lines<R: Read + Send + 'static>(
   stream: R,
   app: tauri::AppHandle,
   game_title: Option<String>,
+  stream_kind: &'static str,
   lines: Arc<Mutex<VecDeque<String>>>,
   running: Arc<AtomicBool>,
+  log: Option<Arc<crate::launch_log::LaunchLog>>,
 ) {
   thread::spawn(move || {
     let mut reader = BufReader::new(stream);
@@ -495,11 +497,18 @@ fn stream_umu_lines<R: Read + Send + 'static>(
               queue.pop_front();
             }
           }
+          if let Some(log) = log.as_ref() {
+            log.push(stream_kind, &trimmed);
+          }
           // umu prints these right before the game/installer window opens.
           if trimmed.contains("fsync") || trimmed.contains("Proton: Executable") {
             running.store(true, Ordering::SeqCst);
           }
-          emit_umu_status(&app, game_title.as_deref(), "setup", Some(trimmed), None);
+          // Once the game runs, Proton's output belongs in the log window only
+          // (otherwise it would re-open the setup overlay).
+          if !running.load(Ordering::SeqCst) {
+            emit_umu_status(&app, game_title.as_deref(), "setup", Some(trimmed), None);
+          }
         }
         Err(_) => break,
       }
@@ -514,6 +523,7 @@ pub(crate) fn spawn_umu_streamers(
   game_title: Option<&str>,
   stdout: Option<ChildStdout>,
   stderr: Option<ChildStderr>,
+  log: Option<Arc<crate::launch_log::LaunchLog>>,
 ) -> UmuStreamHandle {
   let running = Arc::new(AtomicBool::new(false));
   let lines: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
@@ -525,8 +535,10 @@ pub(crate) fn spawn_umu_streamers(
       out,
       app_handle.clone(),
       game_title.clone(),
+      "out",
       lines.clone(),
       running.clone(),
+      log.clone(),
     );
   }
   if let Some(err) = stderr {
@@ -534,8 +546,10 @@ pub(crate) fn spawn_umu_streamers(
       err,
       app_handle.clone(),
       game_title.clone(),
+      "err",
       lines.clone(),
       running.clone(),
+      log.clone(),
     );
   }
   UmuStreamHandle { running, lines }
@@ -591,26 +605,369 @@ pub(crate) fn slugify_prefix_name(name: &str) -> String {
   }
 }
 
-/// Resolves the `WINEPREFIX` for a launch. A per-game override (from the game
-/// settings dialog) always wins; otherwise, when a global default base
-/// directory is configured, an isolated `<base>/<slug>` prefix is used so
-/// games never share a prefix. Returns `None` to fall back to umu's default.
+/// A Proton build that is already installed on the machine.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProtonBuild {
+  /// Folder name inside `compatibilitytools.d`, e.g. `GE-Proton9-5`.
+  pub name: String,
+  pub path: String,
+  /// Directory the build was found in.
+  pub source: String,
+}
+
+/// Directories that can contain Proton builds. umu resolves `PROTONPATH` by
+/// name inside `compatibilitytools.d`, so we list what is already installed
+/// instead of downloading and managing Proton builds ourselves.
+#[cfg(target_os = "linux")]
+fn proton_search_dirs() -> Vec<PathBuf> {
+  let Some(home) = home_dir() else {
+    return Vec::new();
+  };
+  vec![
+    home.join(".local/share/Steam/compatibilitytools.d"),
+    home.join(".steam/steam/compatibilitytools.d"),
+    home.join(".steam/root/compatibilitytools.d"),
+    home.join(".var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d"),
+    home.join(".local/share/umu/compatibilitytools.d"),
+  ]
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub(crate) fn list_proton_builds() -> Vec<ProtonBuild> {
+  let mut builds: Vec<ProtonBuild> = Vec::new();
+
+  for dir in proton_search_dirs() {
+    let Ok(entries) = fs::read_dir(&dir) else {
+      continue;
+    };
+    for entry in entries.flatten() {
+      let path = entry.path();
+      if !path.is_dir() {
+        continue;
+      }
+      let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+        continue;
+      };
+      if name.starts_with('.') || builds.iter().any(|build| build.name == name) {
+        continue;
+      }
+      builds.push(ProtonBuild {
+        name: name.to_string(),
+        path: path.to_string_lossy().to_string(),
+        source: dir.to_string_lossy().to_string(),
+      });
+    }
+  }
+
+  builds.sort_by_key(|build| build.name.to_lowercase());
+  builds
+}
+
+#[cfg(not(target_os = "linux"))]
+#[tauri::command]
+pub(crate) fn list_proton_builds() -> Vec<ProtonBuild> {
+  Vec::new()
+}
+
+/// Everything needed to locate the Wine/Proton prefix of one game.
+#[cfg(target_os = "linux")]
+pub(crate) struct PrefixContext<'a> {
+  /// Per-game override from the game settings dialog (wins verbatim).
+  pub per_game_prefix: Option<&'a str>,
+  /// Version directory (`<root>/GameVault/<Game Title>/Versions/<Version>`),
+  /// used to derive the per-game prefix folder name.
+  pub version_directory: Option<&'a str>,
+  /// Numeric GameVault game id, used to adopt the legacy `game-<id>` prefix.
+  pub game_id: Option<i64>,
+  /// umu GAMEID, used to adopt umu's own default prefix location.
+  pub umu_game_id: Option<&'a str>,
+}
+
+/// Folder name of the game inside the install tree
+/// (`.../<Game Title>/Versions/<Version>`). Falls back to the version folder
+/// name when the tree has an unexpected shape.
+#[cfg(target_os = "linux")]
+pub(crate) fn game_folder_name(version_directory: &Path) -> Option<String> {
+  let parent = version_directory.parent();
+  let versions_folder = parent
+    .and_then(|p| p.file_name())
+    .and_then(|n| n.to_str())
+    .map(|n| n.eq_ignore_ascii_case("versions"))
+    .unwrap_or(false);
+
+  let folder = if versions_folder {
+    parent.and_then(|p| p.parent()).and_then(|p| p.file_name())?
+  } else {
+    version_directory.file_name()?
+  };
+
+  let name = folder.to_string_lossy().trim().to_string();
+  if name.is_empty() {
+    None
+  } else {
+    Some(name)
+  }
+}
+
+/// Base directory for GameVault-managed prefixes: the configured setting, or
+/// `$XDG_DATA_HOME/GameVault/prefixes` when it is empty.
+#[cfg(target_os = "linux")]
+pub(crate) fn prefix_base_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+  use tauri::Manager;
+
+  let configured = crate::settings::load_settings(app)
+    .default_wine_prefix
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty());
+  if let Some(configured) = configured {
+    return Some(PathBuf::from(configured));
+  }
+
+  app
+    .path()
+    .data_dir()
+    .ok()
+    .map(|dir| dir.join("GameVault").join("prefixes"))
+}
+
+/// The prefix candidate paths of a game, most preferred first.
+#[cfg(target_os = "linux")]
+fn prefix_candidates(base: &Path, context: &PrefixContext<'_>) -> Vec<PathBuf> {
+  let folder = context
+    .version_directory
+    .map(Path::new)
+    .and_then(game_folder_name);
+
+  let mut candidates: Vec<PathBuf> = Vec::new();
+  if let Some(folder) = folder.as_deref() {
+    candidates.push(base.join(folder));
+  }
+  if let Some(game_id) = context.game_id {
+    candidates.push(base.join(format!("game-{game_id}")));
+  }
+  if let Some(folder) = folder.as_deref() {
+    let slug_path = base.join(slugify_prefix_name(folder));
+    if !candidates.contains(&slug_path) {
+      candidates.push(slug_path);
+    }
+  }
+  // umu's own default location, only when a GAMEID is known (without one umu
+  // would have used its shared `umu-default` prefix, which we do not adopt).
+  if let Some(umu_game_id) = context
+    .umu_game_id
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+  {
+    if let Some(home) = home_dir() {
+      candidates.push(home.join("Games").join("umu").join(umu_game_id));
+    }
+  }
+  candidates
+}
+
+/// Resolves the `WINEPREFIX` for installing, launching and uninstalling one
+/// game. All three flows use this, so a game always runs in the prefix it was
+/// installed into.
+///
+/// Precedence: per-game override > an existing prefix of a legacy layout (so
+/// nothing has to be migrated and no save games are lost) > GameVault's
+/// canonical `<base>/<game folder name>`. Returns `None` only when no base
+/// directory can be resolved at all (then umu's own default applies).
 #[cfg(target_os = "linux")]
 pub(crate) fn resolve_wine_prefix(
   app: &tauri::AppHandle,
-  per_game_prefix: Option<&str>,
-  identifier: &str,
+  context: &PrefixContext<'_>,
 ) -> Option<String> {
-  if let Some(value) = per_game_prefix.map(str::trim).filter(|v| !v.is_empty()) {
+  if let Some(value) = context
+    .per_game_prefix
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+  {
     return Some(value.to_string());
   }
-  let base = crate::settings::load_settings(app).default_wine_prefix;
-  if let Some(base) = base.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
-    let slug = slugify_prefix_name(identifier);
-    let merged = Path::new(&base).join(&slug);
-    return Some(merged.to_string_lossy().to_string());
+
+  let base = prefix_base_dir(app)?;
+  let candidates = prefix_candidates(&base, context);
+
+  if let Some(existing) = candidates.iter().find(|path| path.exists()) {
+    return Some(existing.to_string_lossy().to_string());
   }
-  None
+
+  candidates
+    .into_iter()
+    .next()
+    .map(|path| path.to_string_lossy().to_string())
+}
+
+/// True when the directory looks like a Wine/Proton prefix.
+#[cfg(target_os = "linux")]
+pub(crate) fn is_wine_prefix_dir(path: &Path) -> bool {
+  path.join("drive_c").is_dir()
+}
+
+/// Info about the Wine/Proton prefix a game would use.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WinePrefixInfo {
+  pub path: Option<String>,
+  pub exists: bool,
+  pub is_prefix: bool,
+  /// True when the prefix lives inside GameVault's prefix base directory.
+  pub managed: bool,
+  /// Size on disk in bytes (only computed for existing prefixes).
+  pub size_bytes: Option<u64>,
+}
+
+/// Total size of a directory tree in bytes (best effort).
+#[cfg(target_os = "linux")]
+pub(crate) fn directory_size(path: &Path) -> u64 {
+  let Ok(entries) = fs::read_dir(path) else {
+    return 0;
+  };
+  let mut total = 0;
+  for entry in entries.flatten() {
+    let Ok(metadata) = entry.metadata() else {
+      continue;
+    };
+    if metadata.is_dir() {
+      total += directory_size(&entry.path());
+    } else {
+      total += metadata.len();
+    }
+  }
+  total
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub(crate) fn resolve_game_wine_prefix(
+  app: tauri::AppHandle,
+  version_directory: Option<String>,
+  game_id: Option<i64>,
+  umu_game_id: Option<String>,
+  per_game_prefix: Option<String>,
+) -> WinePrefixInfo {
+  let context = PrefixContext {
+    per_game_prefix: per_game_prefix.as_deref(),
+    version_directory: version_directory.as_deref(),
+    game_id,
+    umu_game_id: umu_game_id.as_deref(),
+  };
+  let path = resolve_wine_prefix(&app, &context);
+  let target = path.as_deref().map(PathBuf::from);
+  let exists = target.as_deref().map(|p| p.is_dir()).unwrap_or(false);
+
+  WinePrefixInfo {
+    exists,
+    is_prefix: target
+      .as_deref()
+      .map(is_wine_prefix_dir)
+      .unwrap_or(false),
+    managed: target
+      .as_deref()
+      .map(|p| is_managed_prefix_path(&app, p))
+      .unwrap_or(false),
+    size_bytes: target.as_deref().filter(|_| exists).map(directory_size),
+    path,
+  }
+}
+
+#[cfg(not(target_os = "linux"))]
+#[tauri::command]
+pub(crate) fn resolve_game_wine_prefix(
+  _version_directory: Option<String>,
+  _game_id: Option<i64>,
+  _umu_game_id: Option<String>,
+  _per_game_prefix: Option<String>,
+) -> WinePrefixInfo {
+  WinePrefixInfo {
+    path: None,
+    exists: false,
+    is_prefix: false,
+    managed: false,
+    size_bytes: None,
+  }
+}
+
+/// True when `path` is a prefix GameVault manages, i.e. it lives inside the
+/// configured prefix base directory (or is exactly the per-game override).
+#[cfg(target_os = "linux")]
+fn is_managed_prefix_path(app: &tauri::AppHandle, path: &Path) -> bool {
+  prefix_base_dir(app)
+    .map(|base| path != base && path.starts_with(&base))
+    .unwrap_or(false)
+}
+
+/// Validates that a Wine/Proton prefix may be deleted: the path must be
+/// absolute, must be inside GameVault's prefix base directory (never the base
+/// itself) or exactly the per-game override, and must look like a prefix.
+#[cfg(target_os = "linux")]
+pub(crate) fn check_deletable_prefix(
+  base: Option<&Path>,
+  per_game_override: Option<&Path>,
+  target: &Path,
+) -> Result<(), String> {
+  if !target.is_absolute() {
+    return Err("Refusing to delete a relative path.".to_string());
+  }
+
+  let inside_base = base
+    .map(|base| target != base && target.starts_with(base))
+    .unwrap_or(false);
+  let is_override = per_game_override == Some(target);
+  if !inside_base && !is_override {
+    return Err(format!(
+      "Refusing to delete '{}': it is not managed by GameVault.",
+      target.display()
+    ));
+  }
+
+  if !is_wine_prefix_dir(target) {
+    return Err(format!(
+      "Refusing to delete '{}': it does not look like a Wine/Proton prefix.",
+      target.display()
+    ));
+  }
+
+  Ok(())
+}
+
+/// Deletes a Wine/Proton prefix. Only prefixes GameVault manages are accepted:
+/// the path must live inside the prefix base directory or be exactly the
+/// per-game override, and it must actually look like a Wine prefix.
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub(crate) fn delete_game_wine_prefix(
+  app: tauri::AppHandle,
+  path: String,
+  per_game_prefix: Option<String>,
+) -> Result<(), String> {
+  let target = PathBuf::from(path.trim());
+  let override_path = per_game_prefix
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty())
+    .map(PathBuf::from);
+  let base = prefix_base_dir(&app);
+
+  check_deletable_prefix(base.as_deref(), override_path.as_deref(), &target)?;
+
+  if !target.is_dir() {
+    return Ok(());
+  }
+
+  fs::remove_dir_all(&target)
+    .map_err(|error| format!("Failed to delete the Wine/Proton prefix: {error}"))
+}
+
+#[cfg(not(target_os = "linux"))]
+#[tauri::command]
+pub(crate) fn delete_game_wine_prefix(
+  _path: String,
+  _per_game_prefix: Option<String>,
+) -> Result<(), String> {
+  Err("Wine/Proton prefixes are only managed on Linux".to_string())
 }
 
 /// Spawn `umu-run <exe> [args]` and hand the child to the umu launch monitor.
@@ -620,6 +977,8 @@ pub(crate) fn resolve_wine_prefix(
 pub(crate) fn launch_with_umu(
   app: tauri::AppHandle,
   game_title: String,
+  game_version_directory: Option<String>,
+  game_id: Option<i64>,
   exe_path: &Path,
   launch_parameters: Option<&str>,
   umu_game_id: Option<&str>,
@@ -627,6 +986,7 @@ pub(crate) fn launch_with_umu(
   umu_proton_path: Option<&str>,
   umu_wine_prefix: Option<&str>,
   restore_on_exit: bool,
+  log: Option<Arc<crate::launch_log::LaunchLog>>,
 ) -> Result<(), String> {
   let umu_run = match find_umu_run() {
     Some(path) => path,
@@ -654,7 +1014,15 @@ pub(crate) fn launch_with_umu(
   if let Some(value) = umu_proton_path.map(str::trim).filter(|v| !v.is_empty()) {
     command.env("PROTONPATH", value);
   }
-  if let Some(prefix) = resolve_wine_prefix(&app, umu_wine_prefix, &game_title) {
+  if let Some(prefix) = resolve_wine_prefix(
+    &app,
+    &PrefixContext {
+      per_game_prefix: umu_wine_prefix,
+      version_directory: game_version_directory.as_deref(),
+      game_id,
+      umu_game_id,
+    },
+  ) {
     command.env("WINEPREFIX", &prefix);
   }
 
@@ -671,7 +1039,14 @@ pub(crate) fn launch_with_umu(
 
   match command.spawn() {
     Ok(child) => {
-      spawn_umu_launch_monitor(app, game_title, exe_path.to_path_buf(), child, restore_on_exit);
+      spawn_umu_launch_monitor(
+        app,
+        game_title,
+        exe_path.to_path_buf(),
+        child,
+        restore_on_exit,
+        log,
+      );
       Ok(())
     }
     Err(error) => {
@@ -692,6 +1067,7 @@ pub(crate) fn spawn_umu_launch_monitor(
   exe_path: PathBuf,
   mut child: Child,
   restore_on_exit: bool,
+  launch_log: Option<Arc<crate::launch_log::LaunchLog>>,
 ) {
   thread::spawn(move || {
     if restore_on_exit {
@@ -700,7 +1076,13 @@ pub(crate) fn spawn_umu_launch_monitor(
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-    let handle = spawn_umu_streamers(&app, Some(&game_title), stdout, stderr);
+    let handle = spawn_umu_streamers(
+      &app,
+      Some(&game_title),
+      stdout,
+      stderr,
+      launch_log.clone(),
+    );
 
     let start = Instant::now();
     let mut reported_running = false;
@@ -755,9 +1137,15 @@ pub(crate) fn spawn_umu_launch_monitor(
     };
 
     if !reported_running {
+      if let Some(launch_log) = launch_log.as_ref() {
+        launch_log.finish_failed(&app, exit_code);
+      }
       emit_umu_status(&app, Some(&game_title), "error", None, Some(message.clone()));
       emit_game_launch_failed(&app, game_title, exit_code, message);
     } else {
+      if let Some(launch_log) = launch_log.as_ref() {
+        launch_log.finish_success(&app, exit_code);
+      }
       emit_umu_status(&app, Some(&game_title), "exit", None, None);
     }
   });
@@ -797,8 +1185,7 @@ mod tests {
 
   #[cfg(target_os = "linux")]
   #[test]
-  fn maps_other_paths_to_z_drive() {
-    let home = Path::new("/home/yelo");
+  fn maps_other_paths_to_z_drive() {    let home = Path::new("/home/yelo");
     assert_eq!(
       to_windows_install_path_with_home("/media/data/game/Setup.exe", Some(home)),
       "Z:\\media\\data\\game\\Setup.exe"
@@ -808,5 +1195,92 @@ mod tests {
       to_windows_install_path_with_home("/home/other/game/Setup.exe", Some(home)),
       "Z:\\home\\other\\game\\Setup.exe"
     );
+  }
+
+  #[cfg(target_os = "linux")]
+  #[test]
+  fn derives_the_game_folder_name_from_the_install_tree() {
+    assert_eq!(
+      game_folder_name(Path::new(
+        "/games/GameVault/ReStory - Chill Electronics Repairs/Versions/1.0"
+      )),
+      Some("ReStory - Chill Electronics Repairs".to_string())
+    );
+    // Unknown layout: fall back to the folder name itself.
+    assert_eq!(
+      game_folder_name(Path::new("/games/SomeGame")),
+      Some("SomeGame".to_string())
+    );
+  }
+
+  #[cfg(target_os = "linux")]
+  #[test]
+  fn prefers_the_game_folder_then_legacy_prefixes() {
+    let base = Path::new("/prefixes");
+    let context = PrefixContext {
+      per_game_prefix: None,
+      version_directory: Some("/root/GameVault/Foo/Versions/1.0"),
+      game_id: Some(42),
+      umu_game_id: Some("umu-9000"),
+    };
+
+    let candidates = prefix_candidates(base, &context);
+    assert_eq!(candidates[0], base.join("Foo"));
+    assert_eq!(candidates[1], base.join("game-42"));
+    assert!(candidates
+      .iter()
+      .any(|path| path.ends_with("Games/umu/umu-9000")));
+    assert_eq!(
+      candidates
+        .iter()
+        .filter(|path| *path == &base.join("Foo"))
+        .count(),
+      1
+    );
+  }
+
+  #[cfg(target_os = "linux")]
+  #[test]
+  fn does_not_adopt_umus_shared_default_prefix() {
+    let context = PrefixContext {
+      per_game_prefix: None,
+      version_directory: Some("/root/GameVault/Foo/Versions/1.0"),
+      game_id: None,
+      umu_game_id: None,
+    };
+
+    assert_eq!(
+      prefix_candidates(Path::new("/prefixes"), &context),
+      vec![PathBuf::from("/prefixes/Foo")]
+    );
+  }
+
+  #[cfg(target_os = "linux")]
+  #[test]
+  fn guards_prefix_deletion() {
+    let base = std::env::temp_dir().join(format!("gv-test-base-{}", std::process::id()));
+    let prefix = base.join("Foo");
+    let outside = std::env::temp_dir().join(format!("gv-test-outside-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let _ = fs::remove_dir_all(&outside);
+    fs::create_dir_all(prefix.join("drive_c")).unwrap();
+    fs::create_dir_all(outside.join("drive_c")).unwrap();
+
+    // A prefix inside the base may be deleted.
+    assert!(check_deletable_prefix(Some(&base), None, &prefix).is_ok());
+    // The base directory itself may not.
+    assert!(check_deletable_prefix(Some(&base), None, &base).is_err());
+    // Anything outside the base needs to be the exact per-game override.
+    assert!(check_deletable_prefix(Some(&base), None, &outside).is_err());
+    assert!(check_deletable_prefix(Some(&base), Some(&outside), &outside).is_ok());
+    // Relative paths are always refused.
+    assert!(check_deletable_prefix(Some(&base), None, Path::new("Foo")).is_err());
+    // Folders without drive_c are not prefixes.
+    let not_a_prefix = base.join("NotAPrefix");
+    fs::create_dir_all(&not_a_prefix).unwrap();
+    assert!(check_deletable_prefix(Some(&base), None, &not_a_prefix).is_err());
+
+    let _ = fs::remove_dir_all(&base);
+    let _ = fs::remove_dir_all(&outside);
   }
 }

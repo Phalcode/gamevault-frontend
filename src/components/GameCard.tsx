@@ -331,6 +331,8 @@ const GameCard = memo(function GameCard({
 
         await invoke("launch_game", {
           gameTitle: localGame.metadata?.title || localGame.title || "Game",
+          gameId: game.id,
+          versionDirectory: installedInfo.versionDirectory,
           installationPath: installedInfo.installationDirectory,
           executableRelativePath: launchExe,
           launchParameters: launchParams || null,

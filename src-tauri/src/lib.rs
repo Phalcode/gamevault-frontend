@@ -4,6 +4,7 @@ mod util;
 mod downloads;
 mod extraction;
 mod installation;
+mod launch_log;
 mod games;
 mod fs_commands;
 mod time_tracker;
@@ -600,6 +601,8 @@ pub fn run() {
       settings::set_default_wine_prefix,
       settings::get_prerelease_notice_channel,
       settings::set_prerelease_notice_channel,
+      settings::get_always_show_launch_logs,
+      settings::set_always_show_launch_logs,
       rendering::get_rendering_diagnostics,
       rendering::get_webkit_settings,
       rendering::set_webkit_smooth_scrolling,
@@ -610,6 +613,15 @@ pub fn run() {
       umu::umu_status,
       umu::install_umu_launcher,
       umu::resolve_windows_install_path,
+      umu::resolve_game_wine_prefix,
+      umu::delete_game_wine_prefix,
+      umu::list_proton_builds,
+      launch_log::get_launch_log,
+      launch_log::list_launch_logs,
+      launch_log::open_launch_log_window,
+      launch_log::open_launch_log_folder,
+      launch_log::clear_launch_logs,
+      launch_log::read_launch_log_file,
       is_updater_enabled,
       check_for_app_update,
       download_and_install_app_update
