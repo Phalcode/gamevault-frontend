@@ -13,6 +13,7 @@ import { useServerStatus } from "@/hooks/useServerStatus";
 import { isTauriApp } from "@/utils/tauri";
 import { onGameUpdated } from "@/utils/gameUpdates";
 import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
+import { computeTaskbarIndicator } from "@/utils/taskbarIndicator";
 import { getRootPaths } from "@/utils/rootPaths";
 import {
   computeSpeedBps,
@@ -2695,6 +2696,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   // active downloads and drives the native indicator so the user can see
   // progress (and when something needs their attention) even when GameVault
   // is in the background.
+  //
+  // Only downloads that still have work to do count: cards are kept in the
+  // list after they finish (download, extraction and installation), so the
+  // finished ones must not keep reporting the last phase's 100%. When nothing
+  // is left, the indicator is cleared instead of being pinned at "done".
   useEffect(() => {
     if (!isTauriApp()) return;
 
@@ -2708,68 +2714,25 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const active = Object.values(downloads).filter(
+    // Synthetic cards (e.g. simulated downloads) never drive the indicator.
+    const usable = Object.values(downloads).filter(
       (d) => Number.isFinite(d.gameId) && d.gameId > 0,
     );
-    if (active.length === 0) {
+    const { status, progress } = computeTaskbarIndicator(usable);
+
+    if (status === "none") {
       lastTaskbarRef.current = null;
       void send("clear_taskbar_progress");
       return;
     }
 
-    const needsAction = active.some(
-      (d) =>
-        d.status === "error" ||
-        d.extractionStatus === "error" ||
-        d.extractionStatus === "needs-password" ||
-        d.extractionPasswordRequired ||
-        d.installationStatus === "error",
-    );
-    const paused = active.some((d) => d.status === "paused");
-
-    // Average progress across the currently-active phase of each download.
-    const progresses = active.map((d) => {
-      if (
-        d.extractionStatus === "extracting" &&
-        typeof d.extractionProgress === "number"
-      ) {
-        return d.extractionProgress;
-      }
-      if (
-        d.installationStatus === "copying" &&
-        typeof d.installationProgress === "number"
-      ) {
-        return d.installationProgress;
-      }
-      if (typeof d.progress === "number") return d.progress;
-      return 0;
-    });
-    const progress =
-      progresses.reduce((sum, p) => sum + p, 0) / progresses.length;
-
-    // Only invoke when the indicator state actually changes (round progress
-    // to whole percent to avoid spamming the native command).
-    const rounded = Math.round(progress);
-
-    const status: "error" | "paused" | "indeterminate" | "normal" = needsAction
-      ? "error"
-      : paused
-        ? "paused"
-        : rounded === 0 &&
-            active.some(
-              (d) =>
-                d.status === "downloading" ||
-                d.extractionStatus === "extracting" ||
-                d.installationStatus === "copying",
-            )
-          ? "indeterminate"
-          : "normal";
-
-    const key = `${status}:${rounded}`;
+    // Only invoke when the indicator state actually changes (progress is
+    // already rounded to whole percent to avoid spamming the native command).
+    const key = `${status}:${progress}`;
     if (lastTaskbarRef.current === key) return;
     lastTaskbarRef.current = key;
 
-    void send("set_taskbar_progress", { status, progress: rounded / 100 });
+    void send("set_taskbar_progress", { status, progress: progress / 100 });
   }, [downloads]);
 
   const value: DownloadContextValue = {

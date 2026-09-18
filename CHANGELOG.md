@@ -18,6 +18,7 @@
 - Fixed the Wayland startup crash on the Linux AppImage (`Could not create default EGL display: EGL_BAD_PARAMETER`) by preloading the host's `libwayland-client` through a patched AppImage `AppRun` wrapper. The `.deb` build already uses the system library and is unaffected.
 - Administrators can delete progress entries of other users
 - Added a native OS taskbar/dock download progress indicator for desktop builds (Windows taskbar, macOS dock, Linux launcher)
+- Fixed the Windows taskbar progress bar staying stuck at 100% after a download, extraction or installation had finished. It now disappears as soon as there is nothing left to do, instead of only disappearing when you delete the download.
 - Added an "Installed" badge to server game cards so already-installed games are easy to spot at a glance.
 - The download button on a game's page now collapses into a compact icon-only button when the game is already installed.
 - Downloads interrupted by the app quitting are now automatically resumed on the next launch; downloads you intentionally paused or cancelled stay paused.
