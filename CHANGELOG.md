@@ -63,6 +63,7 @@
 - Moved the Hardware Acceleration setting from the Developer Tools menu into Settings → Appearance (Linux desktop builds), where it now sits next to Smooth Scrolling.
 - Fixed the Linux AppImage failing to play sound effects and trailers with `GStreamer element appsink not found. Please install it.` (followed by `fakevideosink` and WebVTT encoder errors): the full GStreamer plugin set WebKitGTK needs — base, good and bad, including H.264/AAC decoding, MSE support and the WebVTT encoder — is now bundled into the AppImage, so no GStreamer packages have to be installed on the system.
 - Fixed the system information under Settings → About not matching the machine it runs on
+- [#36](https://github.com/Phalcode/gamevault-frontend/issues/36) Fixed disc images that only contain a UDF filesystem (e.g. UDF-only DVD/Blu-ray ISOs) failing to extract with an error. Disc images are now read by a combined ISO 9660 and UDF reader.
 
 ---
 

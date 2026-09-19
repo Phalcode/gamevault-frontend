@@ -119,7 +119,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.2.17",
- "iso9660_simple",
+ "isomage",
  "log",
  "reqwest 0.12.28",
  "semver",
@@ -401,12 +401,6 @@ name = "bit-vec"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
-
-[[package]]
-name = "bit_field"
-version = "0.10.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e4b40c7323adcfc0a41c4b88143ed58346ff65a288fc144329c5c45e05d70c6"
 
 [[package]]
 name = "bitflags"
@@ -2493,15 +2487,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "iso9660_simple"
-version = "0.2.7"
+name = "isomage"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24bb0456b675bf7afaa0071c16879703ba487431d68f7f6e3c70540100799e3d"
-dependencies = [
- "bitflags 2.13.1",
- "ucs2",
- "zerocopy",
-]
+checksum = "78e76f0ebdb7f589dafb6f6deb9dd4c341b108272af52a97185ba80510527fce"
 
 [[package]]
 name = "iterator-sorted"
@@ -5875,15 +5864,6 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
-
-[[package]]
-name = "ucs2"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df79298e11f316400c57ec268f3c2c29ac3c4d4777687955cd3d4f3a35ce7eba"
-dependencies = [
- "bit_field",
-]
 
 [[package]]
 name = "uds_windows"

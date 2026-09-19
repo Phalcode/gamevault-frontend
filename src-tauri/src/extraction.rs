@@ -249,75 +249,103 @@ fn extract_7z_archive(
   Ok(())
 }
 
-// ── ISO 9660 extraction support ──────────────────────────────────────────────
+// ── ISO 9660 / UDF optical image extraction support ──────────────────────────
 
-struct IsoFileDevice {
-  file: std::fs::File,
-}
+/// Byte offset of the volume recognition sequence in an optical image
+/// (sector 16 of 2048-byte sectors).
+const OPTICAL_IMAGE_VRS_OFFSET: u64 = 16 * 2048;
 
-impl iso9660_simple::Read for IsoFileDevice {
-  fn read(&mut self, position: usize, buffer: &mut [u8]) -> Option<()> {
-    use std::io::Seek;
-    if self
-      .file
-      .seek(std::io::SeekFrom::Start(position as u64))
-      .is_err()
-    {
-      return None;
-    }
-    self.file.read_exact(buffer).ok()
-  }
-}
+/// Volume recognition sequence identifiers of the optical filesystems we can
+/// read: ISO 9660 images carry a `CD001` descriptor, UDF images announce
+/// themselves with `NSR02`/`NSR03`, and hybrid images contain both.
+const OPTICAL_IMAGE_IDENTIFIERS: [&[u8; 5]; 7] = [
+  b"CD001", b"BEA01", b"NSR02", b"NSR03", b"TEA01", b"BOOT2", b"CDW02",
+];
 
-fn is_iso_archive(path: &PathBuf) -> bool {
+fn is_optical_image(path: &PathBuf) -> bool {
   use std::io::{Read, Seek};
   let mut file = match std::fs::File::open(path) {
     Ok(f) => f,
     Err(_) => return false,
   };
-  if file.seek(std::io::SeekFrom::Start(0x8001)).is_err() {
+  if file
+    .seek(std::io::SeekFrom::Start(OPTICAL_IMAGE_VRS_OFFSET))
+    .is_err()
+  {
     return false;
   }
-  let mut sig = [0u8; 5];
-  if file.read_exact(&mut sig).is_err() {
+
+  // Read the two descriptor sectors (16 and 17) so the `CD001` primary volume
+  // descriptor of ISO 9660 images and the UDF volume recognition sequence are
+  // both covered. The `CD001` signature sits one byte into its sector.
+  let mut buffer = [0u8; 4096];
+  if file.read_exact(&mut buffer).is_err() {
     return false;
   }
-  &sig == b"CD001"
+
+  let has_identifier = |offset: usize, identifier: &[u8; 5]| {
+    buffer[offset..offset + identifier.len()] == *identifier
+  };
+
+  OPTICAL_IMAGE_IDENTIFIERS.iter().any(|identifier| {
+    has_identifier(0, identifier)
+      || has_identifier(1, identifier)
+      || has_identifier(2048, identifier)
+  })
 }
 
-fn count_iso_entries(iso: &mut iso9660_simple::ISO9660, lba: usize) -> u64 {
+/// Accepts plain file and directory names taken from an image's directory
+/// records. Anything able to escape the destination (separators, `..`, NUL
+/// bytes) is rejected so an adversarial image cannot write outside the
+/// extraction folder.
+fn optical_image_entry_name(name: &str) -> Option<&str> {
+  if name.is_empty()
+    || name == "."
+    || name == ".."
+    || name.contains('/')
+    || name.contains('\\')
+    || name.contains('\0')
+  {
+    return None;
+  }
+  Some(name)
+}
+
+fn count_optical_image_entries(node: &isomage::TreeNode) -> u64 {
   let mut count = 0u64;
-  let entries: Vec<_> = iso.read_directory(lba).collect();
-  for entry in &entries {
-    if entry.name == "." || entry.name == ".." {
-      continue;
-    }
+  for child in &node.children {
     count += 1;
-    if entry.is_folder() {
-      count += count_iso_entries(iso, entry.record.lba.get() as usize);
+    if child.is_directory {
+      count += count_optical_image_entries(child);
     }
   }
   count
 }
 
-fn extract_iso_directory(
-  iso: &mut iso9660_simple::ISO9660,
-  lba: usize,
+fn extract_optical_image_directory(
+  image: &mut std::fs::File,
+  node: &isomage::TreeNode,
   dest: &Path,
   processed: &mut u64,
   total: u64,
   app: &tauri::AppHandle,
   game_id: i64,
 ) -> Result<(), (bool, String)> {
-  let entries: Vec<_> = iso.read_directory(lba).collect();
-  for entry in &entries {
-    if entry.name == "." || entry.name == ".." {
-      continue;
-    }
+  for child in &node.children {
+    let name = match optical_image_entry_name(&child.name) {
+      Some(name) => name,
+      None => {
+        log::warn!(
+          "Skipping optical image entry with an unsafe name: {:?}",
+          child.name
+        );
+        continue;
+      }
+    };
 
-    let dest_path = dest.join(&entry.name);
+    let dest_path = dest.join(name);
 
-    if entry.is_folder() {
+    if child.is_directory {
       fs::create_dir_all(&dest_path)
         .map_err(|e| (false, format!("Failed to create directory: {e}")))?;
 
@@ -328,13 +356,13 @@ fn extract_iso_directory(
         "extracting",
         *processed,
         Some(total),
-        Some(entry.name.clone()),
+        Some(name.to_string()),
         None,
       );
 
-      extract_iso_directory(
-        iso,
-        entry.record.lba.get() as usize,
+      extract_optical_image_directory(
+        image,
+        child,
         &dest_path,
         processed,
         total,
@@ -347,31 +375,17 @@ fn extract_iso_directory(
           .map_err(|e| (false, format!("Failed to create parent directory: {e}")))?;
       }
 
-      let file_size = entry.file_size() as usize;
       let mut output = std::fs::File::create(&dest_path)
         .map_err(|e| (false, format!("Failed to create output file: {e}")))?;
 
-      let mut offset = 0usize;
-      let mut buffer = vec![0u8; 8192];
-
-      while offset < file_size {
-        let remaining = file_size - offset;
-        let to_read = std::cmp::min(remaining, buffer.len());
-        let buf_slice = &mut buffer[..to_read];
-
-        if iso.read_file(entry, offset, buf_slice).is_none() {
-          return Err((
-            false,
-            format!("Failed to read ISO file data at offset {}", offset),
-          ));
-        }
-
-        output
-          .write_all(buf_slice)
-          .map_err(|e| (false, format!("Failed to write output file: {e}")))?;
-
-        offset += to_read;
-      }
+      // Streams the file's bytes straight from the image in fixed-size chunks,
+      // so multi-gigabyte files never have to be held in memory.
+      isomage::cat_node(image, child, &mut output).map_err(|e| {
+        (
+          false,
+          format!("Failed to extract {name:?} from the optical image: {e}"),
+        )
+      })?;
 
       *processed += 1;
       emit_extract_progress(
@@ -380,7 +394,7 @@ fn extract_iso_directory(
         "extracting",
         *processed,
         Some(total),
-        Some(entry.name.clone()),
+        Some(name.to_string()),
         None,
       );
     }
@@ -388,28 +402,33 @@ fn extract_iso_directory(
   Ok(())
 }
 
-fn extract_iso_archive(
+fn extract_optical_image(
   app: &tauri::AppHandle,
   game_id: i64,
   archive: &PathBuf,
   destination: &PathBuf,
 ) -> Result<(), (bool, String)> {
-  let file = std::fs::File::open(archive)
-    .map_err(|e| (false, format!("Failed to open ISO archive: {e}")))?;
+  let mut image = std::fs::File::open(archive)
+    .map_err(|e| (false, format!("Failed to open optical image: {e}")))?;
 
-  let device = IsoFileDevice { file };
-  let mut iso = iso9660_simple::ISO9660::from_device(device)
-    .ok_or_else(|| (false, "Failed to parse ISO 9660 filesystem".to_string()))?;
+  // Reads ISO 9660 (including Joliet and Rock Ridge) and falls back to UDF, so
+  // UDF-only disc images work alongside classic and hybrid ones.
+  let image_name = archive.to_string_lossy().to_string();
+  let root = isomage::detect_and_parse_filesystem(&mut image, &image_name).map_err(|e| {
+    (
+      false,
+      format!("Failed to read the optical image's filesystem: {e}"),
+    )
+  })?;
 
-  let root_lba = iso.root().lba.get() as usize;
-  let total = count_iso_entries(&mut iso, root_lba);
+  let total = count_optical_image_entries(&root);
 
   emit_extract_progress(app, game_id, "extracting", 0, Some(total), None, None);
 
   let mut processed = 0u64;
-  extract_iso_directory(
-    &mut iso,
-    root_lba,
+  extract_optical_image_directory(
+    &mut image,
+    &root,
     destination,
     &mut processed,
     total,
@@ -717,8 +736,8 @@ fn run_extraction(
     };
   }
 
-  if is_iso_archive(&archive) {
-    return match extract_iso_archive(&app, game_id, &archive, &destination) {
+  if is_optical_image(&archive) {
+    return match extract_optical_image(&app, game_id, &archive, &destination) {
       Ok(_) => Ok(ExtractArchiveResponse {
         success: true,
         needs_password: false,
@@ -752,7 +771,7 @@ fn run_extraction(
       success: false,
       needs_password: false,
       message: Some(
-        "Unsupported archive format for built-in extractor. Supported formats include ZIP, RAR, 7z, ISO, TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ2, TAR.XZ/TXZ, TAR.ZST/TZST, and single-file GZ/BZ2/XZ/ZST."
+        "Unsupported archive format for built-in extractor. Supported formats include ZIP, RAR, 7z, ISO 9660/UDF disc images, TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ2, TAR.XZ/TXZ, TAR.ZST/TZST, and single-file GZ/BZ2/XZ/ZST."
           .to_string(),
       ),
     });
