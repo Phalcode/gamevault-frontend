@@ -31,6 +31,107 @@ pub(crate) fn tracker_stop_tx() -> &'static Mutex<Option<watch::Sender<bool>>> {
   TRACKER_STOP_TX.get_or_init(|| Mutex::new(None))
 }
 
+/// Live counters for the native time tracker, surfaced in the diagnostics dump.
+///
+/// The tracker credits one minute per matched tick, so `lost_ticks` and the
+/// per-game ledgers below are the evidence trail for playtime that ended up
+/// lower than what was actually played.
+#[derive(Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TrackerRuntimeStats {
+  pub running: bool,
+  pub started_at: Option<u64>,
+  pub tick_count: u64,
+  /// Seconds between expected ticks (the tracker interval).
+  pub tick_interval_secs: u64,
+  /// Ticks the interval expected but the loop did not run (sleep, freeze, starvation).
+  pub lost_ticks: u64,
+  /// Ticks that fired back-to-back to catch up after a stall.
+  pub catch_up_ticks: u64,
+  pub last_tick_at: Option<u64>,
+  pub last_tick_gap_secs: Option<u64>,
+  pub last_tick_duration_ms: Option<u64>,
+  pub last_tick_summary: Option<String>,
+  pub last_error: Option<String>,
+  pub consecutive_failures: u64,
+  /// Number of increments the server rejected with 401/403 (expired token).
+  pub auth_rejected_count: u64,
+  pub stop_reason: Option<String>,
+  pub log_path: Option<String>,
+}
+
+/// Per-game playtime accounting: what the wall clock suggested versus what the
+/// server actually credited, plus the reason for every lost tick.
+#[derive(Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GamePlayLedger {
+  pub game_id: i64,
+  pub game_title: String,
+  /// Currently matched to a running process.
+  pub matched: bool,
+  /// Seconds since the last time this game was matched.
+  pub first_matched_at: Option<u64>,
+  pub last_matched_at: Option<u64>,
+  pub matched_ticks: u64,
+  /// Increments the server accepted.
+  pub credited_ticks: u64,
+  /// Increments that failed but were written to the offline file.
+  pub offline_ticks: u64,
+  /// Minutes that were never recorded anywhere.
+  pub lost_ticks: u64,
+  /// Lost ticks attributed to a tick gap (sleep/resume, freeze, starvation).
+  pub dropped_ticks: u64,
+  /// Matches lost although the game was played before (launcher exit, re-exec…).
+  pub match_flaps: u64,
+  pub credited_minutes: u64,
+  pub offline_minutes: u64,
+  pub observed_seconds: u64,
+  /// Last `minutes_played` the server reported for this game.
+  pub last_server_minutes: Option<i64>,
+  /// Why the game was not matched/credited on the last tick.
+  pub last_skip_reason: Option<String>,
+}
+
+static TRACKER_STATS: OnceLock<Mutex<TrackerRuntimeStats>> = OnceLock::new();
+static TRACKER_LEDGER: OnceLock<Mutex<HashMap<i64, GamePlayLedger>>> = OnceLock::new();
+
+pub(crate) fn tracker_stats() -> &'static Mutex<TrackerRuntimeStats> {
+  TRACKER_STATS.get_or_init(|| Mutex::new(TrackerRuntimeStats::default()))
+}
+
+pub(crate) fn tracker_ledger() -> &'static Mutex<HashMap<i64, GamePlayLedger>> {
+  TRACKER_LEDGER.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Clears the playtime ledger and resets counters for a new tracker session.
+pub(crate) fn reset_tracker_stats(started_at: u64, tick_interval_secs: u64) {
+  if let Ok(mut stats) = tracker_stats().lock() {
+    let log_path = stats.log_path.clone();
+    *stats = TrackerRuntimeStats {
+      running: true,
+      started_at: Some(started_at),
+      tick_interval_secs,
+      log_path,
+      ..TrackerRuntimeStats::default()
+    };
+  }
+  if let Ok(mut ledger) = tracker_ledger().lock() {
+    ledger.clear();
+  }
+}
+
+/// Snapshot of the ledger, sorted by game id for stable output.
+pub(crate) fn tracker_ledger_snapshot() -> Vec<GamePlayLedger> {
+  tracker_ledger()
+    .lock()
+    .map(|ledger| {
+      let mut games: Vec<GamePlayLedger> = ledger.values().cloned().collect();
+      games.sort_by_key(|game| game.game_id);
+      games
+    })
+    .unwrap_or_default()
+}
+
 /// Latest known state of an extraction, per game.
 ///
 /// Extraction runs on a detached blocking task that keeps going when the
