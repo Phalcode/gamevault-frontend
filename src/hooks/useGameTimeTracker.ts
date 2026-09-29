@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { isTauriApp } from "@/utils/tauri";
@@ -24,9 +24,42 @@ interface OfflineTimeFile {
   userId: number;
   gameId: number;
   accumulatedMinutes: number;
+  /** Unix seconds of the last write; 0 for files from older builds. */
+  updatedAt: number;
 }
 
-/** Mirrors a frontend lifecycle line into the native tracker log. */
+/** Payload of the native `tracker-auth-expired` event. */
+interface TrackerAuthExpiredPayload {
+  at: number;
+  authRejectedCount: number;
+  pendingOfflineMinutes: number;
+  retryInSecs: number;
+}
+
+/** Only the part of the native tracker status this hook needs. */
+interface TrackerStatusSummary {
+  pendingOfflineMinutes: number;
+}
+
+const AUTH_EXPIRED_EVENT = "tracker-auth-expired";
+
+/**
+ * How often the hook refreshes the session and hands it to the native tracker.
+ *
+ * Must stay well below the server's access-token lifetime (a few minutes),
+ * otherwise the tracker always runs one tick on a token that just expired.
+ */
+const KEEP_ALIVE_MS = 60 * 1000;
+/** How often pending offline playtime is retried in the background. */
+const PENDING_RETRY_MS = 5 * 60 * 1000;
+
+/**
+ * Mirrors a frontend lifecycle line to the console.
+ *
+ * The native tracker log is disabled (`tracker_log::ENABLED` in
+ * `src-tauri/src/tracker_log.rs`), so nothing is sent over IPC. Re-add the
+ * `tracker_log_line` invoke here when the native log is switched back on.
+ */
 async function logTrackerLine(
   level: "info" | "warn" | "error",
   category: string,
@@ -38,12 +71,6 @@ async function logTrackerLine(
     console.warn(`[tracker:${category}]`, message);
   } else {
     console.debug(`[tracker:${category}]`, message);
-  }
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("tracker_log_line", { level, category, message });
-  } catch {
-    // Diagnostics must never break the tracker itself.
   }
 }
 
@@ -90,6 +117,7 @@ async function reconcileOfflineTime(options: {
   let files = 0;
   let creditedMinutes = 0;
   let pendingMinutes = 0;
+  let oldestFileMinutes = 0;
 
   for (const root of rootPaths) {
     const offlineFiles =
@@ -99,6 +127,14 @@ async function reconcileOfflineTime(options: {
 
     for (const file of offlineFiles) {
       files += 1;
+
+      if (file.updatedAt) {
+        const ageMinutes = Math.max(
+          0,
+          Math.round(Date.now() / 1000 - file.updatedAt) / 60,
+        );
+        oldestFileMinutes = Math.max(oldestFileMinutes, Math.round(ageMinutes));
+      }
 
       if (!file.accumulatedMinutes || file.accumulatedMinutes <= 0) {
         await invokeTracker("delete_offline_time_file", { path: file.path });
@@ -111,6 +147,7 @@ async function reconcileOfflineTime(options: {
         userId: file.userId,
         gameId: file.gameId,
         minutes: file.accumulatedMinutes,
+        reason: options.reason,
       });
 
       if (success) {
@@ -122,19 +159,32 @@ async function reconcileOfflineTime(options: {
     }
   }
 
+  const age = oldestFileMinutes > 0 ? `, oldest file ${oldestFileMinutes} min old` : "";
   await logTrackerLine(
     pendingMinutes > 0 ? "warn" : "info",
     "offline",
-    `${options.reason}: ${files} offline file(s), credited ${creditedMinutes} min, ${pendingMinutes} min kept for the next attempt`,
+    `${options.reason}: ${files} offline file(s), credited ${creditedMinutes} min, ${pendingMinutes} min kept for the next attempt${age}`,
   );
 }
 
 export function useGameTimeTracker() {
-  const { serverUrl, user, auth } = useAuth();
+  const { serverUrl, user, auth, getAccessToken } = useAuth();
   const { onReconnect } = useOnlineStatus();
   const startedRef = useRef<{ serverUrl: string; userId: number } | null>(null);
   const syncInFlightRef = useRef(false);
   const initialSyncDoneRef = useRef(false);
+  /** Token last handed to the native tracker (avoids duplicate pushes). */
+  const pushedTokenRef = useRef<string | null>(null);
+
+  /**
+   * Hands a (possibly refreshed) token to the native tracker — but only when it
+   * actually changed, so the log does not fill up with duplicate auth lines.
+   */
+  const pushToken = useCallback((token: string) => {
+    if (pushedTokenRef.current === token) return;
+    pushedTokenRef.current = token;
+    void invokeTracker("update_tracker_auth", { accessToken: token });
+  }, []);
 
   // Start / restart tracker as soon as credentials are available. We key the
   // "started" state on server+user so a token refresh (handled by
@@ -206,6 +256,7 @@ export function useGameTimeTracker() {
     }
 
     startedRef.current = { serverUrl, userId };
+    pushedTokenRef.current = accessToken;
     void invokeTracker("start_game_time_tracker", {
       serverUrl,
       userId,
@@ -230,13 +281,8 @@ export function useGameTimeTracker() {
     if (!isTauriApp() || !startedRef.current) return;
     const accessToken = auth?.access_token;
     if (!accessToken) return;
-
-    void invokeTracker("update_tracker_auth", { accessToken }).then((result) => {
-      if (result !== null) {
-        void logTrackerLine("info", "lifecycle", "auth token refreshed — tracker kept running");
-      }
-    });
-  }, [auth?.access_token]);
+    pushToken(accessToken);
+  }, [auth?.access_token, pushToken]);
 
   // Sync any lingering offline time on startup (handles case where user
   // went offline, closed the app, then restarted while online)
@@ -274,6 +320,152 @@ export function useGameTimeTracker() {
 
     return unregister;
   }, [onReconnect, serverUrl, auth?.access_token]);
+
+  // The native tracker tells us when the server rejects its session. Without
+  // this, the tracker kept using an expired token for as long as the UI made
+  // no authenticated request (an hour of playtime ended up offline).
+  useEffect(() => {
+    if (!isTauriApp()) return;
+
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+
+    void (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        const stop = await listen<TrackerAuthExpiredPayload>(
+          AUTH_EXPIRED_EVENT,
+          async (event) => {
+            const { authRejectedCount, pendingOfflineMinutes, retryInSecs } =
+              event.payload;
+            await logTrackerLine(
+              "warn",
+              "auth",
+              `server rejected the session (${authRejectedCount} rejection(s), ${pendingOfflineMinutes} min stored offline, next retry in ${retryInSecs}s) — requesting a fresh session`,
+            );
+
+            // Refreshes the token when it is near expiry (single-flight).
+            const token = await getAccessToken();
+            if (!token) {
+              await logTrackerLine(
+                "error",
+                "auth",
+                "no fresh session available — playtime keeps being stored offline",
+              );
+              return;
+            }
+
+            pushToken(token);
+
+            if (syncInFlightRef.current) return;
+            syncInFlightRef.current = true;
+            try {
+              await reconcileOfflineTime({
+                serverUrl,
+                accessToken: token,
+                reason: "auth-refresh",
+              });
+            } finally {
+              syncInFlightRef.current = false;
+            }
+          },
+        );
+
+        if (disposed) {
+          stop();
+        } else {
+          unlisten = stop;
+        }
+      } catch (error) {
+        await logTrackerLine(
+          "error",
+          "auth",
+          `could not subscribe to ${AUTH_EXPIRED_EVENT}: ${String(error)}`,
+        );
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [getAccessToken, pushToken, serverUrl]);
+
+  // Keep the native tracker's session copy fresh. Token refresh is otherwise
+  // lazy (nothing asks for a new token while the UI sits idle), and a token
+  // that is only refreshed at its expiry moment is always rejected once before
+  // it lands — so this refreshes well ahead of the deadline.
+  useEffect(() => {
+    if (!isTauriApp()) return;
+
+    const id = window.setInterval(() => {
+      if (!startedRef.current) return;
+      void getAccessToken().then((token) => {
+        if (token) {
+          pushToken(token);
+        }
+      });
+    }, KEEP_ALIVE_MS);
+
+    return () => window.clearInterval(id);
+  }, [getAccessToken, pushToken]);
+
+  // Retry playtime that is waiting offline, without needing an app restart.
+  useEffect(() => {
+    if (!isTauriApp()) return;
+
+    const id = window.setInterval(async () => {
+      if (syncInFlightRef.current) return;
+
+      const status = await invokeTracker<TrackerStatusSummary>("get_tracker_status");
+      if (!status || status.pendingOfflineMinutes <= 0) return;
+
+      const token = await getAccessToken();
+      if (!token) return;
+      pushToken(token);
+
+      syncInFlightRef.current = true;
+      try {
+        await reconcileOfflineTime({
+          serverUrl,
+          accessToken: token,
+          reason: "periodic-retry",
+        });
+      } finally {
+        syncInFlightRef.current = false;
+      }
+    }, PENDING_RETRY_MS);
+
+    return () => window.clearInterval(id);
+  }, [getAccessToken, pushToken, serverUrl]);
+
+  // The browser reporting "online" is the earliest signal that the server is
+  // reachable again — replay immediately instead of waiting for the poller.
+  useEffect(() => {
+    if (!isTauriApp()) return;
+
+    const handleOnline = async () => {
+      if (syncInFlightRef.current) return;
+
+      const token = await getAccessToken();
+      if (!token) return;
+      pushToken(token);
+
+      syncInFlightRef.current = true;
+      try {
+        await reconcileOfflineTime({
+          serverUrl,
+          accessToken: token,
+          reason: "browser-online",
+        });
+      } finally {
+        syncInFlightRef.current = false;
+      }
+    };
+
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, [getAccessToken, pushToken, serverUrl]);
 
   // Record window visibility and connectivity next to the tracker ticks, so a
   // sleep/resume or an offline window lines up with the tick gaps in the log.

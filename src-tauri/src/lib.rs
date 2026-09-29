@@ -462,10 +462,10 @@ pub fn run() {
         )?;
       }
 
-      // ── Time tracker diagnostics log (always on, also in release) ──────
-      // Records every tracker tick, match transition and credit outcome so a
-      // playtime that ends up lower than what was actually played can be
-      // traced from the log.
+      // ── Time tracker diagnostics log ───────────────────────────────────
+      // Records every tracker tick, match transition and credit outcome.
+      // Disabled for now via `tracker_log::ENABLED`; the tracker keeps its
+      // counters in memory either way.
       tracker_log::init(app.handle());
 
       // ── System tray with Show / Quit menu ──────────────────────────────

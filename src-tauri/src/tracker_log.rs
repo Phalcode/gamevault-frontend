@@ -32,6 +32,15 @@ const MAX_LOG_FILES: usize = 10;
 /// Active log file name inside the tracker log directory.
 const ACTIVE_FILE_NAME: &str = "tracker.log";
 
+/// Master switch for the always-on tracker log.
+///
+/// While this is `false`, no file is written and no line is recorded: the
+/// tracker still keeps its counters and the per-game playtime ledger in memory,
+/// but nothing is persisted. Flip it back to `true` (and restore the hook's
+/// `tracker_log_line` call in `useGameTimeTracker.ts`) to record the full
+/// tick-by-tick trace again for diagnostics.
+pub(crate) const ENABLED: bool = false;
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackerLogLine {
@@ -76,6 +85,10 @@ pub(crate) fn log_directory(app: &AppHandle) -> Option<PathBuf> {
 
 /// Starts (or restarts) the tracker log. Safe to call more than once.
 pub(crate) fn init(app: &AppHandle) {
+  if !ENABLED {
+    return;
+  }
+
   let Some(dir) = log_directory(app) else {
     return;
   };
@@ -132,6 +145,10 @@ pub(crate) fn log_path() -> Option<String> {
 
 /// Appends one line to the in-memory tail and the log file.
 pub(crate) fn push(level: &str, category: &str, text: &str) {
+  if !ENABLED {
+    return;
+  }
+
   match level {
     "error" => log::error!("[tracker:{category}] {text}"),
     "warn" => log::warn!("[tracker:{category}] {text}"),

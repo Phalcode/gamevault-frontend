@@ -1,17 +1,21 @@
+use crate::events::InstalledGameInfo;
 use crate::games::{collect_launch_candidates, list_installed_games_blocking};
 use crate::settings::load_settings;
 use crate::state::{
-  reset_tracker_stats, tracker_config, tracker_ledger, tracker_ledger_snapshot, tracker_stats,
-  tracker_stop_tx, GamePlayLedger, TrackerConfig, TrackerRuntimeStats,
+  pending_offline_minutes, reset_tracker_stats, tracker_config, tracker_ledger,
+  tracker_ledger_snapshot, tracker_stats, tracker_stop_tx, GamePlayLedger, TrackerConfig,
+  TrackerRuntimeStats,
 };
 use crate::tracker_log;
 use crate::util::{is_ignored_executable, paths_match};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+use tauri::Emitter;
 use tokio::sync::watch;
 
 /// Seconds between tracker ticks. One matched tick credits exactly one minute,
@@ -19,6 +23,59 @@ use tokio::sync::watch;
 const TICK_INTERVAL_SECS: u64 = 60;
 /// A tick that fires earlier than this is a catch-up burst after a stall.
 const CATCH_UP_TOLERANCE_SECS: u64 = 5;
+/// Backoff after repeated session rejections: retry after 1, 2, 5, then 15 min.
+const AUTH_BACKOFF_SECS: [u64; 4] = [60, 120, 300, 900];
+/// Ticks a game may be missing before the match counts as lost. Launchers that
+/// hand the game to a new process would otherwise lose a minute per restart.
+const MATCH_GRACE_TICKS: u64 = 2;
+/// How long a scanned candidate list is reused before walking the folders again.
+const CANDIDATE_CACHE_TTL_SECS: u64 = 600;
+/// At most one `tracker-auth-expired` event per minute.
+const AUTH_EVENT_THROTTLE_MS: u64 = 60_000;
+/// Event telling the frontend that the tracker's session was rejected.
+const AUTH_EXPIRED_EVENT: &str = "tracker-auth-expired";
+
+/// Event payload for [`AUTH_EXPIRED_EVENT`].
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TrackerAuthExpiredEvent {
+  pub at: u64,
+  pub auth_rejected_count: u64,
+  pub pending_offline_minutes: u64,
+  pub retry_in_secs: u64,
+}
+
+/// A previously scanned candidate list, reused while the folder is unchanged.
+#[derive(Clone)]
+struct CachedCandidates {
+  scan_dir: PathBuf,
+  dir_modified_ms: u64,
+  scanned_at_ms: u64,
+  candidates: Vec<PathBuf>,
+}
+
+static CANDIDATE_CACHE: OnceLock<Mutex<HashMap<i64, CachedCandidates>>> = OnceLock::new();
+
+fn candidate_cache() -> &'static Mutex<HashMap<i64, CachedCandidates>> {
+  CANDIDATE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn dir_modified_ms(path: &Path) -> u64 {
+  fs::metadata(path)
+    .and_then(|metadata| metadata.modified())
+    .ok()
+    .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+    .map(|duration| duration.as_millis() as u64)
+    .unwrap_or(0)
+}
+
+fn is_shortcut(path: &Path) -> bool {
+  path
+    .extension()
+    .and_then(|ext| ext.to_str())
+    .map(|ext| ext.eq_ignore_ascii_case("lnk"))
+    .unwrap_or(false)
+}
 
 #[tauri::command]
 pub(crate) fn start_game_time_tracker(
@@ -132,6 +189,25 @@ pub(crate) fn update_tracker_auth(access_token: String) -> Result<(), String> {
       updated = true;
     }
   }
+
+  // A fresh token ends the rejection streak: retry immediately instead of
+  // waiting out the backoff.
+  let cleared_backoff = if let Ok(mut stats) = tracker_stats().lock() {
+    let was_backing_off = stats.auth_backoff_until.is_some();
+    stats.auth_backoff_until = None;
+    stats.auth_streak = 0;
+    was_backing_off
+  } else {
+    false
+  };
+  if cleared_backoff {
+    tracker_log::push(
+      "info",
+      "http",
+      "auth_backoff_cleared: fresh session token arrived, resuming requests",
+    );
+  }
+
   tracker_log::push_kv(
     "info",
     "lifecycle",
@@ -167,6 +243,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
   let mut in_catch_up_burst = false;
   let mut logged_skips: HashMap<i64, String> = HashMap::new();
   let mut logged_candidates: HashMap<i64, usize> = HashMap::new();
+  let mut logged_backoff_until: Option<u64> = None;
 
   loop {
     tokio::select! {
@@ -266,7 +343,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     }
 
     // ── Library scan ───────────────────────────────────────────────────────
-    let scan_start = Instant::now();
+    let library_start = Instant::now();
     let mut installed = Vec::new();
     for path in &config.download_paths {
       match list_installed_games_blocking(path.clone()) {
@@ -294,7 +371,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
         ),
       }
     }
-    let scan_ms = scan_start.elapsed().as_millis() as u64;
+    let library_ms = library_start.elapsed().as_millis() as u64;
 
     if installed.is_empty() {
       mark_all_unmatched("no_installed_games");
@@ -305,7 +382,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
           ("event", "no_installed_games".to_string()),
           ("tick", tick_number.to_string()),
           ("roots", config.download_paths.len().to_string()),
-          ("scan_ms", scan_ms.to_string()),
+          ("library_ms", library_ms.to_string()),
         ],
       );
       continue;
@@ -313,9 +390,12 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
 
     // ── Executable candidates per installed game ───────────────────────────
     let ignored = load_settings(&app).ignored_executables;
+    let candidates_start = Instant::now();
     let mut game_exe_map: HashMap<i64, Vec<PathBuf>> = HashMap::new();
     let mut game_titles: HashMap<i64, String> = HashMap::new();
     let mut skips: HashMap<i64, SkipReason> = HashMap::new();
+    let mut cache_hits = 0usize;
+    let mut cache_misses = 0usize;
 
     for game in &installed {
       game_titles.insert(game.game_id, game.game_title.clone());
@@ -342,39 +422,87 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
         continue;
       }
 
+      // Walking a game folder is expensive (large trees) and used to run on
+      // every tick for every game. Reuse the last result while the folder is
+      // unchanged and the cache is still fresh.
+      let dir_modified = dir_modified_ms(&scan_dir);
+      let cached = candidate_cache()
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(&game.game_id).cloned());
+      let mut scan_failed = false;
+      let cache_hit = matches!(
+        cached.as_ref(),
+        Some(entry)
+          if entry.scan_dir == scan_dir
+            && entry.dir_modified_ms == dir_modified
+            && now_ms.saturating_sub(entry.scanned_at_ms) < CANDIDATE_CACHE_TTL_SECS * 1000
+      );
+      let scanned: Vec<PathBuf> = if cache_hit {
+        cache_hits += 1;
+        cached.map(|entry| entry.candidates).unwrap_or_default()
+      } else {
+        cache_misses += 1;
+        let mut rel_candidates = Vec::new();
+        if collect_launch_candidates(&scan_dir, &scan_dir, &mut rel_candidates).is_err() {
+          scan_failed = true;
+        }
+        let scanned: Vec<PathBuf> = rel_candidates
+          .iter()
+          .map(|rel| scan_dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR)))
+          .collect();
+        if let Ok(mut cache) = candidate_cache().lock() {
+          cache.insert(
+            game.game_id,
+            CachedCandidates {
+              scan_dir: scan_dir.clone(),
+              dir_modified_ms: dir_modified,
+              scanned_at_ms: now_ms,
+              candidates: scanned.clone(),
+            },
+          );
+        }
+        scanned
+      };
+
       // Always include the exact launcher the user runs (from the per-game
-      // config), then any executables found by scanning the install dir.
+      // config), then the scanned executables, de-duplicated.
+      let found = scanned.len();
       let mut abs_paths: Vec<PathBuf> = Vec::new();
+      let mut seen: HashSet<String> = HashSet::new();
       let configured_launcher =
         read_configured_launch_executable(Path::new(&game.version_directory));
       if let Some(rel_exe) = configured_launcher.clone() {
         let abs = scan_dir.join(rel_exe);
-        if abs.exists() && !is_ignored_executable(&abs, &ignored) {
+        if abs.exists() && !is_ignored_executable(&abs, &ignored) && !is_shortcut(&abs) {
+          seen.insert(abs.to_string_lossy().to_ascii_lowercase());
           abs_paths.push(abs);
         }
       }
 
-      let mut candidates = Vec::new();
-      let mut scan_failed = false;
-      if collect_launch_candidates(&scan_dir, &scan_dir, &mut candidates).is_err() {
-        scan_failed = true;
-      }
-      let found = candidates.len();
       let mut ignored_count = 0usize;
-      for rel in candidates {
-        let abs = scan_dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+      for abs in scanned {
+        // A shortcut is never the process that runs the game.
+        if is_shortcut(&abs) {
+          continue;
+        }
         if is_ignored_executable(&abs, &ignored) {
           ignored_count += 1;
           continue;
         }
-        abs_paths.push(abs);
+        let key = abs.to_string_lossy().to_ascii_lowercase();
+        if seen.insert(key) {
+          abs_paths.push(abs);
+        }
       }
 
       if abs_paths.is_empty() {
         let reason = if scan_failed {
           format!("launch_candidate_scan_failed in {}", scan_dir.to_string_lossy())
-        } else if found > 0 && ignored_count == found {
-          format!("all_candidates_ignored ({found} ignored by the ignore list)")
+        } else if found > 0 && ignored_count > 0 {
+          format!(
+            "all_candidates_ignored ({found} candidates, {ignored_count} ignored by the ignore list)"
+          )
         } else if configured_launcher.is_some() {
           "no_exe_candidates (configured launch executable is missing)".to_string()
         } else {
@@ -410,6 +538,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
             ("game", game.game_id.to_string()),
             ("title", game.game_title.clone()),
             ("count", abs_paths.len().to_string()),
+            ("cache", if cache_hit { "hit".to_string() } else { "miss".to_string() }),
             ("exes", listed),
           ],
         );
@@ -420,6 +549,8 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
         .or_default()
         .extend(abs_paths);
     }
+
+    let candidates_ms = candidates_start.elapsed().as_millis() as u64;
 
     for skip in skips.values() {
       log_skip_once(&mut logged_skips, skip);
@@ -439,6 +570,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     }
 
     // ── Process matching ───────────────────────────────────────────────────
+    let process_start = Instant::now();
     let mut sys = System::new();
     // `refresh_processes` alone does not load `cmd()` in sysinfo 0.33 — the
     // process argv (which is what matches a running game) stays empty. Use
@@ -450,6 +582,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     );
 
     let processes: Vec<&sysinfo::Process> = sys.processes().values().collect();
+    let process_ms = process_start.elapsed().as_millis() as u64;
     let match_start = Instant::now();
 
     let mut matched_game_ids: Vec<i64> = Vec::new();
@@ -459,20 +592,31 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
         .filter(|process| exe_paths.iter().any(|game_exe| process_matches_game(process, game_exe)))
         .map(|process| describe_process(process))
         .collect();
-      if !matching.is_empty() {
-        matched_game_ids.push(*game_id);
-      }
-
       let title = game_titles.get(game_id).cloned().unwrap_or_default();
-      update_ledger(
+      let reason = if matching.is_empty() {
+        // Distinguish "the game closed" from "the game is running but our
+        // candidate paths do not match it" — the second one is a bug report.
+        if candidate_name_seen(&processes, exe_paths) {
+          Some("exe_seen_but_unmatched")
+        } else {
+          Some("process_gone")
+        }
+      } else {
+        None
+      };
+
+      let state = update_ledger(
         *game_id,
         &title,
         !matching.is_empty(),
         &matching,
-        None,
+        reason,
         dropped_ticks,
         now_ms,
       );
+      if !matches!(state, LedgerMatch::Lost) {
+        matched_game_ids.push(*game_id);
+      }
     }
 
     // Games without executable candidates can never match: record why.
@@ -508,11 +652,53 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
 
     // ── Credit time ────────────────────────────────────────────────────────
     let client = reqwest::Client::new();
+    let http_start = Instant::now();
+    let backoff_until = tracker_stats()
+      .lock()
+      .ok()
+      .and_then(|stats| stats.auth_backoff_until);
+    let backing_off = backoff_until.map(|until| until > now_ms).unwrap_or(false);
+
+    if backing_off && logged_backoff_until != backoff_until {
+      logged_backoff_until = backoff_until;
+      tracker_log::push_kv(
+        "warn",
+        "http",
+        &[
+          ("event", "auth_backoff_active".to_string()),
+          (
+            "retry_in_secs",
+            (backoff_until.unwrap_or(now_ms).saturating_sub(now_ms) / 1000).to_string(),
+          ),
+          (
+            "message",
+            "the session is still rejected: playtime keeps being stored offline, requests are paused"
+              .to_string(),
+          ),
+        ],
+      );
+    } else if !backing_off {
+      logged_backoff_until = None;
+    }
+
     let mut credited = 0u64;
     let mut offline = 0u64;
     let mut lost = 0u64;
     for game_id in &matched_game_ids {
-      let outcome = increment_game_time(&client, &config, *game_id).await;
+      let outcome = if backing_off {
+        // Do not hammer a server that rejects our session: keep the minute,
+        // store it offline and try again after the backoff.
+        if let Ok(mut stats) = tracker_stats().lock() {
+          stats.skipped_auth_ticks += 1;
+        }
+        save_offline_time(&installed, &config, *game_id);
+        CreditOutcome::Offline {
+          reason: "auth backoff (session rejected, request skipped)".to_string(),
+        }
+      } else {
+        increment_game_time(&app, &client, &config, *game_id, &installed).await
+      };
+
       match outcome {
         CreditOutcome::Credited { .. } => {
           credited += 1;
@@ -531,10 +717,11 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
       }
       record_credit(*game_id, outcome);
     }
+    let http_ms = http_start.elapsed().as_millis() as u64;
 
     let duration_ms = tick_start.elapsed().as_millis() as u64;
     let summary = format!(
-      "tick {tick_number} | installed={} with_exe={} processes={} matched={} credited={credited} offline={offline} lost={lost} | scan={scan_ms}ms match={match_ms}ms total={duration_ms}ms",
+      "tick {tick_number} | installed={} with_exe={} processes={} matched={} credited={credited} offline={offline} lost={lost} | library={library_ms}ms candidates={candidates_ms}ms cache={cache_hits}/{cache_misses} process={process_ms}ms match={match_ms}ms http={http_ms}ms total={duration_ms}ms",
       installed.len(),
       game_exe_map.len(),
       processes.len(),
@@ -545,6 +732,29 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
       stats.last_tick_summary = Some(summary);
       stats.last_tick_duration_ms = Some(duration_ms);
     }
+
+    for (phase, value) in [
+      ("library", library_ms),
+      ("candidates", candidates_ms),
+      ("process", process_ms),
+      ("match", match_ms),
+      ("http", http_ms),
+    ] {
+      if value > 1000 {
+        tracker_log::push_kv(
+          "warn",
+          "tick",
+          &[
+            ("event", "slow_phase".to_string()),
+            ("tick", tick_number.to_string()),
+            ("phase", phase.to_string()),
+            ("phase_ms", value.to_string()),
+            ("total_ms", duration_ms.to_string()),
+          ],
+        );
+      }
+    }
+
     if duration_ms > TICK_INTERVAL_SECS * 1000 {
       tracker_log::push_kv(
         "warn",
@@ -599,6 +809,17 @@ fn log_skip_once(logged: &mut HashMap<i64, String>, skip: &SkipReason) {
   );
 }
 
+/// What a ledger update means for the current tick.
+enum LedgerMatch {
+  /// Process still running — credit normally.
+  Matched,
+  /// Process vanished but the game may still be running (launcher hand-off) —
+  /// still credit, for at most [`MATCH_GRACE_TICKS`] ticks.
+  Grace { remaining: u64 },
+  /// The game is not running (or never was) — do not credit.
+  Lost,
+}
+
 /// Keeps the per-game ledger in sync and logs match transitions.
 fn update_ledger(
   game_id: i64,
@@ -608,9 +829,9 @@ fn update_ledger(
   fallback_reason: Option<&str>,
   dropped_ticks: u64,
   now_ms: u64,
-) {
+) -> LedgerMatch {
   let Ok(mut ledger) = tracker_ledger().lock() else {
-    return;
+    return if matched { LedgerMatch::Matched } else { LedgerMatch::Lost };
   };
   let entry = ledger.entry(game_id).or_default();
   entry.game_id = game_id;
@@ -679,14 +900,46 @@ fn update_ledger(
       }
       entry.matched = true;
     }
+    entry.missing_ticks = 0;
     entry.matched_ticks += 1;
     entry.last_matched_at = Some(now_ms);
     entry.observed_seconds += TICK_INTERVAL_SECS;
     entry.last_skip_reason = None;
-  } else if entry.matched {
+    return LedgerMatch::Matched;
+  }
+
+  // Not matched on this tick.
+  let reason = fallback_reason.unwrap_or("no_matching_process");
+  entry.last_skip_reason = Some(reason.to_string());
+
+  if entry.matched {
+    entry.missing_ticks += 1;
+
+    // A game can briefly disappear from the process list while it keeps
+    // running (launcher hand-off, protection re-exec). Keep crediting for a
+    // couple of ticks instead of losing that playtime.
+    if entry.missing_ticks <= MATCH_GRACE_TICKS {
+      entry.matched_ticks += 1;
+      entry.observed_seconds += TICK_INTERVAL_SECS;
+      tracker_log::push_kv(
+        "info",
+        "game",
+        &[
+          ("event", "match_grace".to_string()),
+          ("game", game_id.to_string()),
+          ("title", entry.game_title.clone()),
+          ("tick", entry.missing_ticks.to_string()),
+          ("grace_ticks", MATCH_GRACE_TICKS.to_string()),
+          ("reason", reason.to_string()),
+        ],
+      );
+      return LedgerMatch::Grace {
+        remaining: MATCH_GRACE_TICKS - entry.missing_ticks,
+      };
+    }
+
     entry.matched = false;
-    let reason = fallback_reason.unwrap_or("no_matching_process");
-    entry.last_skip_reason = Some(reason.to_string());
+    entry.missing_ticks = 0;
     tracker_log::push_kv(
       "warn",
       "game",
@@ -703,7 +956,90 @@ fn update_ledger(
         ),
       ],
     );
+    log_session_summary(entry, pending_offline_minutes());
+    return LedgerMatch::Lost;
   }
+
+  LedgerMatch::Lost
+}
+
+/// One decisive line per game session: what was played, what was credited and
+/// why the numbers differ.
+fn log_session_summary(entry: &GamePlayLedger, pending_offline_minutes: u64) {
+  let observed = entry.observed_seconds / TICK_INTERVAL_SECS;
+  let accounted = entry.credited_minutes + entry.offline_minutes + entry.lost_ticks;
+
+  let verdict = if entry.offline_minutes > 0 && entry.credited_minutes == 0 {
+    format!(
+      "{} of {} played minutes were stored offline because the server rejected the session; they are credited when the session works again",
+      entry.offline_minutes, observed
+    )
+  } else if entry.offline_minutes > 0 {
+    format!(
+      "{} of {} played minutes were stored offline (rejected session), {} were credited",
+      entry.offline_minutes, observed, entry.credited_minutes
+    )
+  } else if observed > accounted {
+    format!(
+      "{} of {} played minutes could not be credited ({} lost, {} dropped during a tick gap)",
+      observed - accounted,
+      observed,
+      entry.lost_ticks,
+      entry.dropped_ticks
+    )
+  } else {
+    "all matched minutes were credited".to_string()
+  };
+
+  tracker_log::push_kv(
+    "info",
+    "session",
+    &[
+      ("event", "session_summary".to_string()),
+      ("game", entry.game_id.to_string()),
+      ("title", entry.game_title.clone()),
+      ("observed_minutes", observed.to_string()),
+      ("credited_minutes", entry.credited_minutes.to_string()),
+      ("offline_minutes", entry.offline_minutes.to_string()),
+      ("lost_minutes", entry.lost_ticks.to_string()),
+      ("dropped_minutes", entry.dropped_ticks.to_string()),
+      ("match_flaps", entry.match_flaps.to_string()),
+      (
+        "replayed_minutes",
+        entry.replayed_minutes.to_string(),
+      ),
+      (
+        "server_minutes",
+        entry
+          .last_server_minutes
+          .map(|minutes| minutes.to_string())
+          .unwrap_or_else(|| "unknown".to_string()),
+      ),
+      ("pending_offline_minutes", pending_offline_minutes.to_string()),
+      ("verdict", verdict),
+    ],
+  );
+}
+
+/// True when a process runs with the same file name as one of the candidates:
+/// the game is probably running, but the full paths did not match.
+fn candidate_name_seen(processes: &[&sysinfo::Process], candidates: &[PathBuf]) -> bool {
+  let names: HashSet<String> = candidates
+    .iter()
+    .filter_map(|path| path.file_name())
+    .map(|name| name.to_string_lossy().to_ascii_lowercase())
+    .collect();
+  if names.is_empty() {
+    return false;
+  }
+
+  processes.iter().any(|process| {
+    process
+      .exe()
+      .and_then(|exe| exe.file_name())
+      .map(|name| names.contains(&name.to_string_lossy().to_ascii_lowercase()))
+      .unwrap_or(false)
+  })
 }
 
 /// Ticks the interval expected but that never ran, from an observed gap.
@@ -862,6 +1198,9 @@ fn bump_credit_stats(success: bool, auth_rejected: bool) {
     if success {
       stats.consecutive_failures = 0;
       stats.last_error = None;
+      // A working session ends the rejection streak and any backoff.
+      stats.auth_streak = 0;
+      stats.auth_backoff_until = None;
     } else {
       stats.consecutive_failures += 1;
     }
@@ -877,37 +1216,113 @@ fn record_failure(reason: &str) {
   }
 }
 
-fn bump_auth_rejected() {
-  bump_credit_stats(false, true);
-  tracker_log::push(
+/// The server rejected our session: stop asking for a while, keep storing the
+/// minute offline, and (throttled) tell the frontend so it can refresh the
+/// token instead of letting the tracker run on an expired one for an hour.
+fn apply_auth_backoff(app: &tauri::AppHandle, status: u16) {
+  let now = tracker_log::now_ms();
+  let (streak, retry_in_secs, rejected_total, should_emit) = {
+    let Ok(mut stats) = tracker_stats().lock() else {
+      return;
+    };
+    stats.auth_streak += 1;
+    stats.consecutive_failures += 1;
+    stats.auth_rejected_count += 1;
+
+    let index = (stats.auth_streak as usize - 1).min(AUTH_BACKOFF_SECS.len() - 1);
+    let retry_in_secs = AUTH_BACKOFF_SECS[index];
+    stats.auth_backoff_until = Some(now + retry_in_secs * 1000);
+
+    let should_emit = stats
+      .last_auth_event_at
+      .map(|last| now.saturating_sub(last) >= AUTH_EVENT_THROTTLE_MS)
+      .unwrap_or(true);
+    if should_emit {
+      stats.last_auth_event_at = Some(now);
+    }
+
+    (
+      stats.auth_streak,
+      retry_in_secs,
+      stats.auth_rejected_count,
+      should_emit,
+    )
+  };
+
+  tracker_log::push_kv(
     "warn",
     "http",
-    "the server rejected the session token (401/403) — playtime is stored offline until the session refreshes",
+    &[
+      ("event", "auth_backoff".to_string()),
+      ("status", status.to_string()),
+      ("streak", streak.to_string()),
+      ("retry_in_secs", retry_in_secs.to_string()),
+      (
+        "message",
+        "the server rejected the session — playtime is stored offline and requests are paused"
+          .to_string(),
+      ),
+    ],
   );
+
+  if should_emit {
+    let _ = app.emit(
+      AUTH_EXPIRED_EVENT,
+      TrackerAuthExpiredEvent {
+        at: now,
+        auth_rejected_count: rejected_total,
+        pending_offline_minutes: pending_offline_minutes(),
+        retry_in_secs,
+      },
+    );
+  }
+}
+
+/// The access token the tracker is currently configured with.
+fn current_access_token() -> Option<String> {
+  tracker_config()
+    .lock()
+    .ok()
+    .and_then(|config| config.as_ref().map(|config| config.access_token.clone()))
+}
+
+/// Sends one increment request with a given token.
+async fn send_increment(
+  client: &reqwest::Client,
+  url: &str,
+  access_token: &str,
+) -> Result<reqwest::Response, reqwest::Error> {
+  client
+    .put(url)
+    .header("Authorization", format!("Bearer {access_token}"))
+    .header("Accept", "application/json")
+    .send()
+    .await
 }
 
 /// Sends one minute increment and reports what happened to it.
+///
+/// A rejected session is retried once with a newer token if the frontend
+/// refreshed it in the meantime — the tracker's tick usually starts a moment
+/// before the token refresh lands, so without this every refresh would waste a
+/// minute into the offline file (and delete it again seconds later).
 async fn increment_game_time(
+  app: &tauri::AppHandle,
   client: &reqwest::Client,
   config: &TrackerConfig,
   game_id: i64,
+  installed: &[InstalledGameInfo],
 ) -> CreditOutcome {
   let url = format!(
     "{}/api/progresses/user/{}/game/{}/increment",
     config.server_url, config.user_id, game_id
   );
-  let response = client
-    .put(&url)
-    .header("Authorization", format!("Bearer {}", config.access_token))
-    .header("Accept", "application/json")
-    .send()
-    .await;
 
-  let response = match response {
+  let response = match send_increment(client, &url, &config.access_token).await {
     Ok(response) => response,
     Err(error) => {
       let reason = format!("network error: {error}");
-      save_offline_time(&config.download_paths, config.user_id, game_id);
+      save_offline_time(installed, config, game_id);
       return CreditOutcome::Offline { reason };
     }
   };
@@ -921,9 +1336,49 @@ async fn increment_game_time(
     },
     CreditDisposition::SaveOffline => {
       if matches!(status.as_u16(), 401 | 403) {
-        bump_auth_rejected();
+        if let Some(fresh) = current_access_token() {
+          if fresh != config.access_token {
+            match send_increment(client, &url, &fresh).await {
+              Ok(retry) if retry.status().is_success() => {
+                let retry_body = retry.text().await.unwrap_or_default();
+                tracker_log::push_kv(
+                  "info",
+                  "http",
+                  &[
+                    ("event", "auth_retried".to_string()),
+                    ("game", game_id.to_string()),
+                    ("outcome", "credited with the refreshed session".to_string()),
+                  ],
+                );
+                return CreditOutcome::Credited {
+                  server_minutes: parse_server_minutes(&retry_body),
+                };
+              }
+              Ok(retry) => tracker_log::push_kv(
+                "warn",
+                "http",
+                &[
+                  ("event", "auth_retried".to_string()),
+                  ("game", game_id.to_string()),
+                  ("outcome", "still rejected".to_string()),
+                  ("status", retry.status().as_u16().to_string()),
+                ],
+              ),
+              Err(error) => tracker_log::push_kv(
+                "warn",
+                "http",
+                &[
+                  ("event", "auth_retried".to_string()),
+                  ("game", game_id.to_string()),
+                  ("outcome", format!("network error: {error}")),
+                ],
+              ),
+            }
+          }
+        }
+        apply_auth_backoff(app, status.as_u16());
       }
-      save_offline_time(&config.download_paths, config.user_id, game_id);
+      save_offline_time(installed, config, game_id);
       CreditOutcome::Offline {
         reason: format!("http {} ({})", status.as_u16(), excerpt(&body, 160)),
       }
@@ -972,18 +1427,49 @@ fn read_configured_launch_executable(version_dir: &Path) -> Option<PathBuf> {
   Some(PathBuf::from(exe))
 }
 
+/// Builds the offline file content, keeping `accumulated_minutes` monotonic.
+///
+/// This is the safety net for every minute the server did not accept: the file
+/// is only ever incremented and is replayed once a session works again. Older
+/// files (written before `updated_at`/`server_url` existed) are still readable,
+/// because only `accumulated_minutes` matters for the count.
+fn offline_payload(
+  existing: Option<&str>,
+  user_id: i64,
+  game_id: i64,
+  server_url: &str,
+  at_ms: u64,
+) -> (i64, serde_json::Value) {
+  let current_minutes = existing
+    .and_then(|content| serde_json::from_str::<serde_json::Value>(content).ok())
+    .and_then(|json| {
+      json
+        .get("accumulated_minutes")
+        .and_then(|value| value.as_i64())
+    })
+    .unwrap_or(0)
+    .max(0);
+
+  let accumulated = current_minutes + 1;
+  let data = serde_json::json!({
+    "user_id": user_id,
+    "game_id": game_id,
+    "accumulated_minutes": accumulated,
+    "updated_at": at_ms / 1000,
+    "server_url": server_url,
+  });
+  (accumulated, data)
+}
+
 /// Stores one uncredited minute in the game's offline file. Returns the path it
 /// wrote to, so the caller can log where the playtime went.
-fn save_offline_time(download_paths: &[String], user_id: i64, game_id: i64) -> Option<PathBuf> {
-  let mut installed = Vec::new();
-  for path in download_paths {
-    if let Ok(games) = list_installed_games_blocking(path.to_string()) {
-      installed.extend(games);
-    }
-  }
-
-  let target = match installed.iter().find(|g| g.game_id == game_id) {
-    Some(g) => g,
+fn save_offline_time(
+  installed: &[InstalledGameInfo],
+  config: &TrackerConfig,
+  game_id: i64,
+) -> Option<PathBuf> {
+  let target = match installed.iter().find(|game| game.game_id == game_id) {
+    Some(game) => game,
     None => {
       tracker_log::push_kv(
         "error",
@@ -1003,22 +1489,14 @@ fn save_offline_time(download_paths: &[String], user_id: i64, game_id: i64) -> O
   };
 
   let offline_file = PathBuf::from(&target.version_directory).join(".gamevault.offline_time.json");
-
-  let mut current_minutes: i64 = 0;
-  if offline_file.exists() {
-    if let Ok(content) = fs::read_to_string(&offline_file) {
-      if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-        current_minutes = json.get("accumulated_minutes").and_then(|v| v.as_i64()).unwrap_or(0);
-      }
-    }
-  }
-
-  let accumulated = current_minutes + 1;
-  let data = serde_json::json!({
-    "user_id": user_id,
-    "game_id": game_id,
-    "accumulated_minutes": accumulated
-  });
+  let existing = fs::read_to_string(&offline_file).ok();
+  let (accumulated, data) = offline_payload(
+    existing.as_deref(),
+    config.user_id,
+    game_id,
+    &config.server_url,
+    tracker_log::now_ms(),
+  );
 
   match fs::write(&offline_file, serde_json::to_string(&data).unwrap_or_default()) {
     Ok(()) => {
@@ -1060,6 +1538,8 @@ pub(crate) struct OfflineTimeFile {
   user_id: i64,
   game_id: i64,
   accumulated_minutes: i64,
+  /// Unix seconds of the last write (0 for files from older builds).
+  updated_at: i64,
 }
 
 #[tauri::command]
@@ -1103,11 +1583,13 @@ fn walk_offline_time_files(dir: &Path, results: &mut Vec<OfflineTimeFile>) -> st
           let user_id = json.get("user_id").and_then(|v| v.as_i64()).unwrap_or(0);
           let game_id = json.get("game_id").and_then(|v| v.as_i64()).unwrap_or(0);
           let accumulated_minutes = json.get("accumulated_minutes").and_then(|v| v.as_i64()).unwrap_or(0);
+          let updated_at = json.get("updated_at").and_then(|v| v.as_i64()).unwrap_or(0);
           results.push(OfflineTimeFile {
             path: path.to_string_lossy().to_string(),
             user_id,
             game_id,
             accumulated_minutes,
+            updated_at,
           });
         }
       }
@@ -1140,7 +1622,9 @@ pub(crate) async fn sync_offline_time(
   user_id: i64,
   game_id: i64,
   minutes: i64,
+  reason: Option<String>,
 ) -> Result<bool, String> {
+  let reason = reason.unwrap_or_else(|| "unspecified".to_string());
   let url = format!(
     "{}/api/progresses/user/{}/game/{}/increment/{}",
     server_url, user_id, game_id, minutes
@@ -1162,6 +1646,7 @@ pub(crate) async fn sync_offline_time(
           ("event", "offline_replay_failed".to_string()),
           ("game", game_id.to_string()),
           ("minutes", minutes.to_string()),
+          ("reason", reason),
           ("error", error.to_string()),
         ],
       );
@@ -1171,6 +1656,8 @@ pub(crate) async fn sync_offline_time(
 
   let status = resp.status();
   let success = status.is_success();
+  let body = resp.text().await.unwrap_or_default();
+
   tracker_log::push_kv(
     if success { "info" } else { "warn" },
     "offline",
@@ -1179,6 +1666,7 @@ pub(crate) async fn sync_offline_time(
       ("game", game_id.to_string()),
       ("minutes", minutes.to_string()),
       ("user_id", user_id.to_string()),
+      ("reason", reason.clone()),
       ("status", status.as_u16().to_string()),
       ("success", success.to_string()),
       (
@@ -1191,6 +1679,24 @@ pub(crate) async fn sync_offline_time(
       ),
     ],
   );
+
+  // Keep the ledger in sync: those minutes are no longer waiting offline.
+  if success {
+    if let Ok(mut ledger) = tracker_ledger().lock() {
+      let entry = ledger.entry(game_id).or_default();
+      entry.game_id = game_id;
+      entry.offline_minutes = entry
+        .offline_minutes
+        .saturating_sub(minutes.max(0) as u64);
+      // Replayed minutes belong to an earlier session, so they are counted
+      // separately and never inflate this session's credited total.
+      entry.replayed_minutes += minutes.max(0) as u64;
+      if let Some(server_minutes) = parse_server_minutes(&body) {
+        entry.last_server_minutes = Some(server_minutes);
+      }
+    }
+  }
+
   Ok(success)
 }
 
@@ -1367,6 +1873,8 @@ pub(crate) struct TrackerStatus {
   pub stats: TrackerRuntimeStats,
   pub games: Vec<GamePlayLedger>,
   pub log_path: Option<String>,
+  /// Minutes stored offline that still need a successful sync.
+  pub pending_offline_minutes: u64,
 }
 
 #[tauri::command]
@@ -1383,6 +1891,7 @@ pub(crate) fn get_tracker_status() -> TrackerStatus {
     stats,
     games: tracker_ledger_snapshot(),
     log_path: tracker_log::log_path(),
+    pending_offline_minutes: pending_offline_minutes(),
   }
 }
 
@@ -1458,5 +1967,44 @@ mod tests {
     let trimmed = excerpt(&"x".repeat(30), 10);
     assert_eq!(trimmed.chars().count(), 11);
     assert!(trimmed.ends_with('…'));
+  }
+
+  #[test]
+  fn offline_payload_counts_up_from_legacy_files() {
+    // A file from an older build only has accumulated_minutes.
+    let legacy = r#"{"user_id": 1, "game_id": 2341, "accumulated_minutes": 61}"#;
+    let (accumulated, data) = offline_payload(Some(legacy), 1, 2341, "https://example.test", 1_700_000_000_000);
+    assert_eq!(accumulated, 62);
+    assert_eq!(data["accumulated_minutes"].as_i64(), Some(62));
+    assert_eq!(data["game_id"].as_i64(), Some(2341));
+    assert_eq!(data["user_id"].as_i64(), Some(1));
+    assert_eq!(data["updated_at"].as_i64(), Some(1_700_000_000));
+    assert_eq!(data["server_url"].as_str(), Some("https://example.test"));
+  }
+
+  #[test]
+  fn offline_payload_starts_at_one_and_survives_damage() {
+    let (first, _) = offline_payload(None, 1, 7, "https://example.test", 0);
+    assert_eq!(first, 1);
+
+    // Unreadable/garbage content must not reset the counter backwards.
+    let (from_garbage, _) = offline_payload(Some("<html>"), 1, 7, "https://example.test", 0);
+    assert_eq!(from_garbage, 1);
+
+    // Negative values (hand-edited file) are clamped, never decreased further.
+    let negative = r#"{"accumulated_minutes": -5}"#;
+    let (clamped, _) = offline_payload(Some(negative), 1, 7, "https://example.test", 0);
+    assert_eq!(clamped, 1);
+  }
+
+  #[test]
+  fn auth_backoff_grows_and_caps() {
+    let retry_for = |streak: usize| AUTH_BACKOFF_SECS[(streak - 1).min(AUTH_BACKOFF_SECS.len() - 1)];
+    assert_eq!(retry_for(1), 60);
+    assert_eq!(retry_for(2), 120);
+    assert_eq!(retry_for(3), 300);
+    assert_eq!(retry_for(4), 900);
+    // Stays capped: an hour-long rejection streak must not grow unbounded.
+    assert_eq!(retry_for(60), 900);
   }
 }

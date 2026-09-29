@@ -56,6 +56,15 @@ pub(crate) struct TrackerRuntimeStats {
   pub consecutive_failures: u64,
   /// Number of increments the server rejected with 401/403 (expired token).
   pub auth_rejected_count: u64,
+  /// Consecutive auth rejections since the last successful increment.
+  pub auth_streak: u64,
+  /// While set (unix ms in the future) the tracker stores playtime offline
+  /// instead of asking a server that is rejecting its session.
+  pub auth_backoff_until: Option<u64>,
+  /// Ticks that were stored offline without a request because of the backoff.
+  pub skipped_auth_ticks: u64,
+  /// Last time the frontend was notified about an expired session.
+  pub last_auth_event_at: Option<u64>,
   pub stop_reason: Option<String>,
   pub log_path: Option<String>,
 }
@@ -85,7 +94,11 @@ pub(crate) struct GamePlayLedger {
   pub match_flaps: u64,
   pub credited_minutes: u64,
   pub offline_minutes: u64,
+  /// Minutes synced from an offline file of an earlier session.
+  pub replayed_minutes: u64,
   pub observed_seconds: u64,
+  /// Ticks the game was not matched since the last match (grace counter).
+  pub missing_ticks: u64,
   /// Last `minutes_played` the server reported for this game.
   pub last_server_minutes: Option<i64>,
   /// Why the game was not matched/credited on the last tick.
@@ -130,6 +143,14 @@ pub(crate) fn tracker_ledger_snapshot() -> Vec<GamePlayLedger> {
       games
     })
     .unwrap_or_default()
+}
+
+/// Minutes that are stored offline and still waiting for a successful sync.
+pub(crate) fn pending_offline_minutes() -> u64 {
+  tracker_ledger()
+    .lock()
+    .map(|ledger| ledger.values().map(|game| game.offline_minutes).sum())
+    .unwrap_or(0)
 }
 
 /// Latest known state of an extraction, per game.

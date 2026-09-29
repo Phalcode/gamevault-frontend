@@ -396,20 +396,72 @@ pub(crate) fn open_external_url(url: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to open URL: {e}"))
 }
 
+/// Safety limits for the recursive candidate walk: a game folder can contain
+/// a huge file tree (or a junction to one), and the walk runs on every tracker
+/// tick for every installed game.
+const MAX_CANDIDATE_DEPTH: usize = 6;
+const MAX_CANDIDATE_ENTRIES: usize = 20_000;
+
 pub(crate) fn collect_launch_candidates(
     root: &Path,
     current: &Path,
     results: &mut Vec<String>,
 ) -> Result<(), String> {
-    let entries =
-        fs::read_dir(current).map_err(|e| format!("Failed to read installation folder: {e}"))?;
+    let mut visited = 0usize;
+    collect_launch_candidates_inner(root, current, results, 0, &mut visited)
+}
+
+fn collect_launch_candidates_inner(
+    root: &Path,
+    current: &Path,
+    results: &mut Vec<String>,
+    depth: usize,
+    visited: &mut usize,
+) -> Result<(), String> {
+    if depth > MAX_CANDIDATE_DEPTH || *visited >= MAX_CANDIDATE_ENTRIES {
+        return Ok(());
+    }
+
+    // A folder we cannot read (permissions, deleted mid-walk) must not abort
+    // the whole scan: skip it and keep the other candidates.
+    let entries = match fs::read_dir(current) {
+        Ok(entries) => entries,
+        Err(error) => {
+            log::warn!(
+                "Skipping unreadable folder during launch candidate scan: {} ({error})",
+                current.display()
+            );
+            return Ok(());
+        }
+    };
 
     for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read installation folder entry: {e}"))?;
-        let path = entry.path();
+        if *visited >= MAX_CANDIDATE_ENTRIES {
+            log::warn!(
+                "Launch candidate scan stopped after {MAX_CANDIDATE_ENTRIES} entries in {}",
+                root.display()
+            );
+            return Ok(());
+        }
 
-        if path.is_dir() {
-            collect_launch_candidates(root, &path, results)?;
+        let Ok(entry) = entry else {
+            continue;
+        };
+        *visited += 1;
+
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+
+        // Never follow links/junctions: they can point at a parent folder and
+        // turn this walk into an endless loop.
+        if file_type.is_symlink() {
+            continue;
+        }
+
+        if file_type.is_dir() {
+            collect_launch_candidates_inner(root, &path, results, depth + 1, visited)?;
             continue;
         }
 

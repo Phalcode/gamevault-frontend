@@ -60,15 +60,6 @@ import {
 } from "@/utils/rootPaths";
 import { openLaunchLogWindow } from "@/utils/launchLog";
 import {
-  debugTrackerScan,
-  formatPlaytimeLedger,
-  formatTrackerDump,
-  getTrackerLog,
-  getTrackerStatus,
-  openTrackerLogFolder,
-  resetTrackerLedger,
-} from "@/utils/trackerLog";
-import {
   FolderArrowDownIcon,
   ComputerDesktopIcon,
   ShieldCheckIcon,
@@ -1237,7 +1228,6 @@ export default function Settings() {
         version: __APP_VERSION__,
         system: systemInfo,
         rendering: await getRenderingDiagnostics().catch(() => null),
-        tracker: await collectTrackerDump(),
         settings,
       },
       null,
@@ -1272,79 +1262,6 @@ export default function Settings() {
           tone: "danger",
         });
       }
-    }
-  };
-
-  /**
-   * Tracker status, playtime ledger and log tail for bug reports.
-   *
-   * The tracker credits one minute per matched tick, so the ledger shows what
-   * the wall clock suggested versus what was actually credited, plus the reason
-   * for every minute that was lost.
-   */
-  const collectTrackerDump = async (lineCount = 400) => {
-    if (!isTauri) return null;
-    try {
-      const status = await getTrackerStatus();
-      const lines = await getTrackerLog(lineCount);
-      return {
-        status,
-        ledger: formatPlaytimeLedger(status.games),
-        text: formatTrackerDump({ status, lines }),
-      };
-    } catch (error) {
-      return { error: String(error) };
-    }
-  };
-
-  const handleCopyTrackerDiagnostics = async () => {
-    try {
-      const status = await getTrackerStatus();
-      const lines = await getTrackerLog();
-      const scan = await debugTrackerScan().catch(() => null);
-      const dump = formatTrackerDump({ status, lines, scan });
-      await navigator.clipboard.writeText(dump);
-      await showAlert({
-        title: "Tracker diagnostics copied to clipboard",
-        description:
-          "Includes the playtime ledger (observed vs credited) and the tracker log tail.",
-        tone: "success",
-      });
-    } catch (error) {
-      await showAlert({
-        title: "Couldn't copy tracker diagnostics",
-        description: String(error),
-        tone: "danger",
-      });
-    }
-  };
-
-  const handleResetTrackerLedger = async () => {
-    try {
-      await resetTrackerLedger();
-      await showAlert({
-        title: "Tracker counters reset",
-        description: "Playtime accounting starts fresh with the next tick.",
-        tone: "success",
-      });
-    } catch (error) {
-      await showAlert({
-        title: "Couldn't reset tracker counters",
-        description: String(error),
-        tone: "danger",
-      });
-    }
-  };
-
-  const handleOpenTrackerLogFolder = async () => {
-    try {
-      await openTrackerLogFolder();
-    } catch (error) {
-      await showAlert({
-        title: "Couldn't open the tracker log folder",
-        description: String(error),
-        tone: "danger",
-      });
     }
   };
 
@@ -2580,58 +2497,6 @@ export default function Settings() {
                           >
                             <ClipboardDocumentIcon className="size-4" />
                             Copy
-                          </Button>
-                        </SettingsRow>
-                      </SettingsGroup>
-
-                      <SettingsGroup
-                        id="setting-developer-time-tracker"
-                        className={rowHighlight("developer-time-tracker")}
-                        caption="Time tracker"
-                      >
-                        <SettingsRow>
-                          <SettingsLabel
-                            title="Copy tracker diagnostics"
-                            description="Copies the playtime accounting (observed vs credited minutes, lost ticks and why) plus the tracker log tail to the clipboard. Use this when a game shows less playtime than you actually played."
-                          />
-                          <Button
-                            type="button"
-                            color="indigo"
-                            className="shrink-0"
-                            onClick={() => void handleCopyTrackerDiagnostics()}
-                          >
-                            <ClipboardDocumentIcon className="size-4" />
-                            Copy
-                          </Button>
-                        </SettingsRow>
-                        <SettingsRow>
-                          <SettingsLabel
-                            title="Tracker log"
-                            description="Open the folder with the rotating tracker log. Every tick, match and credit attempt is recorded there, also in release builds."
-                          />
-                          <Button
-                            type="button"
-                            color="indigo"
-                            className="shrink-0"
-                            onClick={() => void handleOpenTrackerLogFolder()}
-                          >
-                            <FolderOpenIcon className="size-4" />
-                            Open folder
-                          </Button>
-                        </SettingsRow>
-                        <SettingsRow>
-                          <SettingsLabel
-                            title="Reset tracker counters"
-                            description="Clears the in-memory playtime ledger and loop counters so a fresh measurement can be taken (e.g. before starting a game again)."
-                          />
-                          <Button
-                            type="button"
-                            color="zinc"
-                            className="shrink-0"
-                            onClick={() => void handleResetTrackerLedger()}
-                          >
-                            <ArrowPathIcon className="size-4" />
-                            Reset
                           </Button>
                         </SettingsRow>
                       </SettingsGroup>
