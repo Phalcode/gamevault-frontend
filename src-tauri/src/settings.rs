@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::UNIX_EPOCH;
 use tauri::Manager;
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub(crate) struct AppSettings {
   #[serde(default)]
   pub start_minimized: bool,
@@ -49,16 +51,55 @@ pub(crate) fn settings_path(app: &tauri::AppHandle) -> PathBuf {
   app.path().app_data_dir().unwrap().join("gamevault-settings.json")
 }
 
+/// Last parsed settings, keyed by the file's modification time.
+///
+/// The time tracker reads the ignore list every 60 s tick; re-reading and
+/// parsing the JSON from disk every time is pure overhead.
+static SETTINGS_CACHE: OnceLock<Mutex<Option<(u64, AppSettings)>>> = OnceLock::new();
+
+fn settings_cache() -> &'static Mutex<Option<(u64, AppSettings)>> {
+  SETTINGS_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn settings_modified_ms(path: &std::path::Path) -> u64 {
+  std::fs::metadata(path)
+    .and_then(|metadata| metadata.modified())
+    .ok()
+    .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+    .map(|duration| duration.as_millis() as u64)
+    .unwrap_or(0)
+}
+
 pub(crate) fn load_settings(app: &tauri::AppHandle) -> AppSettings {
   let path = settings_path(app);
-  if path.exists() {
-    if let Ok(data) = std::fs::read_to_string(&path) {
-      if let Ok(settings) = serde_json::from_str::<AppSettings>(&data) {
-        return settings;
+  let modified = settings_modified_ms(&path);
+
+  if modified != 0 {
+    if let Ok(cache) = settings_cache().lock() {
+      if let Some((cached_modified, settings)) = cache.as_ref() {
+        if *cached_modified == modified {
+          return settings.clone();
+        }
       }
     }
   }
-  AppSettings::default()
+
+  let settings = if path.exists() {
+    std::fs::read_to_string(&path)
+      .ok()
+      .and_then(|data| serde_json::from_str::<AppSettings>(&data).ok())
+      .unwrap_or_default()
+  } else {
+    AppSettings::default()
+  };
+
+  if modified != 0 {
+    if let Ok(mut cache) = settings_cache().lock() {
+      *cache = Some((modified, settings.clone()));
+    }
+  }
+
+  settings
 }
 
 pub(crate) fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), String> {
@@ -67,7 +108,13 @@ pub(crate) fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> R
     std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {}", e))?;
   }
   let data = serde_json::to_string_pretty(settings).map_err(|e| format!("Failed to serialize: {}", e))?;
-  std::fs::write(&path, &data).map_err(|e| format!("Failed to write config: {}", e))
+  std::fs::write(&path, &data).map_err(|e| format!("Failed to write config: {}", e))?;
+
+  // Update the cache in place so the next reader does not re-parse the file.
+  if let Ok(mut cache) = settings_cache().lock() {
+    *cache = Some((settings_modified_ms(&path), settings.clone()));
+  }
+  Ok(())
 }
 
 #[tauri::command]

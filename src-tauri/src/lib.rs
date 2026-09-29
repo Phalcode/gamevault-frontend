@@ -5,6 +5,7 @@ mod downloads;
 mod extraction;
 mod installation;
 mod launch_log;
+mod tracker_log;
 mod games;
 mod fs_commands;
 mod time_tracker;
@@ -461,6 +462,12 @@ pub fn run() {
         )?;
       }
 
+      // ── Time tracker diagnostics log ───────────────────────────────────
+      // Records every tracker tick, match transition and credit outcome.
+      // Disabled for now via `tracker_log::ENABLED`; the tracker keeps its
+      // counters in memory either way.
+      tracker_log::init(app.handle());
+
       // ── System tray with Show / Quit menu ──────────────────────────────
 
       let show_item = MenuItemBuilder::with_id("show", "Show").build(app)?;
@@ -591,6 +598,13 @@ pub fn run() {
       time_tracker::delete_offline_time_file,
       time_tracker::sync_offline_time,
       time_tracker::debug_tracker_scan,
+      time_tracker::get_tracker_status,
+      time_tracker::reset_tracker_ledger,
+      tracker_log::get_tracker_log,
+      tracker_log::clear_tracker_log,
+      tracker_log::open_tracker_log_folder,
+      tracker_log::read_tracker_log_file,
+      tracker_log::tracker_log_line,
       settings::get_start_minimized,
       settings::set_start_minimized,
       settings::get_minimize_on_game_launch,

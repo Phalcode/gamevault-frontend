@@ -4,6 +4,11 @@
 
 ### Changes
 
+- Fixed playtime briefly landing in the offline file every time the session was refreshed: the tracker now retries with the fresh session immediately, and the session is refreshed earlier so a token never expires in the middle of a tick.
+- Fixed playtime stopping to count while a game was running: the tracker now asks for a fresh session as soon as the server rejects an increment, pauses its requests instead of retrying every minute, and credits the minutes it stored offline as soon as the session works again.
+- Fixed playtime that was stored offline being stranded until an app restart: offline minutes are now synced in the background and immediately when the connection or the session returns.
+- Fixed the time tracker re-scanning every installed game's folder every minute, which could delay ticks on large installations.
+- Fixed playtime being lost when a game's launcher briefly restarts the game process: tracking now continues for a short grace period instead of ending the session.
 - Added a Refresh button to the window title bar that reloads the current page.
 - Auto-install on Linux now makes extracted shell scripts (`.sh`/`.bash`/`.run`/etc.) executable automatically.
 - Fixed "Open Folder" doing nothing on Linux: folder and URL opening now use the official `tauri-plugin-opener`, with WSL support preserved.
