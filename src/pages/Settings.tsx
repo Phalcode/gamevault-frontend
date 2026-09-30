@@ -58,6 +58,7 @@ import {
   updateRootPath,
   updateRootPathLabel,
 } from "@/utils/rootPaths";
+import { openLaunchLogWindow } from "@/utils/launchLog";
 import {
   FolderArrowDownIcon,
   ComputerDesktopIcon,
@@ -322,6 +323,14 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     description: "Files GameVault should skip completely",
     category: "games",
     keywords: ["ignore", "hidden", "executables", "skip", "setup"],
+    desktopOnly: true,
+  },
+  {
+    id: "games-launch-logs",
+    title: "Launch logs",
+    description: "Open the log window automatically and browse launch logs",
+    category: "games",
+    keywords: ["log", "logs", "debug", "crash", "proton", "wine", "umu"],
     desktopOnly: true,
   },
   {
@@ -694,6 +703,8 @@ export default function Settings() {
       }
     },
   );
+  const [alwaysShowLaunchLogs, setAlwaysShowLaunchLogs] =
+    useState<boolean>(false);
   const [autoExtract, setAutoExtract] = useState<boolean>(() => {
     try {
       return localStorage.getItem(AUTO_EXTRACT_KEY) === "1";
@@ -957,6 +968,35 @@ export default function Settings() {
       console.warn("Failed to persist minimize on game launch preference");
     }
   }, [minimizeOnGameLaunch]);
+
+  // Load and persist the "always show launch logs" setting (desktop only).
+  useEffect(() => {
+    if (!isTauri) return;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        setAlwaysShowLaunchLogs(
+          await invoke<boolean>("get_always_show_launch_logs"),
+        );
+      } catch (e) {
+        console.error("Failed to load launch log preference:", e);
+      }
+    })();
+  }, [isTauri]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("set_always_show_launch_logs", {
+          enabled: alwaysShowLaunchLogs,
+        });
+      } catch (e) {
+        console.error("Failed to sync launch log preference:", e);
+      }
+    })();
+  }, [alwaysShowLaunchLogs, isTauri]);
 
   // Persist auto-flow settings to localStorage
   useEffect(() => {
@@ -1988,6 +2028,46 @@ export default function Settings() {
                       </SettingsRow>
                     </SettingsGroup>
 
+                    <SettingsGroup
+                      id="setting-games-launch-logs"
+                      className={rowHighlight("games-launch-logs")}
+                      caption="Launch logs"
+                    >
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Always show launch logs"
+                          description="Open a log window automatically when a game starts, showing the full output (Proton/Wine/umu included). Logs are always recorded — a failed launch opens them regardless of this setting."
+                        />
+                        <Switch
+                          name="alwaysShowLaunchLogs"
+                          color="indigo"
+                          aria-label="Always show launch logs"
+                          checked={alwaysShowLaunchLogs}
+                          onChange={(v: boolean) => setAlwaysShowLaunchLogs(v)}
+                        />
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Launch logs"
+                          description="Open the log window for the current (or last) launch, or browse earlier logs."
+                        />
+                        <Button
+                          type="button"
+                          color="indigo"
+                          className="shrink-0 px-3"
+                          onClick={async () => {
+                            try {
+                              await openLaunchLogWindow();
+                            } catch (e) {
+                              console.error("Failed to open launch log", e);
+                            }
+                          }}
+                        >
+                          Open
+                        </Button>
+                      </SettingsRow>
+                    </SettingsGroup>
+
                     {isLinux && (
                       <SettingsGroup
                         id="setting-games-wine-prefix"
@@ -1998,7 +2078,7 @@ export default function Settings() {
                         <SettingsRow>
                           <SettingsLabel
                             title="Prefix Base Directory"
-                            description="GameVault creates a separate prefix subfolder per game inside this folder. Leave empty to use umu's default location."
+                            description="GameVault creates a separate prefix subfolder per game inside this folder, named like the game's install folder. Leave empty for GameVault's default location (~/.local/share/GameVault/prefixes)."
                           />
                           <Button
                             outline

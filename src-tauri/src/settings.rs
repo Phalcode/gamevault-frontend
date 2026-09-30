@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::UNIX_EPOCH;
 use tauri::Manager;
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub(crate) struct AppSettings {
   #[serde(default)]
   pub start_minimized: bool,
@@ -25,6 +27,18 @@ pub(crate) struct AppSettings {
   /// `None` = leave WebKit default.
   #[serde(default)]
   pub webkit_hw_accel_policy: Option<String>,
+  /// Whether the launch log window opens automatically when a game starts.
+  /// Logs are always recorded; this only controls the window.
+  #[serde(default)]
+  pub always_show_launch_logs: bool,
+  /// Pre-release channel ("unstable" or "early-access") whose one-time launch
+  /// warning has already been acknowledged on this installation.
+  ///
+  /// This is kept in the app settings file instead of the webview's
+  /// localStorage, because the webview data folder is cleared by the
+  /// installer on updates - which made the warning reappear after each one.
+  #[serde(default)]
+  pub prerelease_notice_channel: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -37,16 +51,55 @@ pub(crate) fn settings_path(app: &tauri::AppHandle) -> PathBuf {
   app.path().app_data_dir().unwrap().join("gamevault-settings.json")
 }
 
+/// Last parsed settings, keyed by the file's modification time.
+///
+/// The time tracker reads the ignore list every 60 s tick; re-reading and
+/// parsing the JSON from disk every time is pure overhead.
+static SETTINGS_CACHE: OnceLock<Mutex<Option<(u64, AppSettings)>>> = OnceLock::new();
+
+fn settings_cache() -> &'static Mutex<Option<(u64, AppSettings)>> {
+  SETTINGS_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn settings_modified_ms(path: &std::path::Path) -> u64 {
+  std::fs::metadata(path)
+    .and_then(|metadata| metadata.modified())
+    .ok()
+    .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+    .map(|duration| duration.as_millis() as u64)
+    .unwrap_or(0)
+}
+
 pub(crate) fn load_settings(app: &tauri::AppHandle) -> AppSettings {
   let path = settings_path(app);
-  if path.exists() {
-    if let Ok(data) = std::fs::read_to_string(&path) {
-      if let Ok(settings) = serde_json::from_str::<AppSettings>(&data) {
-        return settings;
+  let modified = settings_modified_ms(&path);
+
+  if modified != 0 {
+    if let Ok(cache) = settings_cache().lock() {
+      if let Some((cached_modified, settings)) = cache.as_ref() {
+        if *cached_modified == modified {
+          return settings.clone();
+        }
       }
     }
   }
-  AppSettings::default()
+
+  let settings = if path.exists() {
+    std::fs::read_to_string(&path)
+      .ok()
+      .and_then(|data| serde_json::from_str::<AppSettings>(&data).ok())
+      .unwrap_or_default()
+  } else {
+    AppSettings::default()
+  };
+
+  if modified != 0 {
+    if let Ok(mut cache) = settings_cache().lock() {
+      *cache = Some((modified, settings.clone()));
+    }
+  }
+
+  settings
 }
 
 pub(crate) fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), String> {
@@ -55,7 +108,13 @@ pub(crate) fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> R
     std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {}", e))?;
   }
   let data = serde_json::to_string_pretty(settings).map_err(|e| format!("Failed to serialize: {}", e))?;
-  std::fs::write(&path, &data).map_err(|e| format!("Failed to write config: {}", e))
+  std::fs::write(&path, &data).map_err(|e| format!("Failed to write config: {}", e))?;
+
+  // Update the cache in place so the next reader does not re-parse the file.
+  if let Ok(mut cache) = settings_cache().lock() {
+    *cache = Some((settings_modified_ms(&path), settings.clone()));
+  }
+  Ok(())
 }
 
 #[tauri::command]
@@ -117,10 +176,27 @@ pub(crate) fn set_ignore_list(app: tauri::AppHandle, ignored: Vec<String>) -> Re
 }
 
 #[tauri::command]
+pub(crate) fn get_prerelease_notice_channel(app: tauri::AppHandle) -> Option<String> {
+  load_settings(&app).prerelease_notice_channel
+}
+/// Records the pre-release channel whose warning was acknowledged. `None`
+/// clears it, which makes the warning show up again on the next launch.
+#[tauri::command]
+pub(crate) fn set_prerelease_notice_channel(
+  app: tauri::AppHandle,
+  channel: Option<String>,
+) -> Result<(), String> {
+  let mut settings = load_settings(&app);
+  settings.prerelease_notice_channel = channel
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty());
+  save_settings(&app, &settings)
+}
+
+#[tauri::command]
 pub(crate) fn get_default_wine_prefix(app: tauri::AppHandle) -> Option<String> {
   load_settings(&app).default_wine_prefix
 }
-
 #[tauri::command]
 pub(crate) fn set_default_wine_prefix(
   app: tauri::AppHandle,
@@ -131,5 +207,21 @@ pub(crate) fn set_default_wine_prefix(
     .map(|value| value.trim().to_string())
     .filter(|value| !value.is_empty());
   settings.default_wine_prefix = trimmed;
+  save_settings(&app, &settings)
+}
+
+/// Whether the launch log window should open automatically on game start.
+#[tauri::command]
+pub(crate) fn get_always_show_launch_logs(app: tauri::AppHandle) -> bool {
+  load_settings(&app).always_show_launch_logs
+}
+
+#[tauri::command]
+pub(crate) fn set_always_show_launch_logs(
+  app: tauri::AppHandle,
+  enabled: bool,
+) -> Result<(), String> {
+  let mut settings = load_settings(&app);
+  settings.always_show_launch_logs = enabled;
   save_settings(&app, &settings)
 }

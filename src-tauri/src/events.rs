@@ -110,6 +110,19 @@ pub(crate) fn emit_extract_progress(
     _ => None,
   };
 
+  // Remember the state in-process as well: the webview that started the
+  // extraction may be reloaded (F5) while the task keeps running, and it needs
+  // to be able to re-attach to it afterwards.
+  crate::state::set_extraction_snapshot(crate::state::ExtractionSnapshot {
+    game_id,
+    status: status.to_string(),
+    processed,
+    total,
+    progress,
+    current_file: current_file.clone(),
+    error: error.clone(),
+  });
+
   let _ = app.emit(
     "extract-progress",
     ExtractProgressEvent {
@@ -138,6 +151,20 @@ pub(crate) fn emit_install_copy_progress(
     _ => None,
   };
 
+  // Also record it in-process: the install copy runs on a detached thread, so
+  // the UI must be able to re-attach to it after a webview reload (F5).
+  crate::state::set_installation_snapshot(crate::state::InstallationSnapshot {
+    game_id,
+    step: "copy".to_string(),
+    status: status.to_string(),
+    processed,
+    total,
+    progress,
+    current_file: current_file.clone(),
+    exit_code: None,
+    error: error.clone(),
+  });
+
   let _ = app.emit(
     "install-copy-progress",
     InstallCopyProgressEvent {
@@ -160,6 +187,20 @@ pub(crate) fn emit_installer_status(
   exit_code: Option<i32>,
   error: Option<String>,
 ) {
+  // Mirror the installer state in-process so a reloaded UI can re-attach to a
+  // running installer (which keeps running as a detached thread).
+  crate::state::set_installation_snapshot(crate::state::InstallationSnapshot {
+    game_id,
+    step: "installer".to_string(),
+    status: status.to_string(),
+    processed: 0,
+    total: None,
+    progress: None,
+    current_file: current_file.clone(),
+    exit_code,
+    error: error.clone(),
+  });
+
   let _ = app.emit(
     "installer-status",
     InstallerStatusEvent {
@@ -218,6 +259,14 @@ pub(crate) fn emit_umu_status(
   line: Option<String>,
   message: Option<String>,
 ) {
+  // Keep the phase in-process too: umu setup keeps running when the webview is
+  // reloaded, and the overlay must be able to re-attach to it.
+  crate::state::set_umu_snapshot(Some(crate::state::UmuSnapshot {
+    status: phase.to_string(),
+    message: message.clone().or_else(|| line.clone()),
+    game_title: game_title.map(String::from),
+  }));
+
   let _ = app.emit(
     "umu-status",
     UmuStatusEvent {

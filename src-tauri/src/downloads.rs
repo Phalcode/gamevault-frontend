@@ -5,7 +5,19 @@ use std::fs;
 use std::path::PathBuf;
 
 #[tauri::command]
-pub(crate) fn recover_download_cards(selected_root: String) -> Result<Vec<RecoveredDownloadCard>, String> {
+pub(crate) async fn recover_download_cards(
+  selected_root: String,
+) -> Result<Vec<RecoveredDownloadCard>, String> {
+  // Scans every version folder under the root to rebuild the download cards,
+  // which must happen off the UI thread.
+  tauri::async_runtime::spawn_blocking(move || recover_download_cards_blocking(selected_root))
+    .await
+    .map_err(|error| format!("Recovering downloads failed: {error}"))?
+}
+
+pub(crate) fn recover_download_cards_blocking(
+  selected_root: String,
+) -> Result<Vec<RecoveredDownloadCard>, String> {
   let candidate = PathBuf::from(&selected_root).join("GameVault");
   let root = if candidate.exists() {
     candidate
@@ -209,9 +221,10 @@ pub(crate) fn recover_download_cards(selected_root: String) -> Result<Vec<Recove
 
 use crate::events::DownloadProgressEvent;
 use crate::state::{control_flags, DOWNLOAD_CONTROL_RUNNING, DOWNLOAD_CONTROL_PAUSE, DOWNLOAD_CONTROL_CANCEL};
+use std::collections::HashMap;
 use std::io::SeekFrom;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tokio::fs::{File, OpenOptions};
@@ -299,6 +312,55 @@ fn filename_from_content_disposition(header: Option<&reqwest::header::HeaderValu
   None
 }
 
+/// Tracks which download tasks are currently alive, per game.
+///
+/// Download tasks keep running when the webview is reloaded (F5), and the
+/// frontend resumes whatever it finds on disk afterwards. Without this guard a
+/// second task would start writing the same file, so `download_game_version`
+/// refuses to start while a live task for the game exists.
+///
+/// Entries are owned by the task that created them: a task that is winding down
+/// (paused/cancelled) may still be alive when a newer task starts, and its
+/// cleanup must not remove the newer task's entry.
+struct ActiveDownloadEntry {
+  game_id: i64,
+  token: u64,
+}
+
+impl Drop for ActiveDownloadEntry {
+  fn drop(&mut self) {
+    if let Ok(mut tasks) = active_download_tasks().lock() {
+      if tasks.get(&self.game_id) == Some(&self.token) {
+        tasks.remove(&self.game_id);
+      }
+    }
+  }
+}
+
+static ACTIVE_DOWNLOAD_TASKS: OnceLock<Mutex<HashMap<i64, u64>>> = OnceLock::new();
+static DOWNLOAD_TASK_TOKEN: AtomicU64 = AtomicU64::new(1);
+
+fn active_download_tasks() -> &'static Mutex<HashMap<i64, u64>> {
+  ACTIVE_DOWNLOAD_TASKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Registers a new download task and returns a guard that deregisters it again,
+/// on every exit path including panics.
+fn register_download_task(game_id: i64) -> ActiveDownloadEntry {
+  let token = DOWNLOAD_TASK_TOKEN.fetch_add(1, Ordering::Relaxed);
+  if let Ok(mut tasks) = active_download_tasks().lock() {
+    tasks.insert(game_id, token);
+  }
+  ActiveDownloadEntry { game_id, token }
+}
+
+fn is_download_task_live(game_id: i64) -> bool {
+  active_download_tasks()
+    .lock()
+    .map(|tasks| tasks.contains_key(&game_id))
+    .unwrap_or(false)
+}
+
 #[tauri::command]
 pub(crate) fn download_game_version(
   app: tauri::AppHandle,
@@ -311,6 +373,28 @@ pub(crate) fn download_game_version(
   resume_position: Option<u64>,
 ) -> Result<(), String> {
   let control_flag = Arc::new(AtomicU8::new(DOWNLOAD_CONTROL_RUNNING));
+
+  // A download for this game may already be running: the task survives a
+  // webview reload, and the frontend resumes downloads it finds on disk
+  // afterwards. Starting a second task would put two writers on the same file,
+  // so keep the running one and let the UI re-attach to its progress events.
+  //
+  // A task that was paused or cancelled is on its way out and does not count:
+  // retrying right after cancelling must still work.
+  let previous_is_still_downloading = control_flags()
+    .lock()
+    .ok()
+    .and_then(|flags| flags.get(&game_id).cloned())
+    .map(|flag| flag.load(Ordering::Relaxed) == DOWNLOAD_CONTROL_RUNNING)
+    .unwrap_or(false);
+  if previous_is_still_downloading && is_download_task_live(game_id) {
+    return Ok(());
+  }
+
+  // Registered before the task starts so a second call in the same tick can
+  // never slip past the guard above.
+  let active_entry = register_download_task(game_id);
+
   {
     let mut guard = control_flags()
       .lock()
@@ -319,6 +403,8 @@ pub(crate) fn download_game_version(
   }
 
   tauri::async_runtime::spawn(async move {
+    let _active_entry = active_entry;
+
     let client = reqwest::Client::new();
     let mut req = client.get(&url).header("Accept", "*/*");
     if let Some(auth) = auth_header.as_ref() {

@@ -179,6 +179,80 @@ export function AppUpdaterProvider({
     };
   }, []);
 
+  // Re-attach to an update that is already downloading or installing.
+  //
+  // The update keeps running in the backend when the webview is reloaded, but
+  // its progress listener is gone. Restore the status text, and keep
+  // `runningRef` set so the auto-check (and a manual check) can't start a
+  // second download of the same update on top of it.
+  useEffect(() => {
+    if (!isTauriApp()) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const states = await invoke<{
+          appUpdate?: {
+            status: string;
+            version?: string | null;
+            error?: string | null;
+          } | null;
+        }>("get_background_states");
+        const snapshot = states?.appUpdate;
+        if (cancelled || !snapshot) return;
+
+        if (
+          snapshot.status === "downloading" ||
+          snapshot.status === "installing"
+        ) {
+          runningRef.current = true;
+          setIsInstalling(true);
+          setStatusText(
+            snapshot.status === "installing"
+              ? "Installing update..."
+              : "Downloading update...",
+          );
+
+          // The backend keeps streaming progress; follow it so the status text
+          // stays accurate while the update finishes in the background.
+          const { listen } = await import("@tauri-apps/api/event");
+          const unlisten = await listen<UpdateDownloadEvent>(
+            APP_UPDATER_EVENT,
+            (event) => {
+              if (cancelled) return;
+              switch (event.payload.event) {
+                case "Installing":
+                  setStatusText("Installing update...");
+                  break;
+                case "Finished":
+                  setIsInstalling(false);
+                  setStatusText(
+                    "Update installed. Restart GameVault to finish.",
+                  );
+                  break;
+                default:
+                  break;
+              }
+            },
+          );
+          if (cancelled) unlisten();
+        } else if (snapshot.status === "finished") {
+          setAvailableVersion(null);
+          setStatusText("Update installed. Restart GameVault to finish.");
+        } else if (snapshot.status === "error" && snapshot.error) {
+          setErrorText(snapshot.error);
+        }
+      } catch {
+        // Older builds without the background state command; ignore.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const checkForUpdates = useCallback(
     async ({ manual = false }: CheckForUpdatesOptions = {}) => {
       if (runningRef.current) {

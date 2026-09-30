@@ -4,6 +4,8 @@ mod util;
 mod downloads;
 mod extraction;
 mod installation;
+mod launch_log;
+mod tracker_log;
 mod games;
 mod fs_commands;
 mod time_tracker;
@@ -286,6 +288,54 @@ async fn download_and_install_app_update(
   app: AppHandle,
   channel: UpdateChannel,
 ) -> Result<Option<String>, String> {
+  // A reloaded page can ask again while the update task started earlier keeps
+  // running. Downloading the update twice (and installing it twice) would be a
+  // mess, so refuse while one is already in flight.
+  if crate::state::app_update_snapshot()
+    .map(|snapshot| snapshot.status == "downloading" || snapshot.status == "installing")
+    .unwrap_or(false)
+  {
+    return Err("An update is already being downloaded or installed.".to_string());
+  }
+
+  crate::state::set_app_update_snapshot(Some(crate::state::AppUpdateSnapshot {
+    status: "downloading".to_string(),
+    version: None,
+    error: None,
+  }));
+
+  match run_app_update(app, channel).await {
+    Ok(version) => {
+      crate::state::set_app_update_snapshot(Some(crate::state::AppUpdateSnapshot {
+        status: "finished".to_string(),
+        version: version.clone(),
+        error: None,
+      }));
+      Ok(version)
+    }
+    Err(error) => {
+      crate::state::set_app_update_snapshot(Some(crate::state::AppUpdateSnapshot {
+        status: "error".to_string(),
+        version: None,
+        error: Some(error.clone()),
+      }));
+      Err(error)
+    }
+  }
+}
+
+/// State of everything that keeps running in the background (downloads,
+/// extractions, installations, umu setup, app updates).
+///
+/// The frontend calls this right after loading so it can re-attach to work that
+/// is still in flight, and pick up results that finished while its page was
+/// reloaded or the app was restarted.
+#[tauri::command]
+fn get_background_states() -> crate::state::BackgroundStates {
+  crate::state::background_states()
+}
+
+async fn run_app_update(app: AppHandle, channel: UpdateChannel) -> Result<Option<String>, String> {
   let Some(update) = resolve_update_for_channel(&app, channel).await? else {
     return Ok(None);
   };
@@ -412,6 +462,12 @@ pub fn run() {
         )?;
       }
 
+      // ── Time tracker diagnostics log ───────────────────────────────────
+      // Records every tracker tick, match transition and credit outcome.
+      // Disabled for now via `tracker_log::ENABLED`; the tracker keeps its
+      // counters in memory either way.
+      tracker_log::init(app.handle());
+
       // ── System tray with Show / Quit menu ──────────────────────────────
 
       let show_item = MenuItemBuilder::with_id("show", "Show").build(app)?;
@@ -503,6 +559,7 @@ pub fn run() {
       util::open_devtools,
       youtube::youtube_embed_base,
       extraction::extract_archive,
+      get_background_states,
       installation::list_install_executables,
       installation::copy_installation_files,
       installation::launch_installation_executable,
@@ -541,6 +598,13 @@ pub fn run() {
       time_tracker::delete_offline_time_file,
       time_tracker::sync_offline_time,
       time_tracker::debug_tracker_scan,
+      time_tracker::get_tracker_status,
+      time_tracker::reset_tracker_ledger,
+      tracker_log::get_tracker_log,
+      tracker_log::clear_tracker_log,
+      tracker_log::open_tracker_log_folder,
+      tracker_log::read_tracker_log_file,
+      tracker_log::tracker_log_line,
       settings::get_start_minimized,
       settings::set_start_minimized,
       settings::get_minimize_on_game_launch,
@@ -549,6 +613,10 @@ pub fn run() {
       settings::set_ignore_list,
       settings::get_default_wine_prefix,
       settings::set_default_wine_prefix,
+      settings::get_prerelease_notice_channel,
+      settings::set_prerelease_notice_channel,
+      settings::get_always_show_launch_logs,
+      settings::set_always_show_launch_logs,
       rendering::get_rendering_diagnostics,
       rendering::get_webkit_settings,
       rendering::set_webkit_smooth_scrolling,
@@ -559,6 +627,15 @@ pub fn run() {
       umu::umu_status,
       umu::install_umu_launcher,
       umu::resolve_windows_install_path,
+      umu::resolve_game_wine_prefix,
+      umu::delete_game_wine_prefix,
+      umu::list_proton_builds,
+      launch_log::get_launch_log,
+      launch_log::list_launch_logs,
+      launch_log::open_launch_log_window,
+      launch_log::open_launch_log_folder,
+      launch_log::clear_launch_logs,
+      launch_log::read_launch_log_file,
       is_updater_enabled,
       check_for_app_update,
       download_and_install_app_update

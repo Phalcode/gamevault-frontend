@@ -30,3 +30,325 @@ pub(crate) fn tracker_config() -> &'static Mutex<Option<TrackerConfig>> {
 pub(crate) fn tracker_stop_tx() -> &'static Mutex<Option<watch::Sender<bool>>> {
   TRACKER_STOP_TX.get_or_init(|| Mutex::new(None))
 }
+
+/// Live counters for the native time tracker, surfaced in the diagnostics dump.
+///
+/// The tracker credits one minute per matched tick, so `lost_ticks` and the
+/// per-game ledgers below are the evidence trail for playtime that ended up
+/// lower than what was actually played.
+#[derive(Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TrackerRuntimeStats {
+  pub running: bool,
+  pub started_at: Option<u64>,
+  pub tick_count: u64,
+  /// Seconds between expected ticks (the tracker interval).
+  pub tick_interval_secs: u64,
+  /// Ticks the interval expected but the loop did not run (sleep, freeze, starvation).
+  pub lost_ticks: u64,
+  /// Ticks that fired back-to-back to catch up after a stall.
+  pub catch_up_ticks: u64,
+  pub last_tick_at: Option<u64>,
+  pub last_tick_gap_secs: Option<u64>,
+  pub last_tick_duration_ms: Option<u64>,
+  pub last_tick_summary: Option<String>,
+  pub last_error: Option<String>,
+  pub consecutive_failures: u64,
+  /// Number of increments the server rejected with 401/403 (expired token).
+  pub auth_rejected_count: u64,
+  /// Consecutive auth rejections since the last successful increment.
+  pub auth_streak: u64,
+  /// While set (unix ms in the future) the tracker stores playtime offline
+  /// instead of asking a server that is rejecting its session.
+  pub auth_backoff_until: Option<u64>,
+  /// Ticks that were stored offline without a request because of the backoff.
+  pub skipped_auth_ticks: u64,
+  /// Last time the frontend was notified about an expired session.
+  pub last_auth_event_at: Option<u64>,
+  pub stop_reason: Option<String>,
+  pub log_path: Option<String>,
+}
+
+/// Per-game playtime accounting: what the wall clock suggested versus what the
+/// server actually credited, plus the reason for every lost tick.
+#[derive(Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GamePlayLedger {
+  pub game_id: i64,
+  pub game_title: String,
+  /// Currently matched to a running process.
+  pub matched: bool,
+  /// Seconds since the last time this game was matched.
+  pub first_matched_at: Option<u64>,
+  pub last_matched_at: Option<u64>,
+  pub matched_ticks: u64,
+  /// Increments the server accepted.
+  pub credited_ticks: u64,
+  /// Increments that failed but were written to the offline file.
+  pub offline_ticks: u64,
+  /// Minutes that were never recorded anywhere.
+  pub lost_ticks: u64,
+  /// Lost ticks attributed to a tick gap (sleep/resume, freeze, starvation).
+  pub dropped_ticks: u64,
+  /// Matches lost although the game was played before (launcher exit, re-exec…).
+  pub match_flaps: u64,
+  pub credited_minutes: u64,
+  pub offline_minutes: u64,
+  /// Minutes synced from an offline file of an earlier session.
+  pub replayed_minutes: u64,
+  pub observed_seconds: u64,
+  /// Ticks the game was not matched since the last match (grace counter).
+  pub missing_ticks: u64,
+  /// Last `minutes_played` the server reported for this game.
+  pub last_server_minutes: Option<i64>,
+  /// Why the game was not matched/credited on the last tick.
+  pub last_skip_reason: Option<String>,
+}
+
+static TRACKER_STATS: OnceLock<Mutex<TrackerRuntimeStats>> = OnceLock::new();
+static TRACKER_LEDGER: OnceLock<Mutex<HashMap<i64, GamePlayLedger>>> = OnceLock::new();
+
+pub(crate) fn tracker_stats() -> &'static Mutex<TrackerRuntimeStats> {
+  TRACKER_STATS.get_or_init(|| Mutex::new(TrackerRuntimeStats::default()))
+}
+
+pub(crate) fn tracker_ledger() -> &'static Mutex<HashMap<i64, GamePlayLedger>> {
+  TRACKER_LEDGER.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Clears the playtime ledger and resets counters for a new tracker session.
+pub(crate) fn reset_tracker_stats(started_at: u64, tick_interval_secs: u64) {
+  if let Ok(mut stats) = tracker_stats().lock() {
+    let log_path = stats.log_path.clone();
+    *stats = TrackerRuntimeStats {
+      running: true,
+      started_at: Some(started_at),
+      tick_interval_secs,
+      log_path,
+      ..TrackerRuntimeStats::default()
+    };
+  }
+  if let Ok(mut ledger) = tracker_ledger().lock() {
+    ledger.clear();
+  }
+}
+
+/// Snapshot of the ledger, sorted by game id for stable output.
+pub(crate) fn tracker_ledger_snapshot() -> Vec<GamePlayLedger> {
+  tracker_ledger()
+    .lock()
+    .map(|ledger| {
+      let mut games: Vec<GamePlayLedger> = ledger.values().cloned().collect();
+      games.sort_by_key(|game| game.game_id);
+      games
+    })
+    .unwrap_or_default()
+}
+
+/// Minutes that are stored offline and still waiting for a successful sync.
+pub(crate) fn pending_offline_minutes() -> u64 {
+  tracker_ledger()
+    .lock()
+    .map(|ledger| ledger.values().map(|game| game.offline_minutes).sum())
+    .unwrap_or(0)
+}
+
+/// Latest known state of an extraction, per game.
+///
+/// Extraction runs on a detached blocking task that keeps going when the
+/// webview is reloaded (F5) or navigated away. Without this registry the UI
+/// would lose track of it and show the game as "not extracted" again, even
+/// though files are still being written. The frontend queries the registry on
+/// startup to re-attach to a running extraction and to pick up results that
+/// finished while the page was away.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExtractionSnapshot {
+  pub game_id: i64,
+  /// `extracting` | `completed` | `needs-password` | `error`
+  pub status: String,
+  pub processed: u64,
+  pub total: Option<u64>,
+  pub progress: Option<f64>,
+  pub current_file: Option<String>,
+  pub error: Option<String>,
+}
+
+static EXTRACTION_STATES: OnceLock<Mutex<HashMap<i64, ExtractionSnapshot>>> = OnceLock::new();
+
+fn extraction_states() -> &'static Mutex<HashMap<i64, ExtractionSnapshot>> {
+  EXTRACTION_STATES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn set_extraction_snapshot(snapshot: ExtractionSnapshot) {
+  if let Ok(mut states) = extraction_states().lock() {
+    states.insert(snapshot.game_id, snapshot);
+  }
+}
+
+pub(crate) fn extraction_snapshots() -> Vec<ExtractionSnapshot> {
+  extraction_states()
+    .lock()
+    .map(|states| states.values().cloned().collect())
+    .unwrap_or_default()
+}
+
+/// Whether an extraction for this game is currently being processed.
+pub(crate) fn is_extraction_running(game_id: i64) -> bool {
+  extraction_states()
+    .lock()
+    .map(|states| {
+      states
+        .get(&game_id)
+        .map(|snapshot| snapshot.status == "extracting")
+        .unwrap_or(false)
+    })
+    .unwrap_or(false)
+}
+
+/// Latest known state of an installation (file copy or installer run), per game.
+///
+/// Like extractions, both install steps run on detached threads, so their state
+/// must survive a webview reload for the UI to re-attach to them.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InstallationSnapshot {
+  pub game_id: i64,
+  /// `copy` for the file copy, `installer` while a setup executable runs.
+  pub step: String,
+  /// `copying` | `launching` | `running` | `completed` | `error`
+  pub status: String,
+  pub processed: u64,
+  pub total: Option<u64>,
+  pub progress: Option<f64>,
+  pub current_file: Option<String>,
+  pub exit_code: Option<i32>,
+  pub error: Option<String>,
+}
+
+static INSTALLATION_STATES: OnceLock<Mutex<HashMap<i64, InstallationSnapshot>>> = OnceLock::new();
+
+fn installation_states() -> &'static Mutex<HashMap<i64, InstallationSnapshot>> {
+  INSTALLATION_STATES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn set_installation_snapshot(snapshot: InstallationSnapshot) {
+  if let Ok(mut states) = installation_states().lock() {
+    states.insert(snapshot.game_id, snapshot);
+  }
+}
+
+pub(crate) fn installation_snapshots() -> Vec<InstallationSnapshot> {
+  installation_states()
+    .lock()
+    .map(|states| states.values().cloned().collect())
+    .unwrap_or_default()
+}
+
+/// Whether a file copy for this game is currently running.
+pub(crate) fn is_install_copy_running(game_id: i64) -> bool {
+  installation_states()
+    .lock()
+    .map(|states| {
+      states
+        .get(&game_id)
+        .map(|snapshot| snapshot.step == "copy" && snapshot.status == "copying")
+        .unwrap_or(false)
+    })
+    .unwrap_or(false)
+}
+
+/// Whether an installer for this game is currently running.
+pub(crate) fn is_installer_running(game_id: i64) -> bool {
+  installation_states()
+    .lock()
+    .map(|states| {
+      states
+        .get(&game_id)
+        .map(|snapshot| {
+          snapshot.step == "installer"
+            && (snapshot.status == "launching" || snapshot.status == "running")
+        })
+        .unwrap_or(false)
+    })
+    .unwrap_or(false)
+}
+
+/// State of the (single) umu-launcher setup task.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UmuSnapshot {
+  /// `installing` | `setup` | `running` | `exit` | `error`
+  pub status: String,
+  pub message: Option<String>,
+  pub game_title: Option<String>,
+}
+
+static UMU_STATE: OnceLock<Mutex<Option<UmuSnapshot>>> = OnceLock::new();
+
+fn umu_state() -> &'static Mutex<Option<UmuSnapshot>> {
+  UMU_STATE.get_or_init(|| Mutex::new(None))
+}
+
+pub(crate) fn set_umu_snapshot(snapshot: Option<UmuSnapshot>) {
+  if let Ok(mut state) = umu_state().lock() {
+    *state = snapshot;
+  }
+}
+
+pub(crate) fn umu_snapshot() -> Option<UmuSnapshot> {
+  umu_state().lock().ok().and_then(|state| state.clone())
+}
+
+/// Whether umu-launcher is currently being downloaded/extracted.
+pub(crate) fn is_umu_install_running() -> bool {
+  umu_snapshot()
+    .map(|snapshot| snapshot.status == "installing")
+    .unwrap_or(false)
+}
+
+/// State of the (single) app self-update task.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppUpdateSnapshot {
+  /// `downloading` | `installing` | `finished` | `error`
+  pub status: String,
+  pub version: Option<String>,
+  pub error: Option<String>,
+}
+
+static APP_UPDATE_STATE: OnceLock<Mutex<Option<AppUpdateSnapshot>>> = OnceLock::new();
+
+fn app_update_state() -> &'static Mutex<Option<AppUpdateSnapshot>> {
+  APP_UPDATE_STATE.get_or_init(|| Mutex::new(None))
+}
+
+pub(crate) fn set_app_update_snapshot(snapshot: Option<AppUpdateSnapshot>) {
+  if let Ok(mut state) = app_update_state().lock() {
+    *state = snapshot;
+  }
+}
+
+pub(crate) fn app_update_snapshot() -> Option<AppUpdateSnapshot> {
+  app_update_state().lock().ok().and_then(|state| state.clone())
+}
+
+/// Everything the frontend needs to re-attach to long-running work after a
+/// reload or restart. Served by the `get_background_states` command.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BackgroundStates {
+  pub extractions: Vec<ExtractionSnapshot>,
+  pub installations: Vec<InstallationSnapshot>,
+  pub umu: Option<UmuSnapshot>,
+  pub app_update: Option<AppUpdateSnapshot>,
+}
+
+pub(crate) fn background_states() -> BackgroundStates {
+  BackgroundStates {
+    extractions: extraction_snapshots(),
+    installations: installation_snapshots(),
+    umu: umu_snapshot(),
+    app_update: app_update_snapshot(),
+  }
+}

@@ -4,6 +4,11 @@
 
 ### Changes
 
+- Fixed playtime briefly landing in the offline file every time the session was refreshed: the tracker now retries with the fresh session immediately, and the session is refreshed earlier so a token never expires in the middle of a tick.
+- Fixed playtime stopping to count while a game was running: the tracker now asks for a fresh session as soon as the server rejects an increment, pauses its requests instead of retrying every minute, and credits the minutes it stored offline as soon as the session works again.
+- Fixed playtime that was stored offline being stranded until an app restart: offline minutes are now synced in the background and immediately when the connection or the session returns.
+- Fixed the time tracker re-scanning every installed game's folder every minute, which could delay ticks on large installations.
+- Fixed playtime being lost when a game's launcher briefly restarts the game process: tracking now continues for a short grace period instead of ending the session.
 - Added a Refresh button to the window title bar that reloads the current page.
 - Auto-install on Linux now makes extracted shell scripts (`.sh`/`.bash`/`.run`/etc.) executable automatically.
 - Fixed "Open Folder" doing nothing on Linux: folder and URL opening now use the official `tauri-plugin-opener`, with WSL support preserved.
@@ -18,6 +23,7 @@
 - Fixed the Wayland startup crash on the Linux AppImage (`Could not create default EGL display: EGL_BAD_PARAMETER`) by preloading the host's `libwayland-client` through a patched AppImage `AppRun` wrapper. The `.deb` build already uses the system library and is unaffected.
 - Administrators can delete progress entries of other users
 - Added a native OS taskbar/dock download progress indicator for desktop builds (Windows taskbar, macOS dock, Linux launcher)
+- Fixed the Windows taskbar progress bar staying stuck at 100% after a download, extraction or installation had finished. It now disappears as soon as there is nothing left to do, instead of only disappearing when you delete the download.
 - Added an "Installed" badge to server game cards so already-installed games are easy to spot at a glance.
 - The download button on a game's page now collapses into a compact icon-only button when the game is already installed.
 - Downloads interrupted by the app quitting are now automatically resumed on the next launch; downloads you intentionally paused or cancelled stay paused.
@@ -55,16 +61,30 @@
 - Fixed downloads aborting with a 401 error when you refresh (F5) mid-download: auto-resumed downloads now wait for a valid session token instead of firing before login has finished.
 - Added a keyboard shortcut (Ctrl/Cmd+Shift+O) to toggle Streamer/OPSEC mode from anywhere in the app.
 - Cleaned up the Community Page UI
-
----
-
 - Administrators can now view a game's files (their paths, sizes and other metadata) in the game settings and delete individual game files from the server.
 - Made the game settings and user settings dialogs more responsive and easier to use on tablets and phones, and removed the release date from the game files list.
 - Deleting a game's last version file now closes the settings, removes the game from the library, and returns you to the library if you were viewing that game.
 - Settings → About now shows the full system diagnostics (operating system, display and monitors, GPU/WebGL, WebGPU, CPU/memory, platform, language and user agent) that previously only lived in the Developer Tools menu, replacing the shorter system info list there.
 - Moved the Hardware Acceleration setting from the Developer Tools menu into Settings → Appearance (Linux desktop builds), where it now sits next to Smooth Scrolling.
-- Fixed the Linux AppImage failing to play sounds with `GStreamer element appsink not found. Please install it.`: the GStreamer plugins WebKitGTK needs are now bundled into the AppImage (which grows by ~15–35 MB), so no GStreamer packages have to be installed on the system.
+- Fixed the Linux AppImage failing to play sound effects and trailers with `GStreamer element appsink not found. Please install it.` (followed by `fakevideosink` and WebVTT encoder errors): the full GStreamer plugin set WebKitGTK needs — base, good and bad, including H.264/AAC decoding, MSE support and the WebVTT encoder — is now bundled into the AppImage, so no GStreamer packages have to be installed on the system.
 - Fixed the system information under Settings → About not matching the machine it runs on
+- [#36](https://github.com/Phalcode/gamevault-frontend/issues/36) Fixed disc images that only contain a UDF filesystem (e.g. UDF-only DVD/Blu-ray ISOs) failing to extract with an error. Disc images are now read by a combined ISO 9660 and UDF reader.
+
+---
+
+as
+
+- Added a one-time warning on the first launch of an Early Access or unstable build, explaining that these builds are meant for the early access program/developers and testers, that extra setup steps may be needed, and that more issues are to be expected than on a stable release.
+- Refreshing the app (F5) or using the window's Refresh button no longer interrupts work in progress: downloads, extractions, installations, umu-launcher setup and app updates keep running in the background, their progress is picked back up instead of starting over, and a refresh can no longer start a second download, extraction, installation or update over the one that is still running.
+- Fixed the app freezing while uninstalling a game, while launching a Windows game that still needs umu-launcher set up, and while deleting or scanning large game folders.
+- The Early Access/unstable warning is now shown only once per installation instead of again after every app update.
+- Linux/umu-launcher defaults (GAMEID, STORE and Proton version) can now be defined once per game as custom metadata on the server: the game settings dialog has matching fields, and newly downloaded games inherit them automatically instead of needing per-client setup.
+- Fixed Linux/umu-launcher Wine/Proton prefixes: installing, launching and uninstalling a game now all use the same prefix per game (named like the game's install folder). Previously a game could run in a different prefix than it was installed into, and without a GAMEID every game shared umu's default prefix. Existing prefixes are reused, so nothing has to be moved and no save games are lost.
+- Uninstalling a game now offers to also delete its Wine/Proton prefix, showing the folder path and keeping it by default (local saves and game settings can live inside it). Only prefixes GameVault manages are offered.
+- The per-game Wine Prefix field now shows the path that is actually used (with a click-to-copy) instead of a path GameVault never used, and the prefix settings explain the real default location.
+- Fixed uninstalling a game silently dropping the per-game umu-launcher overrides (GAMEID, STORE, Proton version, Wine prefix) and the "run as administrator" flag from the game's configuration.
+- Added launch logs: the complete output of every game start (Proton/Wine/umu output included) is written to rotating log files and shown in a dedicated log window. A new setting ("Always show launch logs") opens that window automatically while a game starts, a failed launch opens it regardless, and earlier logs can be browsed or cleared from the window. Installer runs are logged too.
+- The per-game Proton (PROTONPATH) field now offers a dropdown with the Proton builds already installed in `compatibilitytools.d` (Steam and Flatpak Steam), so version names don't have to be typed by hand.
 
 ## 17.0.0
 

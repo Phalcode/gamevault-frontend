@@ -261,10 +261,9 @@ export const GlobalAlertDialogBridge: React.FC = () => {
   window.showAlertDialog = showAlert;
 
   // Surface game launch failures captured in the Tauri backend (a game that
-  // exits immediately with console output, e.g. a missing prerequisite) as a
-  // clear error dialog instead of silently doing nothing. The wording makes
-  // it obvious the *game process* closed — not GameVault — and shows the
-  // game's own output in a console-style block.
+  // exits immediately with console output, e.g. a missing prerequisite). The
+  // full log is shown in the launch log window (which opens automatically);
+  // only if that fails, fall back to the dialog so a crash is never silent.
   useEffect(() => {
     if (!isTauriApp()) return;
     let unlisten: (() => void) | undefined;
@@ -280,12 +279,19 @@ export const GlobalAlertDialogBridge: React.FC = () => {
           const { gameTitle, exitCode, message } = event.payload;
           const codeInfo =
             exitCode != null ? ` with exit code ${exitCode}` : "";
-          showAlert({
-            title: `${gameTitle} exited with an error`,
-            description: `The game process closed${codeInfo}. It printed the following output:`,
-            log: message,
-            affirmativeText: "OK",
-          });
+          void (async () => {
+            try {
+              const { openLaunchLogWindow } = await import("@/utils/launchLog");
+              await openLaunchLogWindow();
+            } catch {
+              await showAlert({
+                title: `${gameTitle} exited with an error`,
+                description: `The game process closed${codeInfo}. It printed the following output:`,
+                log: message,
+                affirmativeText: "OK",
+              });
+            }
+          })();
         });
       } catch {
         // Non-Tauri environments won't have the IPC bridge; ignore.

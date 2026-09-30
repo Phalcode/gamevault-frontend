@@ -62,27 +62,29 @@ interface Props {
 // No cool object binding in react, so we manually pick fields for custom metadata. But at least this is type save
 type CustomMetadataForm = {
   [
-    K in keyof Pick<
-      GameMetadata,
-      | "title"
-      | "description"
-      | "notes"
-      | "average_playtime"
-      | "age_rating"
-      | "release_date"
-      | "rating"
-      | "early_access"
-      | "launch_executable"
-      | "launch_parameters"
-      | "installer_executable"
-      | "installer_parameters"
-      | "uninstaller_executable"
-      | "uninstaller_parameters"
-      | "url_websites"
-      | "url_trailers"
-      | "url_gameplays"
-      | "url_screenshots"
-    >
+    K in
+      | keyof Pick<
+          GameMetadata,
+          | "title"
+          | "description"
+          | "notes"
+          | "average_playtime"
+          | "age_rating"
+          | "release_date"
+          | "rating"
+          | "early_access"
+          | "launch_executable"
+          | "launch_parameters"
+          | "installer_executable"
+          | "installer_parameters"
+          | "uninstaller_executable"
+          | "uninstaller_parameters"
+          | "url_websites"
+          | "url_trailers"
+          | "url_gameplays"
+          | "url_screenshots"
+        >
+      | UmuMetadataFields
   ]: string;
 } & {
   sort_title: string;
@@ -91,6 +93,18 @@ type CustomMetadataForm = {
   publishers: string;
   developers: string;
 };
+
+/**
+ * umu-launcher defaults for Linux clients (GAMEID/STORE/PROTONPATH).
+ *
+ * Declared locally so the form keeps compiling with API clients generated
+ * from a server that does not ship these metadata fields yet; the values are
+ * sent through the untyped `updateDto` in `saveCustomMetadata`.
+ */
+type UmuMetadataFields = "umu_game_id" | "umu_store" | "umu_proton_path";
+
+type GameMetadataWithUmu = GameMetadata &
+  Partial<Record<UmuMetadataFields, string | undefined>>;
 
 type InstalledGameInfo = {
   gameId: number;
@@ -230,6 +244,9 @@ export function GameSettings({
     installer_parameters: "",
     uninstaller_executable: "",
     uninstaller_parameters: "",
+    umu_game_id: "",
+    umu_store: "",
+    umu_proton_path: "",
     url_websites: "",
     genres: "",
     tags: "",
@@ -276,6 +293,12 @@ export function GameSettings({
   const [umuStore, setUmuStore] = useState<string>("");
   const [umuProtonPath, setUmuProtonPath] = useState<string>("");
   const [umuWinePrefix, setUmuWinePrefix] = useState<string>("");
+  const [protonBuilds, setProtonBuilds] = useState<
+    { name: string; path: string; source: string }[]
+  >([]);
+  const [resolvedPrefixPath, setResolvedPrefixPath] = useState<string | null>(
+    null,
+  );
   const [loadingLaunchOptions, setLoadingLaunchOptions] = useState(false);
   const launchOptionsLoadedRef = useRef(false);
 
@@ -553,6 +576,63 @@ export function GameSettings({
     };
   }, [activeTab, installedGame, checkUmuStatus]);
 
+  // List the Proton builds the user already has installed (compatibilitytools.d),
+  // so PROTONPATH does not have to be typed from memory.
+  useEffect(() => {
+    if (!isTauriApp()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const builds =
+          await invoke<{ name: string; path: string; source: string }[]>(
+            "list_proton_builds",
+          );
+        if (!cancelled) setProtonBuilds(builds);
+      } catch {
+        if (!cancelled) setProtonBuilds([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Show where this game's Wine/Proton prefix actually lives (Linux/umu), so
+  // the per-game override field does not have to guess a path.
+  useEffect(() => {
+    if (!isTauriApp() || !installedGame?.versionDirectory) {
+      setResolvedPrefixPath(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const info = await invoke<{ path: string | null }>(
+          "resolve_game_wine_prefix",
+          {
+            versionDirectory: installedGame.versionDirectory,
+            gameId: installedGame.gameId,
+            umuGameId: umuGameId || null,
+            perGamePrefix: umuWinePrefix || null,
+          },
+        );
+        if (!cancelled) setResolvedPrefixPath(info?.path ?? null);
+      } catch {
+        if (!cancelled) setResolvedPrefixPath(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    installedGame?.versionDirectory,
+    installedGame?.gameId,
+    umuGameId,
+    umuWinePrefix,
+  ]);
+
   const handleMakeExecutable = useCallback(async () => {
     if (!installedGame) return;
     setMakingExecutable(true);
@@ -702,20 +782,13 @@ export function GameSettings({
         current = {};
       }
 
-      const next: GameVaultConfig = {
-        gameid: current.gameid,
-        versionid: current.versionid,
-        gametype: current.gametype,
-        downloadfinished: Boolean(current.downloadfinished),
-        extractionfinished: Boolean(current.extractionfinished),
+      // Spread the existing config so unrelated settings (launch-as-admin, umu
+      // overrides) survive the uninstall; rebuilding it from a whitelist used
+      // to drop them silently.
+      const next = {
+        ...current,
         installationfinished: installationFinished,
-        downloadprogress:
-          typeof current.downloadprogress === "string"
-            ? current.downloadprogress
-            : "",
-        launchexecutable: current.launchexecutable,
-        launchparameters: current.launchparameters,
-      };
+      } as GameVaultConfig;
 
       await invoke("fs_write_text_file", {
         path: configPath,
@@ -778,6 +851,87 @@ export function GameSettings({
     [showAlert],
   );
 
+  /** Reads the local launch/umu overrides of an installed version. */
+  const readLocalUmuConfig = useCallback(async (versionDirectory: string) => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { join } = await import("@tauri-apps/api/path");
+    const configPath = await join(
+      versionDirectory,
+      ".gamevault.game.config.json",
+    );
+    if (!(await invoke<boolean>("fs_path_exists", { path: configPath }))) {
+      return {};
+    }
+    try {
+      const raw = JSON.parse(
+        await invoke<string>("fs_read_text_file", { path: configPath }),
+      );
+      const readString = (value: unknown) =>
+        typeof value === "string" && value.trim() ? value : undefined;
+      return {
+        umuGameId: readString(raw.umugameid),
+        umuStore: readString(raw.umustore),
+        umuProtonPath: readString(raw.umuprotonpath),
+        umuWinePrefix: readString(raw.umuwineprefix),
+      };
+    } catch {
+      return {};
+    }
+  }, []);
+
+  /**
+   * Offers to delete the game's Wine/Proton prefix (Linux, umu/Proton).
+   *
+   * Opt-in and deliberate: prefixes can contain local save games and game
+   * settings, so "keep" is the pre-focused answer, and only prefixes inside
+   * GameVault's prefix directory are offered at all.
+   */
+  const offerPrefixCleanup = useCallback(
+    async (versionDirectory: string, gameId: number) => {
+      if (!isTauriApp()) return;
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const local = await readLocalUmuConfig(versionDirectory);
+        const info = await invoke<{
+          path: string | null;
+          exists: boolean;
+          isPrefix: boolean;
+          managed: boolean;
+          sizeBytes: number | null;
+        }>("resolve_game_wine_prefix", {
+          versionDirectory,
+          gameId,
+          umuGameId: local.umuGameId ?? null,
+          perGamePrefix: local.umuWinePrefix ?? null,
+        });
+        if (!info?.path || !info.exists || !info.isPrefix || !info.managed) {
+          return;
+        }
+
+        const size = info.sizeBytes ? ` (${formatBytes(info.sizeBytes)})` : "";
+        const keepPrefix = await showAlert({
+          title: "Delete the Wine/Proton prefix too?",
+          description:
+            `This game was installed into its own Wine/Proton prefix:\n${info.path}${size}\n\n` +
+            "Local save games, game settings and installed runtime files can live inside it. " +
+            "Keep it unless you want the disk space back.",
+          affirmativeText: "Keep prefix",
+          negativeText: "Delete prefix",
+          tone: "warning",
+        });
+        if (keepPrefix) return;
+
+        await invoke("delete_game_wine_prefix", {
+          path: info.path,
+          perGamePrefix: local.umuWinePrefix ?? null,
+        });
+      } catch (error) {
+        console.warn("Wine/Proton prefix cleanup skipped:", error);
+      }
+    },
+    [readLocalUmuConfig, showAlert],
+  );
+
   const handleUninstallGame = useCallback(async () => {
     if (!installedGame) return;
 
@@ -816,6 +970,11 @@ export function GameSettings({
         await pruneEmptyVersionFolders(installedGame.versionDirectory);
         // Offer to delete any leftover files the uninstaller left behind.
         await cleanupLeftoverFiles(installedGame.versionDirectory);
+        // ... and the (optional) Wine/Proton prefix of the game.
+        await offerPrefixCleanup(
+          installedGame.versionDirectory,
+          installedGame.gameId,
+        );
         setInstalledGame(await findInstalledGame());
         onUninstalled?.();
         await showAlert({
@@ -861,16 +1020,28 @@ export function GameSettings({
         setUninstalling(true);
         try {
           const { invoke } = await import("@tauri-apps/api/core");
+          const local = await readLocalUmuConfig(
+            installedGame.versionDirectory,
+          );
           await invoke("launch_uninstall_executable", {
+            versionDirectory: installedGame.versionDirectory,
             executablePath,
             workingDirectory: installedGame.installationDirectory,
             argumentList: workingGame.metadata?.uninstaller_parameters || null,
+            umuGameId: local.umuGameId ?? null,
+            umuStore: local.umuStore ?? null,
+            umuProtonPath: local.umuProtonPath ?? null,
+            umuWinePrefix: local.umuWinePrefix ?? null,
           });
           await updateInstallationFinishedFlag(
             installedGame.versionDirectory,
             false,
           );
           await cleanupLeftoverFiles(installedGame.versionDirectory);
+          await offerPrefixCleanup(
+            installedGame.versionDirectory,
+            installedGame.gameId,
+          );
           setInstalledGame(await findInstalledGame());
           onUninstalled?.();
           await showAlert({
@@ -1030,7 +1201,8 @@ export function GameSettings({
       } catch (e: any) {
         await showAlert({
           title: "Unable to delete game file",
-          description: e?.message || "The server could not delete this game file.",
+          description:
+            e?.message || "The server could not delete this game file.",
           affirmativeText: "OK",
         });
       } finally {
@@ -1728,7 +1900,7 @@ export function GameSettings({
   };
 
   const applyWatermark = (field: keyof CustomMetadataForm) => {
-    const metadata = workingGame.metadata;
+    const metadata = workingGame.metadata as GameMetadataWithUmu | undefined;
     let value: any = "";
 
     switch (field) {
@@ -1788,6 +1960,15 @@ export function GameSettings({
       case "uninstaller_parameters":
         value = metadata?.uninstaller_parameters || "";
         break;
+      case "umu_game_id":
+        value = metadata?.umu_game_id || "";
+        break;
+      case "umu_store":
+        value = metadata?.umu_store || "";
+        break;
+      case "umu_proton_path":
+        value = metadata?.umu_proton_path || "";
+        break;
       case "url_websites":
         value = Array.isArray(metadata?.url_websites)
           ? metadata.url_websites.join(", ")
@@ -1834,7 +2015,7 @@ export function GameSettings({
   };
 
   const getWatermark = (field: keyof CustomMetadataForm): string => {
-    const metadata = workingGame.metadata;
+    const metadata = workingGame.metadata as GameMetadataWithUmu | undefined;
 
     switch (field) {
       case "title":
@@ -1882,6 +2063,12 @@ export function GameSettings({
         return metadata?.uninstaller_executable || "";
       case "uninstaller_parameters":
         return metadata?.uninstaller_parameters || "";
+      case "umu_game_id":
+        return metadata?.umu_game_id || "";
+      case "umu_store":
+        return metadata?.umu_store || "";
+      case "umu_proton_path":
+        return metadata?.umu_proton_path || "";
       case "url_websites":
         return Array.isArray(metadata?.url_websites)
           ? metadata.url_websites.join(", ")
@@ -1958,6 +2145,12 @@ export function GameSettings({
       if (customMetadata.uninstaller_parameters)
         updateDto.uninstaller_parameters =
           customMetadata.uninstaller_parameters;
+      if (customMetadata.umu_game_id)
+        updateDto.umu_game_id = customMetadata.umu_game_id;
+      if (customMetadata.umu_store)
+        updateDto.umu_store = customMetadata.umu_store;
+      if (customMetadata.umu_proton_path)
+        updateDto.umu_proton_path = customMetadata.umu_proton_path;
 
       if (customMetadata.url_websites)
         updateDto.url_websites = customMetadata.url_websites
@@ -2037,7 +2230,8 @@ export function GameSettings({
     } catch (e: any) {
       await showAlert({
         title: "Unable to save custom metadata",
-        description: e?.message || "The server could not save your custom metadata.",
+        description:
+          e?.message || "The server could not save your custom metadata.",
         affirmativeText: "OK",
       });
     } finally {
@@ -2100,7 +2294,8 @@ export function GameSettings({
       } catch (e: any) {
         await showAlert({
           title: "Unable to wipe custom metadata",
-          description: e?.message || "The server could not wipe your custom metadata.",
+          description:
+            e?.message || "The server could not wipe your custom metadata.",
           affirmativeText: "OK",
         });
       } finally {
@@ -3195,6 +3390,115 @@ export function GameSettings({
                           </div>
                         </div>
 
+                        {/* umu-launcher defaults (Linux) */}
+                        <div className="rounded-lg border border-gv-line/60 p-3 space-y-4">
+                          <p className="text-sm font-medium text-gv-text">
+                            umu-launcher (Linux)
+                          </p>
+                          <p className="text-xs text-gv-muted">
+                            Applied by Linux clients when running this game
+                            through umu-launcher/Proton. Leave empty for umu's
+                            defaults.
+                          </p>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gv-muted mb-1">
+                              Game ID (GAMEID)
+                            </label>
+                            <div className="relative">
+                              <Input
+                                type="text"
+                                value={customMetadata.umu_game_id}
+                                onChange={(e) =>
+                                  setCustomMetadata({
+                                    ...customMetadata,
+                                    umu_game_id: e.target.value,
+                                  })
+                                }
+                                placeholder={
+                                  getWatermark("umu_game_id") || "umu-12345"
+                                }
+                                className="pr-10"
+                              />
+                              {getWatermark("umu_game_id") && (
+                                <button
+                                  type="button"
+                                  onClick={() => applyWatermark("umu_game_id")}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
+                                  title="Apply current value"
+                                >
+                                  <ArrowUturnLeftIcon className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gv-muted mb-1">
+                              Store (STORE)
+                            </label>
+                            <div className="relative">
+                              <Input
+                                type="text"
+                                value={customMetadata.umu_store}
+                                onChange={(e) =>
+                                  setCustomMetadata({
+                                    ...customMetadata,
+                                    umu_store: e.target.value,
+                                  })
+                                }
+                                placeholder={getWatermark("umu_store") || "egs"}
+                                className="pr-10"
+                              />
+                              {getWatermark("umu_store") && (
+                                <button
+                                  type="button"
+                                  onClick={() => applyWatermark("umu_store")}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
+                                  title="Apply current value"
+                                >
+                                  <ArrowUturnLeftIcon className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gv-muted mb-1">
+                              Proton Version (PROTONPATH)
+                            </label>
+                            <div className="relative">
+                              <Input
+                                type="text"
+                                value={customMetadata.umu_proton_path}
+                                onChange={(e) =>
+                                  setCustomMetadata({
+                                    ...customMetadata,
+                                    umu_proton_path: e.target.value,
+                                  })
+                                }
+                                placeholder={
+                                  getWatermark("umu_proton_path") ||
+                                  "GE-Proton9-5"
+                                }
+                                className="pr-10"
+                              />
+                              {getWatermark("umu_proton_path") && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    applyWatermark("umu_proton_path")
+                                  }
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
+                                  title="Apply current value"
+                                >
+                                  <ArrowUturnLeftIcon className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
                         {/* Installer Executable */}
                         <div>
                           <label className="block text-sm font-medium text-gv-muted mb-1">
@@ -3821,9 +4125,38 @@ export function GameSettings({
                                   }
                                   placeholder="UMU-Proton"
                                 />
+                                {protonBuilds.length > 0 && (
+                                  <div className="mt-2">
+                                    <Listbox
+                                      name="umuProtonBuild"
+                                      value=""
+                                      onChange={(value: any) =>
+                                        setUmuProtonPath(String(value))
+                                      }
+                                    >
+                                      <ListboxOption value="">
+                                        <ListboxLabel>
+                                          -- Installed Proton builds --
+                                        </ListboxLabel>
+                                      </ListboxOption>
+                                      {protonBuilds.map((build) => (
+                                        <ListboxOption
+                                          key={build.path}
+                                          value={build.name}
+                                        >
+                                          <ListboxLabel>
+                                            {build.name}
+                                          </ListboxLabel>
+                                        </ListboxOption>
+                                      ))}
+                                    </Listbox>
+                                  </div>
+                                )}
                                 <p className="mt-1 text-xs text-gv-muted">
                                   Proton directory, version name (GE-Proton9-5)
                                   or codename (GE-Proton).
+                                  {protonBuilds.length === 0 &&
+                                    " Builds installed in compatibilitytools.d (e.g. via ProtonUp-Qt) are offered here for selection."}
                                 </p>
                               </div>
                               <div>
@@ -3836,11 +4169,70 @@ export function GameSettings({
                                   onChange={(e: any) =>
                                     setUmuWinePrefix(e.target.value)
                                   }
-                                  placeholder="~/.local/share/GameVault/umu"
+                                  placeholder="Automatic (per game)"
                                 />
                                 <p className="mt-1 text-xs text-gv-muted">
-                                  Where the Wine prefix lives. Defaults to
-                                  $HOME/Games/umu/&lt;GAMEID&gt;.
+                                  Leave empty to let GameVault use its own
+                                  folder per game (named like the game's install
+                                  folder) inside the Wine/Proton Prefix
+                                  Directory from the settings.
+                                  {resolvedPrefixPath && (
+                                    <>
+                                      {" "}
+                                      Currently:{" "}
+                                      <button
+                                        type="button"
+                                        className="underline decoration-dotted hover:text-gv-text"
+                                        title="Copy path"
+                                        onClick={async () => {
+                                          try {
+                                            await navigator.clipboard.writeText(
+                                              resolvedPrefixPath,
+                                            );
+                                            await showAlert({
+                                              title: "Prefix path copied",
+                                              description: resolvedPrefixPath,
+                                              affirmativeText: "OK",
+                                            });
+                                          } catch {
+                                            await showAlert({
+                                              title: "Wine/Proton prefix",
+                                              description: resolvedPrefixPath,
+                                              affirmativeText: "OK",
+                                            });
+                                          }
+                                        }}
+                                      >
+                                        {resolvedPrefixPath}
+                                      </button>{" "}
+                                      <button
+                                        type="button"
+                                        className="underline decoration-dotted hover:text-gv-text"
+                                        onClick={async () => {
+                                          try {
+                                            const { invoke } =
+                                              await import("@tauri-apps/api/core");
+                                            await invoke(
+                                              "open_in_file_explorer",
+                                              {
+                                                path: resolvedPrefixPath,
+                                              },
+                                            );
+                                          } catch (error: any) {
+                                            await showAlert({
+                                              title:
+                                                "Could not open the prefix folder",
+                                              description:
+                                                error?.message || String(error),
+                                              affirmativeText: "OK",
+                                            });
+                                          }
+                                        }}
+                                      >
+                                        Open folder
+                                      </button>
+                                    </>
+                                  )}
                                 </p>
                               </div>
                             </div>
