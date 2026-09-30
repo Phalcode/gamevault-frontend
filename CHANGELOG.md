@@ -70,10 +70,6 @@
 - Fixed the system information under Settings → About not matching the machine it runs on
 - [#36](https://github.com/Phalcode/gamevault-frontend/issues/36) Fixed disc images that only contain a UDF filesystem (e.g. UDF-only DVD/Blu-ray ISOs) failing to extract with an error. Disc images are now read by a combined ISO 9660 and UDF reader.
 
----
-
-as
-
 - Added a one-time warning on the first launch of an Early Access or unstable build, explaining that these builds are meant for the early access program/developers and testers, that extra setup steps may be needed, and that more issues are to be expected than on a stable release.
 - Refreshing the app (F5) or using the window's Refresh button no longer interrupts work in progress: downloads, extractions, installations, umu-launcher setup and app updates keep running in the background, their progress is picked back up instead of starting over, and a refresh can no longer start a second download, extraction, installation or update over the one that is still running.
 - Fixed the app freezing while uninstalling a game, while launching a Windows game that still needs umu-launcher set up, and while deleting or scanning large game folders.
@@ -85,6 +81,9 @@ as
 - Fixed uninstalling a game silently dropping the per-game umu-launcher overrides (GAMEID, STORE, Proton version, Wine prefix) and the "run as administrator" flag from the game's configuration.
 - Added launch logs: the complete output of every game start (Proton/Wine/umu output included) is written to rotating log files and shown in a dedicated log window. A new setting ("Always show launch logs") opens that window automatically while a game starts, a failed launch opens it regardless, and earlier logs can be browsed or cleared from the window. Installer runs are logged too.
 - The per-game Proton (PROTONPATH) field now offers a dropdown with the Proton builds already installed in `compatibilitytools.d` (Steam and Flatpak Steam), so version names don't have to be typed by hand.
+- Fix multiple time tracking issues
+---
+- Fixed Windows games failing to start from the Linux AppImage when its bundled OpenSSL libraries conflicted with umu-launcher's system Python.
 
 ## 17.0.0
 

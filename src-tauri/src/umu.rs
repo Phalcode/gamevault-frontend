@@ -18,6 +18,8 @@ use serde::Serialize;
 #[cfg(target_os = "linux")]
 use std::collections::VecDeque;
 #[cfg(target_os = "linux")]
+use std::ffi::{OsStr, OsString};
+#[cfg(target_os = "linux")]
 use std::fs;
 #[cfg(target_os = "linux")]
 use std::io::{BufRead, BufReader, Read};
@@ -206,10 +208,40 @@ fn move_contents(src: &Path, dest: &Path) -> Result<(), String> {
 /// to load its stdlib from that path and dies at startup with
 /// "Fatal Python error: Failed to import encodings module". Removing the
 /// variable lets the zipapp use the system interpreter's own stdlib.
+///
+/// AppImages also add their bundled libraries to `LD_LIBRARY_PATH`. Those
+/// libraries can override the host OpenSSL needed by umu's system Python.
 #[cfg(target_os = "linux")]
 pub(crate) fn prepare_umu_run_env(command: &mut Command) {
   command.env_remove("PYTHONHOME");
   command.env_remove("PYTHONPATH");
+  if let (Some(app_dir), Some(library_path)) = (
+    std::env::var_os("APPDIR"),
+    std::env::var_os("LD_LIBRARY_PATH"),
+  ) {
+    match library_path_without_appimage_dirs(&app_dir, &library_path) {
+      Some(library_path) => {
+        command.env("LD_LIBRARY_PATH", library_path);
+      }
+      None => {
+        command.env_remove("LD_LIBRARY_PATH");
+      }
+    }
+  }
+}
+
+#[cfg(target_os = "linux")]
+fn library_path_without_appimage_dirs(app_dir: &OsStr, library_path: &OsStr) -> Option<OsString> {
+  let app_dir = Path::new(app_dir);
+  let host_libraries: Vec<PathBuf> = std::env::split_paths(library_path)
+    .filter(|path| !path.starts_with(app_dir))
+    .collect();
+
+  if host_libraries.is_empty() {
+    None
+  } else {
+    std::env::join_paths(host_libraries).ok()
+  }
 }
 
 /// Download and install umu-launcher into `$HOME/.local/share/umu-launcher`.
@@ -1154,6 +1186,39 @@ pub(crate) fn spawn_umu_launch_monitor(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[cfg(target_os = "linux")]
+  #[test]
+  fn removes_only_appimage_libraries_from_child_library_path() {
+    let filtered = library_path_without_appimage_dirs(
+      OsStr::new("/tmp/.mount_GameVault"),
+      OsStr::new(
+        "/tmp/.mount_GameVault/usr/lib:/usr/lib:/opt/custom/lib:/tmp/.mount_GameVault-other/lib",
+      ),
+    )
+    .unwrap();
+
+    assert_eq!(
+      std::env::split_paths(&filtered).collect::<Vec<_>>(),
+      vec![
+        PathBuf::from("/usr/lib"),
+        PathBuf::from("/opt/custom/lib"),
+        PathBuf::from("/tmp/.mount_GameVault-other/lib"),
+      ]
+    );
+  }
+
+  #[cfg(target_os = "linux")]
+  #[test]
+  fn removes_library_path_when_it_contains_only_appimage_libraries() {
+    assert_eq!(
+      library_path_without_appimage_dirs(
+        OsStr::new("/tmp/.mount_GameVault"),
+        OsStr::new("/tmp/.mount_GameVault/usr/lib"),
+      ),
+      None
+    );
+  }
 
   #[test]
   fn detects_windows_executables() {
