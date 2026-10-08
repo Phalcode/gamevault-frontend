@@ -84,6 +84,8 @@
 - Fix multiple time tracking issues
 ---
 - Fixed Windows games failing to start from the Linux AppImage when its bundled OpenSSL libraries conflicted with umu-launcher's system Python.
+- Fixed the app occasionally freezing after being left open for a while (so it had to be force-closed): covers that are still off-screen no longer run an endless loading animation, the gamepad input loop no longer keeps the main thread busy in the background, and background status checks no longer redraw the whole interface every few seconds.
+- The desktop app now keeps a rotating log file (release builds previously wrote no log at all) and records a periodic snapshot of the interface state — current page, memory use and DOM size. If the interface ever stops responding, the state right before the freeze is logged automatically, and the log file path is included in "Copy Settings Dump" so a hang can be diagnosed instead of leaving no trace.
 
 ## 17.0.0
 

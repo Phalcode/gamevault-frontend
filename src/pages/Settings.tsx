@@ -1221,6 +1221,15 @@ export default function Settings() {
     } catch {
       // localStorage unavailable
     }
+    let logPath: string | null = null;
+    if (isTauri) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        logPath = await invoke<string | null>("get_diagnostics_log_path");
+      } catch {
+        // Older builds may not expose the log path.
+      }
+    }
     const dump = JSON.stringify(
       {
         generatedAt: new Date().toISOString(),
@@ -1228,6 +1237,7 @@ export default function Settings() {
         version: __APP_VERSION__,
         system: systemInfo,
         rendering: await getRenderingDiagnostics().catch(() => null),
+        appLogPath: logPath,
         settings,
       },
       null,

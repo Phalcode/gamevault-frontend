@@ -17,6 +17,7 @@ mod youtube;
 mod taskbar;
 mod umu;
 mod rendering;
+mod frontend_watchdog;
 
 use crate::settings::AppSettings;
 use semver::Version;
@@ -454,13 +455,41 @@ pub fn run() {
         tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build(),
       )?;
 
+      // ── Persistent logging ─────────────────────────────────────────────
+      // Always write a rotating log file into the OS log directory. Release
+      // builds previously installed no logger at all, so a freeze or crash left
+      // no trace to inspect. Debug builds also mirror everything to stdout.
+      let mut log_targets = vec![tauri_plugin_log::Target::new(
+        tauri_plugin_log::TargetKind::LogDir {
+          file_name: Some(frontend_watchdog::LOG_FILE_NAME.to_string()),
+        },
+      )];
       if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
+        log_targets.push(tauri_plugin_log::Target::new(
+          tauri_plugin_log::TargetKind::Stdout,
+        ));
       }
+      app.handle().plugin(
+        tauri_plugin_log::Builder::default()
+          .level(log::LevelFilter::Info)
+          .max_file_size(4 * 1024 * 1024)
+          .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
+          .targets(log_targets)
+          .build(),
+      )?;
+
+      if let Ok(log_dir) = app.path().app_log_dir() {
+        log::info!(
+          "logging to {}.log in {}",
+          frontend_watchdog::LOG_FILE_NAME,
+          log_dir.display()
+        );
+      }
+
+      // ── Frontend responsiveness watchdog ───────────────────────────────
+      // Records webview hangs from the Rust side, because a frozen webview
+      // cannot log its own freeze. See `frontend_watchdog`.
+      frontend_watchdog::start_watchdog();
 
       // ── Time tracker diagnostics log ───────────────────────────────────
       // Records every tracker tick, match transition and credit outcome.
@@ -621,6 +650,8 @@ pub fn run() {
       rendering::get_webkit_settings,
       rendering::set_webkit_smooth_scrolling,
       rendering::set_webkit_hardware_acceleration_policy,
+      frontend_watchdog::frontend_heartbeat,
+      frontend_watchdog::get_diagnostics_log_path,
       secure_store::get_or_create_vault_password,
       taskbar::set_taskbar_progress,
       taskbar::clear_taskbar_progress,

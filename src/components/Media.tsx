@@ -77,7 +77,13 @@ export function Media({
           "linear-gradient(110deg,#232230 8%,#2d2c3a 18%,#232230 33%)",
       }}
     >
-      {imageId && !blobUrl && !error && (
+      {/* Only animate while a fetch is actually in flight. Media that is still
+          off-screen (`enabled` is false until it enters the viewport) never
+          starts loading, so animating it here would leave one infinite
+          `background-position` animation per un-scrolled cover in a long,
+          non-virtualized grid — a continuous main-thread repaint that keeps
+          the UI busy the whole time the window is visible. */}
+      {imageId && loading && !blobUrl && !error && (
         <div
           style={{
             position: "absolute",

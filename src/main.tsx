@@ -41,6 +41,7 @@ import { registerStreamerModeHotkey } from "./utils/streamerMode";
 import { registerExternalLinkHandler, isTauriApp } from "./utils/tauri";
 import { isAnalyticsEnabled } from "./utils/analytics";
 import { startMediaCacheMaintenance } from "./utils/mediaCache";
+import { startFrontendDiagnostics } from "./utils/frontendDiagnostics";
 import * as Swetrix from "swetrix";
 import { LaunchLogWindow } from "./pages/LaunchLogWindow";
 
@@ -85,6 +86,8 @@ if (isLaunchLogWindow) {
     // Open every external link (target=_blank, http(s), mailto, tel) through
     // the native OS opener instead of being swallowed by the webview.
     registerExternalLinkHandler();
+    // Feed the native watchdog so a UI freeze leaves a trace in the app log.
+    startFrontendDiagnostics();
   }
 
   createRoot(document.getElementById("root")!).render(

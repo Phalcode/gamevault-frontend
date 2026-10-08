@@ -469,9 +469,31 @@ export default function GamepadNavigator() {
       return document.querySelector<HTMLElement>("[data-scroll-container]");
     }
 
+    // A held/drifting right stick drives `scrollFocusedContainer` on every
+    // animation frame. `findScrollContainer` runs `detectScope` (several
+    // `querySelectorAll` sweeps) and `getComputedStyle` (a forced synchronous
+    // reflow), so cache its result briefly instead of re-resolving it 60×/s —
+    // otherwise the main thread never gets idle while the stick is anywhere but
+    // dead centre.
+    let scrollContainerCache: {
+      element: HTMLElement | null;
+      at: number;
+    } | null = null;
+
+    function findScrollContainerCached(): HTMLElement | null {
+      const now = performance.now();
+      const cached = scrollContainerCache;
+      if (cached && now - cached.at < 250) {
+        if (!cached.element || cached.element.isConnected) return cached.element;
+      }
+      const element = findScrollContainer();
+      scrollContainerCache = { element, at: now };
+      return element;
+    }
+
     function scrollFocusedContainer(scrollX: number, scrollY: number): void {
       if (scrollX === 0 && scrollY === 0) return;
-      const container = findScrollContainer();
+      const container = findScrollContainerCached();
       container?.scrollBy({
         top: scrollY * SCROLL_PX_PER_FRAME,
         left: scrollX * SCROLL_PX_PER_FRAME,

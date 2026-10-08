@@ -61,6 +61,23 @@ interface CachedGamesState {
 // (e.g. Library → GameView → back).
 const gamesCache = new Map<string, CachedGamesState>();
 
+// Upper bound for `gamesCache`. Each entry holds a full games array, and the
+// key includes the search text, so without a cap every search/filter the user
+// ever typed would stay in memory for the rest of the session.
+const MAX_GAMES_CACHE_ENTRIES = 12;
+
+function setGamesCache(key: string, state: CachedGamesState): void {
+  // Delete before re-adding so the key moves to the end of the Map's insertion
+  // order; the least recently written key is then the eviction victim.
+  gamesCache.delete(key);
+  gamesCache.set(key, state);
+  while (gamesCache.size > MAX_GAMES_CACHE_ENTRIES) {
+    const oldestKey = gamesCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    gamesCache.delete(oldestKey);
+  }
+}
+
 // Game IDs that have been fully removed from the library (e.g. by deleting a
 // game's last version file). Kept at module scope so the game stays out of the
 // list even when the Library remounts and re-fetches from the server.
@@ -70,9 +87,11 @@ const removedGameIds = new Set<number>();
 // (e.g. a game is deleted while the user is on the game view).
 onGameDeleted((gameId) => {
   removedGameIds.add(gameId);
-  for (const [key, state] of gamesCache) {
+  // Snapshot before iterating: `setGamesCache` re-inserts the key, which would
+  // otherwise move it during iteration.
+  for (const [key, state] of [...gamesCache]) {
     if (state.games.some((g) => g.id === gameId)) {
-      gamesCache.set(key, {
+      setGamesCache(key, {
         count: Math.max(0, state.count - 1),
         games: state.games.filter((g) => g.id !== gameId),
         next: state.next,
@@ -221,7 +240,7 @@ export function useGames({
       loadedPagesRef.current = 1;
       // Persist page 1 results to the module-level cache so that navigating
       // away and back (e.g. Library → GameView → back) restores instantly.
-      gamesCache.set(cacheKeyRef.current, {
+      setGamesCache(cacheKeyRef.current, {
         count: fetchedCount,
         games: fetchedGames,
         next: json.links?.next || null,
@@ -278,7 +297,7 @@ export function useGames({
         loadedPagesRef.current += 1;
         // Persist all loaded pages so infinite-scroll position is preserved
         // when navigating back to the library.
-        gamesCache.set(cacheKeyRef.current, {
+        setGamesCache(cacheKeyRef.current, {
           count,
           games: merged,
           next: json.links?.next || null,
