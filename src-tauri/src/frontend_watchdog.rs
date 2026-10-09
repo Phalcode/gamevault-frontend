@@ -14,6 +14,7 @@
 //! leaves a timeline (how long, where, with what on screen) instead of silence.
 
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::Manager;
@@ -29,6 +30,10 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
 const HANG_THRESHOLD: Duration = Duration::from_secs(8);
 /// While still hung, re-log the last known state at most this often.
 const HANG_REPEAT: Duration = Duration::from_secs(20);
+/// How long a visible frontend must stay silent before the watchdog reloads the
+/// webview to recover it. Deliberately longer than [`HANG_THRESHOLD`] so a
+/// legitimately long synchronous task is not torn down.
+const RECOVERY_AFTER: Duration = Duration::from_secs(25);
 /// How many watchdog cycles between periodic "frontend alive" snapshots.
 /// With a 2 s cycle this is one line per minute, which gives a memory/DOM
 /// timeline without drowning the log.
@@ -76,9 +81,24 @@ struct FrozenState {
   since: Instant,
   payload: FrontendStatusPayload,
   last_log: Instant,
+  /// Whether the self-heal reload has already been attempted.
+  recovery_attempted: bool,
 }
 
 static LAST_STATUS: OnceLock<Mutex<Option<LastStatus>>> = OnceLock::new();
+
+/// Whether the periodic interface snapshot is written to the app log.
+///
+/// Off by default and toggled by the "Verbose diagnostics logging" Developer
+/// Tools setting: the snapshot is only useful when someone is actively hunting
+/// a bug, and it costs a log line per minute for everyone else. Hang detection,
+/// the hang report and the automatic recovery reload are always active.
+static VERBOSE: AtomicBool = AtomicBool::new(false);
+
+/// Enables or disables the periodic snapshot logging.
+pub(crate) fn set_verbose(enabled: bool) {
+  VERBOSE.store(enabled, Ordering::Relaxed);
+}
 
 fn last_status() -> &'static Mutex<Option<LastStatus>> {
   LAST_STATUS.get_or_init(|| Mutex::new(None))
@@ -87,6 +107,28 @@ fn last_status() -> &'static Mutex<Option<LastStatus>> {
 /// Records a heartbeat from the webview. Called frequently; must stay cheap.
 #[tauri::command]
 pub(crate) fn frontend_heartbeat(status: FrontendStatusPayload) {
+  // A decreasing sequence number means the JS context restarted: a titlebar
+  // Refresh/F5, a navigation, or WebView2 recovering from a renderer crash.
+  // Logging it makes an otherwise invisible reload visible in the timeline.
+  let reloaded_from = match last_status().lock() {
+    Ok(guard) => guard
+      .as_ref()
+      .filter(|previous| status.seq < previous.payload.seq)
+      .map(|previous| previous.payload.seq),
+    Err(_) => None,
+  };
+  if let Some(previous_seq) = reloaded_from {
+    log::info!(
+      "[watchdog] frontend page (re)loaded at {} (heartbeat sequence reset {previous_seq} -> {})",
+      if status.route.is_empty() {
+        "?"
+      } else {
+        &status.route
+      },
+      status.seq
+    );
+  }
+
   if let Ok(mut guard) = last_status().lock() {
     *guard = Some(LastStatus {
       received: Instant::now(),
@@ -152,9 +194,87 @@ fn describe(payload: &FrontendStatusPayload) -> String {
   report
 }
 
+/// Logs a process-level snapshot when a hang is detected.
+///
+/// The decisive question once the webview stops answering is whether its
+/// renderer is *spinning* (a JavaScript/layout loop pegging a CPU core) or
+/// *blocked* (near-idle CPU, e.g. waiting on the GPU/driver). CPU usage is a
+/// per-process delta, so the watchdog samples the process list twice with a
+/// short gap before reading it.
+fn log_process_snapshot() {
+  use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+
+  let kind = ProcessRefreshKind::nothing().with_cpu().with_memory();
+  let mut system = System::new();
+  system.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
+  std::thread::sleep(Duration::from_millis(600));
+  system.refresh_processes_specifics(ProcessesToUpdate::All, true, kind);
+
+  let own_pid = sysinfo::Pid::from_u32(std::process::id());
+  let mut webview: Vec<String> = Vec::new();
+  let mut by_cpu: Vec<(f32, String)> = Vec::new();
+
+  for (pid, process) in system.processes() {
+    let name = process.name().to_string_lossy().to_string();
+    let lower = name.to_ascii_lowercase();
+    let cpu = process.cpu_usage();
+    let memory_mb = process.memory() as f64 / 1_048_576.0;
+    let entry = format!(
+      "{name}(pid {}, cpu {cpu:.0}%, mem {memory_mb:.0}MB)",
+      pid.as_u32()
+    );
+
+    if *pid == own_pid
+      || lower.contains("webview")
+      || lower.contains("webkit")
+      || lower.contains("gamevault")
+    {
+      webview.push(entry.clone());
+    }
+    by_cpu.push((cpu, entry));
+  }
+
+  by_cpu.sort_by(|a, b| b.0.total_cmp(&a.0));
+  let busiest = by_cpu
+    .iter()
+    .take(6)
+    .map(|(_, entry)| entry.clone())
+    .collect::<Vec<_>>()
+    .join(" | ");
+
+  log::warn!(
+    "[watchdog] webview processes at hang: {}",
+    if webview.is_empty() {
+      "none matched".to_string()
+    } else {
+      webview.join(" | ")
+    }
+  );
+  log::warn!("[watchdog] busiest processes at hang: {busiest}");
+}
+
+/// Reloads the main webview to break out of a freeze.
+///
+/// The webview's own JavaScript cannot do this — that is the part that is stuck
+/// — but the Rust side keeps running for the whole freeze (the field log has
+/// the watchdog logging for 56 minutes while the UI was dead). Reloading tears
+/// down the wedged renderer and brings the UI back in place, instead of leaving
+/// the user with no option but a Task Manager kill. The reload is dispatched
+/// asynchronously, so this cannot block the watchdog thread.
+fn attempt_recovery(app: &tauri::AppHandle) {
+  let Some(window) = app.get_webview_window("main") else {
+    log::warn!("[watchdog] recovery skipped: main webview window not found");
+    return;
+  };
+  match window.reload() {
+    Ok(()) => log::warn!("[watchdog] reloading the main webview to recover the UI"),
+    Err(error) => log::warn!("[watchdog] recovery reload failed: {error}"),
+  }
+}
+
 /// Starts the watchdog thread. Call once during app setup.
-pub(crate) fn start_watchdog() {
-  std::thread::spawn(|| {
+pub(crate) fn start_watchdog(app: tauri::AppHandle) {
+  std::thread::spawn(move || {
     let mut frozen: Option<FrozenState> = None;
     let mut cycles: u64 = 0;
 
@@ -178,10 +298,12 @@ pub(crate) fn start_watchdog() {
       // no visible work to lose. Only a *visible* frontend going quiet is a hang.
       let visible = payload.visibility != "hidden";
 
-      // Periodic snapshot: gives the log a timeline of route, heap and DOM size
-      // so a freeze that creeps in as the app grows can be spotted after the
-      // fact.
-      if frozen.is_none() && cycles % ALIVE_LOG_EVERY == 0 {
+      // Periodic snapshot (verbose only): gives the log a timeline of route,
+      // heap and DOM size so a freeze that creeps in as the app grows can be
+      // spotted after the fact. The very first snapshot of each run is always
+      // written once, so it is obvious in the log that logging works at all.
+      let verbose = VERBOSE.load(Ordering::Relaxed);
+      if frozen.is_none() && (cycles == 1 || (verbose && cycles % ALIVE_LOG_EVERY == 0)) {
         log::info!(
           "[watchdog] frontend alive ({:.1}s since last heartbeat): {}",
           silent_for.as_secs_f32(),
@@ -197,13 +319,24 @@ pub(crate) fn start_watchdog() {
               silent_for.as_secs(),
               describe(&payload)
             );
+            // Capture whether the renderer is spinning or idle, so the cause
+            // can be told apart without a manual Task Manager check.
+            log_process_snapshot();
             frozen = Some(FrozenState {
               since: received,
               payload,
               last_log: Instant::now(),
+              recovery_attempted: false,
             });
           }
           Some(state) => {
+            // Self-heal: once the freeze has lasted long enough to rule out a
+            // merely slow task, reload the webview so the app recovers on its
+            // own instead of needing a force-quit.
+            if !state.recovery_attempted && state.since.elapsed() >= RECOVERY_AFTER {
+              state.recovery_attempted = true;
+              attempt_recovery(&app);
+            }
             if state.last_log.elapsed() >= HANG_REPEAT {
               state.last_log = Instant::now();
               log::warn!(

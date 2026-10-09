@@ -39,6 +39,13 @@ pub(crate) struct AppSettings {
   /// installer on updates - which made the warning reappear after each one.
   #[serde(default)]
   pub prerelease_notice_channel: Option<String>,
+  /// Verbose diagnostics logging (Developer Tools).
+  ///
+  /// When off (the default), the diagnostics watchdog does not write its
+  /// periodic interface snapshot to the app log. Hang detection and the
+  /// automatic recovery reload stay active either way.
+  #[serde(default)]
+  pub diagnostics_verbose: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -223,5 +230,22 @@ pub(crate) fn set_always_show_launch_logs(
 ) -> Result<(), String> {
   let mut settings = load_settings(&app);
   settings.always_show_launch_logs = enabled;
+  save_settings(&app, &settings)
+}
+
+/// Whether the verbose diagnostics logging is enabled (Developer Tools).
+#[tauri::command]
+pub(crate) fn get_diagnostics_verbose(app: tauri::AppHandle) -> bool {
+  load_settings(&app).diagnostics_verbose
+}
+
+#[tauri::command]
+pub(crate) fn set_diagnostics_verbose(
+  app: tauri::AppHandle,
+  enabled: bool,
+) -> Result<(), String> {
+  crate::frontend_watchdog::set_verbose(enabled);
+  let mut settings = load_settings(&app);
+  settings.diagnostics_verbose = enabled;
   save_settings(&app, &settings)
 }

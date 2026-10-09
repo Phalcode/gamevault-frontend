@@ -416,15 +416,16 @@ export async function resolveApiMediaBlob({
         ? async () => {
             try {
               const { invoke } = await import("@tauri-apps/api/core");
-              const cachedBytes = await invoke<number[] | null>(
+              const { base64ToBlob } = await import("./binary");
+              const cachedBase64 = await invoke<string | null>(
                 "load_cached_image",
                 {
                   serverNamespace,
                   mediaId: numericMediaId,
                 },
               );
-              return cachedBytes && cachedBytes.length > 0
-                ? new Blob([new Uint8Array(cachedBytes)])
+              return cachedBase64 && cachedBase64.length > 0
+                ? base64ToBlob(cachedBase64)
                 : null;
             } catch {
               return null;

@@ -34,15 +34,39 @@ const LONG_TASK_MIN_MS = 250;
 const breadcrumbs: string[] = [];
 let started = false;
 let seq = 0;
+/**
+ * Whether the detailed feed (breadcrumbs + long-task observation) is recorded.
+ *
+ * Off by default; toggled by the "Verbose diagnostics logging" Developer Tools
+ * setting. The heartbeat itself always runs — it is what lets the native
+ * watchdog notice an unresponsive interface and recover it — and the small
+ * route/visibility/lag/heap/DOM numbers are always reported, so a hang is still
+ * described even with verbosity off. Only the (chattier) breadcrumb trail and
+ * the long-task observer are opt-in.
+ */
+let verbose = false;
+/** Whether the long-task observer has been attached. */
+let longTasksObserved = false;
 /** Longest frame gap observed since the previous heartbeat (ms). */
 let maxLagMs = 0;
 /** Timestamp of the previous animation frame; 0 = no valid baseline yet. */
 let lastFrameAt = 0;
 let lastRoute = "";
 
+/** Enables or disables the detailed diagnostics feed at runtime. */
+export function setDiagnosticsVerbose(enabled: boolean): void {
+  verbose = enabled;
+  if (enabled) {
+    watchLongTasks();
+  } else {
+    // Drop the trail so a later report never carries stale verbosity.
+    breadcrumbs.length = 0;
+  }
+}
+
 /** Records a breadcrumb that will travel with the next heartbeats. */
 export function recordBreadcrumb(label: string, detail?: string): void {
-  if (!started) return;
+  if (!started || !verbose) return;
   breadcrumbs.push(detail ? `${label}: ${detail}` : label);
   if (breadcrumbs.length > MAX_BREADCRUMBS) {
     breadcrumbs.splice(0, breadcrumbs.length - MAX_BREADCRUMBS);
@@ -115,6 +139,8 @@ function monitorFrames(): void {
 
 /** Records long main-thread tasks where the platform supports them. */
 function watchLongTasks(): void {
+  if (longTasksObserved) return;
+  longTasksObserved = true;
   try {
     const observer = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
@@ -165,8 +191,18 @@ export function startFrontendDiagnostics(): void {
   });
 
   monitorFrames();
-  watchLongTasks();
 
   window.setInterval(() => void sendHeartbeat(), HEARTBEAT_MS);
-  void sendHeartbeat();
+
+  // Adopt the persisted verbosity setting, then start reporting. Best-effort:
+  // a failure just leaves the detailed feed off.
+  void (async () => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      setDiagnosticsVerbose(await invoke<boolean>("get_diagnostics_verbose"));
+    } catch {
+      // Keep the default (off).
+    }
+    void sendHeartbeat();
+  })();
 }

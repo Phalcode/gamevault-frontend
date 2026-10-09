@@ -38,6 +38,7 @@ import {
   WrenchScrewdriverIcon,
   BuildingOffice2Icon,
   ShieldCheckIcon,
+  ArrowUpCircleIcon,
 } from "@heroicons/react/24/solid";
 import {
   StarIcon as StarOutline,
@@ -60,6 +61,10 @@ import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { isTauriApp } from "@/utils/tauri";
 import { onGameDeleted } from "@/utils/gameUpdates";
 import { maskDisplayName, useStreamerMode } from "@/utils/streamerMode";
+import {
+  isGameUpdateAvailable,
+  resolveServerVersionTag,
+} from "@/utils/gameUpdate";
 import { LayoutGroup, motion } from "motion/react";
 import { EASE_OUT } from "@/lib/motion";
 
@@ -98,6 +103,14 @@ export default function GameView() {
   const installedInfo = useMemo(
     () => installedGames.find((ig) => ig.gameId === numericId),
     [installedGames, numericId],
+  );
+
+  // Whether the locally installed version differs from the server's current
+  // default version (i.e. a newer version is available to download).
+  const serverVersionTag = useMemo(() => resolveServerVersionTag(game), [game]);
+  const updateAvailable = useMemo(
+    () => isGameUpdateAvailable(game, installedInfo),
+    [game, installedInfo],
   );
 
   // ESC returns to the library (same as the Back button). Open overlays
@@ -794,6 +807,22 @@ export default function GameView() {
                 <div className="text-xl font-semibold leading-tight truncate pr-2">
                   {title}
                 </div>
+                {updateAvailable && (
+                  <span
+                    title={
+                      installedInfo?.versionName && serverVersionTag
+                        ? `${installedInfo.versionName} → ${serverVersionTag}`
+                        : "A newer version is available on the server"
+                    }
+                    className="inline-flex w-fit items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-300"
+                  >
+                    <ArrowUpCircleIcon
+                      className="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    />
+                    Update available
+                  </span>
+                )}
                 {/* Added flex-wrap to allow buttons to wrap on extremely narrow viewports, preventing horizontal overflow that could push the media slider and cause cutoff */}
                 <div className="flex flex-row flex-wrap gap-2">
                   {isTauri && installedInfo && (

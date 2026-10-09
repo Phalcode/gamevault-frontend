@@ -489,7 +489,8 @@ pub fn run() {
       // ── Frontend responsiveness watchdog ───────────────────────────────
       // Records webview hangs from the Rust side, because a frozen webview
       // cannot log its own freeze. See `frontend_watchdog`.
-      frontend_watchdog::start_watchdog();
+      frontend_watchdog::set_verbose(settings::load_settings(app.handle()).diagnostics_verbose);
+      frontend_watchdog::start_watchdog(app.handle().clone());
 
       // ── Time tracker diagnostics log ───────────────────────────────────
       // Records every tracker tick, match transition and credit outcome.
@@ -646,6 +647,8 @@ pub fn run() {
       settings::set_prerelease_notice_channel,
       settings::get_always_show_launch_logs,
       settings::set_always_show_launch_logs,
+      settings::get_diagnostics_verbose,
+      settings::set_diagnostics_verbose,
       rendering::get_rendering_diagnostics,
       rendering::get_webkit_settings,
       rendering::set_webkit_smooth_scrolling,

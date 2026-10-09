@@ -461,6 +461,13 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     keywords: ["settings", "dump", "export", "copy", "json", "diagnostics"],
   },
   {
+    id: "developer-verbose-logging",
+    title: "Verbose diagnostics logging",
+    description: "Log interface snapshots and activity breadcrumbs",
+    category: "developer",
+    keywords: ["log", "logging", "diagnostics", "debug", "freeze", "watchdog"],
+  },
+  {
     id: "rendering-smooth-scroll",
     title: "Smooth Scrolling",
     description: "Toggle WebKitGTK smooth-scroll animation",
@@ -704,6 +711,8 @@ export default function Settings() {
     },
   );
   const [alwaysShowLaunchLogs, setAlwaysShowLaunchLogs] =
+    useState<boolean>(false);
+  const [verboseDiagnostics, setVerboseDiagnostics] =
     useState<boolean>(false);
   const [autoExtract, setAutoExtract] = useState<boolean>(() => {
     try {
@@ -997,6 +1006,43 @@ export default function Settings() {
       }
     })();
   }, [alwaysShowLaunchLogs, isTauri]);
+
+  // Load and persist the verbose diagnostics logging setting (desktop only).
+  // The stored value must be read before the sync effect may write, otherwise
+  // the initial `false` state would overwrite it.
+  const diagnosticsLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!isTauri) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const stored = await invoke<boolean>("get_diagnostics_verbose");
+        if (!cancelled) setVerboseDiagnostics(stored);
+      } catch (e) {
+        console.error("Failed to load diagnostics logging preference:", e);
+      } finally {
+        diagnosticsLoadedRef.current = true;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTauri]);
+
+  useEffect(() => {
+    if (!isTauri || !diagnosticsLoadedRef.current) return;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("set_diagnostics_verbose", {
+          enabled: verboseDiagnostics,
+        });
+      } catch (e) {
+        console.error("Failed to sync diagnostics logging preference:", e);
+      }
+    })();
+  }, [verboseDiagnostics, isTauri]);
 
   // Persist auto-flow settings to localStorage
   useEffect(() => {
@@ -2508,6 +2554,21 @@ export default function Settings() {
                             <ClipboardDocumentIcon className="size-4" />
                             Copy
                           </Button>
+                        </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Verbose diagnostics logging"
+                            description="Writes a periodic snapshot of the interface (page, memory, DOM size) and detailed activity breadcrumbs to the app log to help diagnose freezes. Enable it when a maintainer asks for it — GameVault keeps detecting and automatically recovering from an unresponsive interface either way."
+                          />
+                          <Switch
+                            name="verboseDiagnostics"
+                            color="indigo"
+                            aria-label="Verbose diagnostics logging"
+                            checked={verboseDiagnostics}
+                            onChange={(v: boolean) =>
+                              setVerboseDiagnostics(v)
+                            }
+                          />
                         </SettingsRow>
                       </SettingsGroup>
                     </>

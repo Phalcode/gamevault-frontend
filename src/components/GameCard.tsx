@@ -9,6 +9,7 @@ import { CloudArrowDownIcon } from "@heroicons/react/16/solid";
 import {
   StarIcon as StarSolid,
   Cog8ToothIcon,
+  ArrowUpCircleIcon,
 } from "@heroicons/react/24/solid";
 import { StarIcon as StarOutline } from "@heroicons/react/24/outline";
 import { Button } from "@tw/button";
@@ -22,6 +23,7 @@ import {
   initialGameBookmarked,
   resolveSortMetric,
 } from "@/utils/gameCard";
+import { isGameUpdateAvailable } from "@/utils/gameUpdate";
 import { Alert, AlertTitle } from "@tw/alert";
 import {
   Dropdown,
@@ -84,6 +86,13 @@ const GameCard = memo(function GameCard({
   useEffect(() => {
     setLocalGame(game);
   }, [game]);
+
+  // A game only has an update when it is installed locally and the server's
+  // current default version tag differs from the installed one.
+  const updateAvailable = useMemo(
+    () => isGameUpdateAvailable(localGame, installedInfo),
+    [localGame, installedInfo],
+  );
 
   const toggleBookmark = useCallback(
     async (e: React.MouseEvent) => {
@@ -462,30 +471,43 @@ const GameCard = memo(function GameCard({
               bottom of the artwork never shows a 1px open line in Chromium. */}
             <div className="pointer-events-none absolute inset-x-0 -bottom-px h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 group-hover/card:opacity-100! group-focus-within/card:opacity-100!" />
 
-            {/* Icon-only "Installed" indicator in the lower-right corner so
-              server games that are already installed locally are recognizable
-              at a glance. It is a passive marker (no text, tooltip only) and
-              fades out on hover so it never clashes with the centered
-              Play/Download action button. */}
+            {/* Icon-only "Installed" / "Update available" indicator in the
+              lower-right corner so server games that are already installed
+              locally are recognizable at a glance. When a newer version exists
+              on the server it turns into an amber up-arrow. It is a passive
+              marker (no text, tooltip only) and fades out on hover so it never
+              clashes with the centered Play/Download action button. */}
             {isInstalled && !hideInstalledBadge && (
               <span
-                title="Installed"
-                aria-label="Installed"
-                className="pointer-events-none absolute bottom-2 right-2 z-10 flex size-6 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-500/20 text-emerald-300 backdrop-blur-sm transition-opacity duration-200 group-hover/card:opacity-0! group-focus-within/card:opacity-0!"
+                title={updateAvailable ? "Update available" : "Installed"}
+                aria-label={updateAvailable ? "Update available" : "Installed"}
+                className={clsx(
+                  "pointer-events-none absolute bottom-2 right-2 z-10 flex size-6 items-center justify-center rounded-full border backdrop-blur-sm transition-opacity duration-200 group-hover/card:opacity-0! group-focus-within/card:opacity-0!",
+                  updateAvailable
+                    ? "border-amber-400/50 bg-amber-500/25 text-amber-300"
+                    : "border-emerald-400/40 bg-emerald-500/20 text-emerald-300",
+                )}
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="h-3.5 w-3.5"
-                  aria-hidden="true"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z"
-                    clipRule="evenodd"
+                {updateAvailable ? (
+                  <ArrowUpCircleIcon
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
                   />
-                </svg>
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
               </span>
             )}
 

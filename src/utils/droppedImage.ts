@@ -114,8 +114,9 @@ export function pickBestImageUrl(urls: string[]): string | null {
 async function readLocalFile(path: string): Promise<File | null> {
   try {
     const { invoke } = await import("@tauri-apps/api/core");
-    const arr = (await invoke("fs_read_binary_file", { path })) as number[];
-    const bytes = new Uint8Array(arr);
+    const { base64ToBytes } = await import("./binary");
+    const base64 = (await invoke("fs_read_binary_file", { path })) as string;
+    const bytes = base64ToBytes(base64);
     const name = path.split(/[\\/]/).pop() || "image.png";
     const ext = (name.split(".").pop() || "").toLowerCase();
     let type = "application/octet-stream";

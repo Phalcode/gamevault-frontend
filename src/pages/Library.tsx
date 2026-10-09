@@ -25,9 +25,7 @@ import MultiSelectFilterDialog, {
 } from "@/components/MultiSelectFilterDialog";
 import { Strong, Text, TextLink } from "@/components/tailwind/text";
 import { isTauriApp } from "@/utils/tauri";
-import {
-  useInstalledGames,
-} from "@/hooks/useInstalledGames";
+import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { SectionExpander } from "@/components/SectionExpander";
 import { RowCountControl } from "@/components/RowCountControl";
@@ -483,6 +481,10 @@ export default function Library() {
         title: ig.gameTitle,
         sort_title: ig.gameTitle?.toLowerCase(),
         type: ig.gameType as any,
+        // Carry the server's version info through so installed-only cards can
+        // also show the "update available" indicator.
+        version: (meta as any)?.version,
+        versions: (meta as any)?.versions,
         metadata: meta
           ? {
               title: meta.title,

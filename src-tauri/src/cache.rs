@@ -1,7 +1,26 @@
+use base64::Engine as _;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use tauri::Manager;
+
+/// Decodes Base64 received from the webview.
+///
+/// Image bytes used to travel as `Vec<u8>`, which Tauri serialises as a JSON
+/// array of numbers: a several-MB cover became a multi-million-entry array on
+/// the renderer's main thread (the 140MB+ heap spikes in the field log) and a
+/// tens-of-MB IPC payload. Passing Base64 keeps the same data at ~4/3 the size
+/// with a single compact string instead.
+fn decode_base64(data: &str) -> Result<Vec<u8>, String> {
+    base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|e| format!("Invalid base64 image data: {e}"))
+}
+
+/// Encodes bytes as Base64 for the webview (see [`decode_base64`]).
+fn encode_base64(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
 
 fn cache_root(app: &tauri::AppHandle) -> PathBuf {
     app.path()
@@ -45,9 +64,10 @@ pub(crate) fn cache_game_image(
     app: tauri::AppHandle,
     server_namespace: String,
     media_id: i64,
-    bytes: Vec<u8>,
+    data_base64: String,
     content_type: String,
 ) -> Result<(), String> {
+    let bytes = decode_base64(&data_base64)?;
     let dir = images_cache_dir(&app, &server_namespace)?;
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create images cache dir: {e}"))?;
     let ext = content_type
@@ -85,7 +105,7 @@ pub(crate) fn load_cached_image(
     app: tauri::AppHandle,
     server_namespace: String,
     media_id: i64,
-) -> Result<Option<Vec<u8>>, String> {
+) -> Result<Option<String>, String> {
     let images_dir = images_cache_dir(&app, &server_namespace)?;
     if !images_dir.exists() {
         return Ok(None);
@@ -99,7 +119,7 @@ pub(crate) fn load_cached_image(
             let path = entry.path();
             let bytes = fs::read(&path).map_err(|e| format!("Failed to read cached image: {e}"))?;
             let _ = fs::write(&path, &bytes);
-            return Ok(Some(bytes));
+            return Ok(Some(encode_base64(&bytes)));
         }
     }
     Ok(None)

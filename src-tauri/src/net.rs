@@ -3,12 +3,18 @@
 //! reading files dropped from external apps (e.g. dragging an image out of a
 //! browser), which WebView2 does not expose through the DOM DataTransfer API.
 
+use base64::Engine as _;
 use serde::Serialize;
 
 #[derive(Serialize)]
 pub(crate) struct FetchedBytes {
-  bytes: Vec<u8>,
+  /// Base64 so the bytes never become a JSON array of numbers over IPC.
+  bytes_base64: String,
   content_type: String,
+}
+
+fn encode_base64(bytes: &[u8]) -> String {
+  base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 /// Fetch a URL natively (no CORS). Used to download images pasted/dropped as
@@ -37,15 +43,20 @@ pub(crate) async fn fetch_url_bytes(url: String) -> Result<FetchedBytes, String>
     .map_err(|e| format!("fetch_url_bytes read failed: {e}"))?
     .to_vec();
   Ok(FetchedBytes {
-    bytes,
+    bytes_base64: encode_base64(&bytes),
     content_type,
   })
 }
 
 /// Read a file's raw bytes by absolute path. Bypasses plugin-fs scope so we
 /// can read temp files handed to us by Tauri's native drag-drop handling.
+///
+/// Returns Base64: the previous `Vec<u8>` was serialised as a JSON array of
+/// numbers, which made a multi-MB image a multi-million-entry array on the
+/// renderer's main thread.
 #[tauri::command]
-pub(crate) fn fs_read_binary_file(path: String) -> Result<Vec<u8>, String> {
-  std::fs::read(&path)
-    .map_err(|e| format!("fs_read_binary_file failed for '{}': {}", path, e))
+pub(crate) fn fs_read_binary_file(path: String) -> Result<String, String> {
+  let bytes = std::fs::read(&path)
+    .map_err(|e| format!("fs_read_binary_file failed for '{}': {}", path, e))?;
+  Ok(encode_base64(&bytes))
 }

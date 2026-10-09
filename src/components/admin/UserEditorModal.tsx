@@ -383,10 +383,11 @@ export function UserEditorModal({
       try {
         if (isTauri) {
           const { invoke } = await import("@tauri-apps/api/core");
+          const { base64ToBytes } = await import("@/utils/binary");
           const res = (await invoke("fetch_url_bytes", {
             url: state.preview,
-          })) as { bytes: number[]; content_type: string };
-          const bytes = new Uint8Array(res.bytes);
+          })) as { bytesBase64: string; content_type: string };
+          const bytes = base64ToBytes(res.bytesBase64);
           const mime = res.content_type || "image/png";
           const ext = (mime.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
           return new File([bytes], `${fallbackName}.${ext}`, { type: mime });
