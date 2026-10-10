@@ -34,6 +34,18 @@ const HANG_REPEAT: Duration = Duration::from_secs(20);
 /// webview to recover it. Deliberately longer than [`HANG_THRESHOLD`] so a
 /// legitimately long synchronous task is not torn down.
 const RECOVERY_AFTER: Duration = Duration::from_secs(25);
+/// Build marker stamped into every watchdog log line.
+///
+/// Bumped whenever the watchdog's logging or behaviour changes, so any log line
+/// (or excerpt) can be traced back to the build that produced it.
+/// `wd1` = heartbeat + periodic snapshot + hang detection only.
+/// `wd2` = adds the process/CPU snapshot, the Rust main-thread probe and the
+/// automatic recovery reload.
+const BUILD_MARKER: &str = "wd2";
+
+/// How long the main-thread liveness probe waits before declaring the event
+/// loop blocked.
+const MAIN_THREAD_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// How many watchdog cycles between periodic "frontend alive" snapshots.
 /// With a 2 s cycle this is one line per minute, which gives a memory/DOM
 /// timeline without drowning the log.
@@ -166,6 +178,7 @@ fn describe(payload: &FrontendStatusPayload) -> String {
   };
 
   let mut parts = vec![
+    format!("build={BUILD_MARKER}"),
     format!("route={route}"),
     format!("visibility={visibility}"),
     format!("seq={}", payload.seq),
@@ -272,8 +285,38 @@ fn attempt_recovery(app: &tauri::AppHandle) {
   }
 }
 
+/// Checks whether the Tauri main thread still runs tasks, by dispatching a
+/// no-op onto it and waiting for it to run.
+///
+/// On Windows the webview's IPC is served on the main thread, so a blocked main
+/// thread stops every `invoke` — which looks exactly like a frozen UI from the
+/// frontend's point of view. This probe tells the two apart in the log:
+/// `Ok` = the Rust side is healthy and the renderer is the stuck part;
+/// `Err` = the event loop itself is blocked, so all IPC (and thus the UI) is
+/// dead until the process is restarted.
+fn main_thread_latency(app: &tauri::AppHandle) -> Result<Duration, Duration> {
+  let (tx, rx) = std::sync::mpsc::channel::<()>();
+  let dispatched_at = Instant::now();
+  if app.run_on_main_thread(move || {
+    let _ = tx.send(());
+  }).is_err()
+  {
+    return Err(dispatched_at.elapsed());
+  }
+  match rx.recv_timeout(MAIN_THREAD_PROBE_TIMEOUT) {
+    Ok(()) => Ok(dispatched_at.elapsed()),
+    Err(_) => Err(dispatched_at.elapsed()),
+  }
+}
+
 /// Starts the watchdog thread. Call once during app setup.
 pub(crate) fn start_watchdog(app: tauri::AppHandle) {
+  // Make the build unambiguous in the log: if this line (or the `build=` token
+  // in any later line) is missing, the running app predates these diagnostics.
+  log::info!(
+    "[watchdog] diagnostics protocol {BUILD_MARKER} active (verbose={})",
+    VERBOSE.load(Ordering::Relaxed)
+  );
   std::thread::spawn(move || {
     let mut frozen: Option<FrozenState> = None;
     let mut cycles: u64 = 0;
@@ -322,6 +365,18 @@ pub(crate) fn start_watchdog(app: tauri::AppHandle) {
             // Capture whether the renderer is spinning or idle, so the cause
             // can be told apart without a manual Task Manager check.
             log_process_snapshot();
+            // ...and whether the stuck part is the renderer or our own main
+            // thread (which serves IPC on Windows).
+            match main_thread_latency(&app) {
+              Ok(latency) => log::warn!(
+                "[watchdog] Rust main thread still responsive at hang ({:.0}ms) — the webview/renderer is the stuck part",
+                latency.as_secs_f64() * 1000.0
+              ),
+              Err(waited) => log::warn!(
+                "[watchdog] Rust main thread did NOT respond within {:.0}ms — the event loop is blocked, which also stops IPC for the webview",
+                waited.as_secs_f64() * 1000.0
+              ),
+            }
             frozen = Some(FrozenState {
               since: received,
               payload,
