@@ -55,7 +55,7 @@ pub(crate) async fn fetch_url_bytes(url: String) -> Result<FetchedBytes, String>
 /// numbers, which made a multi-MB image a multi-million-entry array on the
 /// renderer's main thread.
 #[tauri::command]
-pub(crate) fn fs_read_binary_file(path: String) -> Result<String, String> {
+pub(crate) async fn fs_read_binary_file(path: String) -> Result<String, String> {
   let bytes = std::fs::read(&path)
     .map_err(|e| format!("fs_read_binary_file failed for '{}': {}", path, e))?;
   Ok(encode_base64(&bytes))

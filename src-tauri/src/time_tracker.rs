@@ -78,7 +78,7 @@ fn is_shortcut(path: &Path) -> bool {
 }
 
 #[tauri::command]
-pub(crate) fn start_game_time_tracker(
+pub(crate) async fn start_game_time_tracker(
   app: tauri::AppHandle,
   server_url: String,
   user_id: i64,
@@ -160,7 +160,7 @@ pub(crate) fn start_game_time_tracker(
 }
 
 #[tauri::command]
-pub(crate) fn stop_game_time_tracker(reason: Option<String>) -> Result<(), String> {
+pub(crate) async fn stop_game_time_tracker(reason: Option<String>) -> Result<(), String> {
   let reason = reason.unwrap_or_else(|| "unspecified".to_string());
 
   if let Ok(mut tx) = tracker_stop_tx().lock() {
@@ -181,7 +181,7 @@ pub(crate) fn stop_game_time_tracker(reason: Option<String>) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub(crate) fn update_tracker_auth(access_token: String) -> Result<(), String> {
+pub(crate) async fn update_tracker_auth(access_token: String) -> Result<(), String> {
   let mut updated = false;
   if let Ok(mut cfg) = tracker_config().lock() {
     if let Some(ref mut c) = *cfg {
@@ -1599,7 +1599,7 @@ fn walk_offline_time_files(dir: &Path, results: &mut Vec<OfflineTimeFile>) -> st
 }
 
 #[tauri::command]
-pub(crate) fn delete_offline_time_file(path: String) -> Result<(), String> {
+pub(crate) async fn delete_offline_time_file(path: String) -> Result<(), String> {
   let p = Path::new(&path);
   if p.exists() {
     fs::remove_file(p).map_err(|e| format!("Failed to delete offline time file: {e}"))?;
@@ -1878,7 +1878,7 @@ pub(crate) struct TrackerStatus {
 }
 
 #[tauri::command]
-pub(crate) fn get_tracker_status() -> TrackerStatus {
+pub(crate) async fn get_tracker_status() -> TrackerStatus {
   let mut stats = tracker_stats().lock().map(|stats| stats.clone()).unwrap_or_default();
   stats.log_path = tracker_log::log_path();
 
@@ -1897,7 +1897,7 @@ pub(crate) fn get_tracker_status() -> TrackerStatus {
 
 /// Clears the playtime ledger so a fresh measurement can be taken.
 #[tauri::command]
-pub(crate) fn reset_tracker_ledger() -> Result<(), String> {
+pub(crate) async fn reset_tracker_ledger() -> Result<(), String> {
   if let Ok(mut ledger) = tracker_ledger().lock() {
     ledger.clear();
   }

@@ -356,7 +356,7 @@ fn open_with_desktop_launchers(target: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) fn open_in_file_explorer(path: String) -> Result<(), String> {
+pub(crate) async fn open_in_file_explorer(path: String) -> Result<(), String> {
     if !Path::new(&path).exists() {
         return Err(format!("Folder does not exist: {path}"));
     }
@@ -382,7 +382,7 @@ fn validate_external_url(value: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) fn open_external_url(url: String) -> Result<(), String> {
+pub(crate) async fn open_external_url(url: String) -> Result<(), String> {
     validate_external_url(&url)?;
 
     // On Linux, resolve launchers against the host's PATH so the system
@@ -613,7 +613,7 @@ fn list_launch_executables_blocking(
 }
 
 #[tauri::command]
-pub(crate) fn make_script_executable(
+pub(crate) async fn make_script_executable(
     installation_path: String,
     relative_paths: Vec<String>,
 ) -> Result<(), String> {

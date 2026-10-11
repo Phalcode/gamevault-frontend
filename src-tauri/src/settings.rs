@@ -125,24 +125,24 @@ pub(crate) fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> R
 }
 
 #[tauri::command]
-pub(crate) fn get_start_minimized(app: tauri::AppHandle) -> bool {
+pub(crate) async fn get_start_minimized(app: tauri::AppHandle) -> bool {
   load_settings(&app).start_minimized
 }
 
 #[tauri::command]
-pub(crate) fn set_start_minimized(app: tauri::AppHandle, minimized: bool) -> Result<(), String> {
+pub(crate) async fn set_start_minimized(app: tauri::AppHandle, minimized: bool) -> Result<(), String> {
   let mut settings = load_settings(&app);
   settings.start_minimized = minimized;
   save_settings(&app, &settings)
 }
 
 #[tauri::command]
-pub(crate) fn get_minimize_on_game_launch(app: tauri::AppHandle) -> bool {
+pub(crate) async fn get_minimize_on_game_launch(app: tauri::AppHandle) -> bool {
   load_settings(&app).minimize_on_game_launch
 }
 
 #[tauri::command]
-pub(crate) fn set_minimize_on_game_launch(
+pub(crate) async fn set_minimize_on_game_launch(
   app: tauri::AppHandle,
   minimize_on_launch: bool,
 ) -> Result<(), String> {
@@ -152,7 +152,7 @@ pub(crate) fn set_minimize_on_game_launch(
 }
 
 #[tauri::command]
-pub(crate) fn get_ignore_list(app: tauri::AppHandle) -> IgnoreListState {
+pub(crate) async fn get_ignore_list(app: tauri::AppHandle) -> IgnoreListState {
   let settings = load_settings(&app);
   IgnoreListState {
     ignored: settings.ignored_executables,
@@ -161,7 +161,7 @@ pub(crate) fn get_ignore_list(app: tauri::AppHandle) -> IgnoreListState {
 }
 
 #[tauri::command]
-pub(crate) fn set_ignore_list(app: tauri::AppHandle, ignored: Vec<String>) -> Result<(), String> {
+pub(crate) async fn set_ignore_list(app: tauri::AppHandle, ignored: Vec<String>) -> Result<(), String> {
   let mut settings = load_settings(&app);
 
   let mut seen = HashSet::new();
@@ -183,13 +183,13 @@ pub(crate) fn set_ignore_list(app: tauri::AppHandle, ignored: Vec<String>) -> Re
 }
 
 #[tauri::command]
-pub(crate) fn get_prerelease_notice_channel(app: tauri::AppHandle) -> Option<String> {
+pub(crate) async fn get_prerelease_notice_channel(app: tauri::AppHandle) -> Option<String> {
   load_settings(&app).prerelease_notice_channel
 }
 /// Records the pre-release channel whose warning was acknowledged. `None`
 /// clears it, which makes the warning show up again on the next launch.
 #[tauri::command]
-pub(crate) fn set_prerelease_notice_channel(
+pub(crate) async fn set_prerelease_notice_channel(
   app: tauri::AppHandle,
   channel: Option<String>,
 ) -> Result<(), String> {
@@ -201,11 +201,11 @@ pub(crate) fn set_prerelease_notice_channel(
 }
 
 #[tauri::command]
-pub(crate) fn get_default_wine_prefix(app: tauri::AppHandle) -> Option<String> {
+pub(crate) async fn get_default_wine_prefix(app: tauri::AppHandle) -> Option<String> {
   load_settings(&app).default_wine_prefix
 }
 #[tauri::command]
-pub(crate) fn set_default_wine_prefix(
+pub(crate) async fn set_default_wine_prefix(
   app: tauri::AppHandle,
   prefix: Option<String>,
 ) -> Result<(), String> {
@@ -219,12 +219,12 @@ pub(crate) fn set_default_wine_prefix(
 
 /// Whether the launch log window should open automatically on game start.
 #[tauri::command]
-pub(crate) fn get_always_show_launch_logs(app: tauri::AppHandle) -> bool {
+pub(crate) async fn get_always_show_launch_logs(app: tauri::AppHandle) -> bool {
   load_settings(&app).always_show_launch_logs
 }
 
 #[tauri::command]
-pub(crate) fn set_always_show_launch_logs(
+pub(crate) async fn set_always_show_launch_logs(
   app: tauri::AppHandle,
   enabled: bool,
 ) -> Result<(), String> {
@@ -235,12 +235,12 @@ pub(crate) fn set_always_show_launch_logs(
 
 /// Whether the verbose diagnostics logging is enabled (Developer Tools).
 #[tauri::command]
-pub(crate) fn get_diagnostics_verbose(app: tauri::AppHandle) -> bool {
+pub(crate) async fn get_diagnostics_verbose(app: tauri::AppHandle) -> bool {
   load_settings(&app).diagnostics_verbose
 }
 
 #[tauri::command]
-pub(crate) fn set_diagnostics_verbose(
+pub(crate) async fn set_diagnostics_verbose(
   app: tauri::AppHandle,
   enabled: bool,
 ) -> Result<(), String> {

@@ -41,7 +41,9 @@ const RECOVERY_AFTER: Duration = Duration::from_secs(25);
 /// `wd1` = heartbeat + periodic snapshot + hang detection only.
 /// `wd2` = adds the process/CPU snapshot, the Rust main-thread probe and the
 /// automatic recovery reload.
-const BUILD_MARKER: &str = "wd2";
+/// `wd3` = adds the fix for the actual cause: the I/O-heavy commands no longer
+/// run on the main thread (event loop), which is what froze the UI.
+const BUILD_MARKER: &str = "wd3";
 
 /// How long the main-thread liveness probe waits before declaring the event
 /// loop blocked.

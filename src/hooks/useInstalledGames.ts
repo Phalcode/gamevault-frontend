@@ -23,6 +23,12 @@ export interface InstalledGameInfo {
   lastPlayedAt: number;
 }
 
+// Games whose metadata + images have already been cached during this app
+// session. Without this, every `isOnline` transition re-ran the whole cache for
+// every installed game — a burst of multi-megabyte IPC transfers that kept the
+// renderer and the Tauri event loop busy.
+const cachedGameIds = new Set<number>();
+
 export function useInstalledGames() {
   const [installedGames, setInstalledGames] = useState<InstalledGameInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -33,9 +39,10 @@ export function useInstalledGames() {
   const cacheInFlightRef = useRef<Set<number>>(new Set());
 
   const ensureGameCache = useCallback(
-    async (gameId: number) => {
+    async (gameId: number, force = false) => {
       if (!isTauriApp() || !isOnline) return;
       if (cacheInFlightRef.current.has(gameId)) return;
+      if (!force && cachedGameIds.has(gameId)) return;
       cacheInFlightRef.current.add(gameId);
 
       try {
@@ -100,6 +107,7 @@ export function useInstalledGames() {
         }
 
         // Update local state to include the new cached metadata
+        cachedGameIds.add(gameId);
         setInstalledGames((prev) =>
           prev.map((g) =>
             g.gameId === gameId ? { ...g, cachedMetadata: gameJson } : g,
@@ -256,7 +264,7 @@ export function useInstalledGames() {
               : game,
           ),
         );
-        if (isOnline) void ensureGameCache(updatedGame.id);
+        if (isOnline) void ensureGameCache(updatedGame.id, true);
       }),
     [ensureGameCache, isOnline],
   );

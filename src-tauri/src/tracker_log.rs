@@ -400,25 +400,25 @@ fn clear(app: &AppHandle) {
 // ── Commands ───────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub(crate) fn get_tracker_log(limit: Option<usize>) -> Vec<TrackerLogLine> {
+pub(crate) async fn get_tracker_log(limit: Option<usize>) -> Vec<TrackerLogLine> {
   tail(limit.unwrap_or(MAX_TAIL_LINES).min(MAX_TAIL_LINES))
 }
 
 #[tauri::command]
-pub(crate) fn clear_tracker_log(app: AppHandle) -> Result<(), String> {
+pub(crate) async fn clear_tracker_log(app: AppHandle) -> Result<(), String> {
   clear(&app);
   Ok(())
 }
 
 #[tauri::command]
-pub(crate) fn open_tracker_log_folder(app: AppHandle) -> Result<(), String> {
+pub(crate) async fn open_tracker_log_folder(app: AppHandle) -> Result<(), String> {
   let dir = log_directory(&app).ok_or_else(|| "Log directory unavailable".to_string())?;
-  crate::games::open_in_file_explorer(dir.to_string_lossy().to_string())
+  crate::games::open_in_file_explorer(dir.to_string_lossy().to_string()).await
 }
 
 /// Reads the tail of a tracker log file (for rotated files).
 #[tauri::command]
-pub(crate) fn read_tracker_log_file(path: String, max_bytes: Option<u64>) -> Result<String, String> {
+pub(crate) async fn read_tracker_log_file(path: String, max_bytes: Option<u64>) -> Result<String, String> {
   let mut file =
     File::open(&path).map_err(|error| format!("Failed to open tracker log: {error}"))?;
   let length = file

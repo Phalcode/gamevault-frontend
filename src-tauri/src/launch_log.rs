@@ -406,7 +406,7 @@ pub(crate) fn open_or_focus_log_window(app: &AppHandle) -> Result<(), String> {
 // ── Commands ───────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub(crate) fn get_launch_log(log_id: Option<u64>) -> Option<LaunchLogSnapshot> {
+pub(crate) async fn get_launch_log(log_id: Option<u64>) -> Option<LaunchLogSnapshot> {
   let log = current_store().lock().ok().and_then(|guard| guard.clone())?;
   if let Some(requested) = log_id {
     if requested != log.id {
@@ -417,7 +417,7 @@ pub(crate) fn get_launch_log(log_id: Option<u64>) -> Option<LaunchLogSnapshot> {
 }
 
 #[tauri::command]
-pub(crate) fn list_launch_logs() -> Vec<LaunchLogEntry> {
+pub(crate) async fn list_launch_logs() -> Vec<LaunchLogEntry> {
   history_store()
     .lock()
     .map(|guard| guard.iter().cloned().collect())
@@ -430,13 +430,13 @@ pub(crate) fn open_launch_log_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub(crate) fn open_launch_log_folder(app: AppHandle) -> Result<(), String> {
+pub(crate) async fn open_launch_log_folder(app: AppHandle) -> Result<(), String> {
   let dir = log_directory(&app).ok_or_else(|| "Log directory unavailable".to_string())?;
-  crate::games::open_in_file_explorer(dir.to_string_lossy().to_string())
+  crate::games::open_in_file_explorer(dir.to_string_lossy().to_string()).await
 }
 
 #[tauri::command]
-pub(crate) fn clear_launch_logs(app: AppHandle) -> Result<(), String> {
+pub(crate) async fn clear_launch_logs(app: AppHandle) -> Result<(), String> {
   if let Some(dir) = log_directory(&app) {
     if let Ok(entries) = fs::read_dir(&dir) {
       for entry in entries.flatten() {
@@ -452,7 +452,7 @@ pub(crate) fn clear_launch_logs(app: AppHandle) -> Result<(), String> {
 
 /// Reads the tail of a log file (for logs that are no longer in memory).
 #[tauri::command]
-pub(crate) fn read_launch_log_file(path: String, max_bytes: Option<u64>) -> Result<String, String> {
+pub(crate) async fn read_launch_log_file(path: String, max_bytes: Option<u64>) -> Result<String, String> {
   read_log_tail(Path::new(&path), max_bytes.unwrap_or(256 * 1024))
 }
 

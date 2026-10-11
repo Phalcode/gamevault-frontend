@@ -47,7 +47,7 @@ fn images_cache_dir(app: &tauri::AppHandle, server_namespace: &str) -> Result<Pa
 }
 
 #[tauri::command]
-pub(crate) fn cache_game_data(
+pub(crate) async fn cache_game_data(
     app: tauri::AppHandle,
     game_id: i64,
     json: String,
@@ -60,7 +60,7 @@ pub(crate) fn cache_game_data(
 }
 
 #[tauri::command]
-pub(crate) fn cache_game_image(
+pub(crate) async fn cache_game_image(
     app: tauri::AppHandle,
     server_namespace: String,
     media_id: i64,
@@ -85,7 +85,7 @@ pub(crate) fn cache_game_image(
 }
 
 #[tauri::command]
-pub(crate) fn load_cached_game(
+pub(crate) async fn load_cached_game(
     app: tauri::AppHandle,
     game_id: i64,
 ) -> Result<Option<String>, String> {
@@ -101,7 +101,7 @@ pub(crate) fn load_cached_game(
 }
 
 #[tauri::command]
-pub(crate) fn load_cached_image(
+pub(crate) async fn load_cached_image(
     app: tauri::AppHandle,
     server_namespace: String,
     media_id: i64,
@@ -126,7 +126,7 @@ pub(crate) fn load_cached_image(
 }
 
 #[tauri::command]
-pub(crate) fn cleanup_cached_images(
+pub(crate) async fn cleanup_cached_images(
     app: tauri::AppHandle,
     server_namespace: String,
     max_age_seconds: u64,
@@ -157,7 +157,7 @@ pub(crate) fn cleanup_cached_images(
 }
 
 #[tauri::command]
-pub(crate) fn list_cached_game_ids(app: tauri::AppHandle) -> Result<Vec<i64>, String> {
+pub(crate) async fn list_cached_game_ids(app: tauri::AppHandle) -> Result<Vec<i64>, String> {
     let dir = cache_root(&app).join("games");
     if !dir.exists() {
         return Ok(Vec::new());
@@ -178,7 +178,7 @@ pub(crate) fn list_cached_game_ids(app: tauri::AppHandle) -> Result<Vec<i64>, St
 }
 
 #[tauri::command]
-pub(crate) fn delete_cached_game(app: tauri::AppHandle, game_id: i64) -> Result<(), String> {
+pub(crate) async fn delete_cached_game(app: tauri::AppHandle, game_id: i64) -> Result<(), String> {
     let path = cache_root(&app)
         .join("games")
         .join(format!("{game_id}.json"));
@@ -189,7 +189,7 @@ pub(crate) fn delete_cached_game(app: tauri::AppHandle, game_id: i64) -> Result<
 }
 
 #[tauri::command]
-pub(crate) fn delete_cached_image(
+pub(crate) async fn delete_cached_image(
     app: tauri::AppHandle,
     server_namespace: String,
     media_id: i64,
@@ -215,7 +215,7 @@ pub(crate) fn delete_cached_image(
 /// Removes every cached image across all server namespaces from the native
 /// offline image cache. Returns the number of files deleted.
 #[tauri::command]
-pub(crate) fn clear_all_cached_images(app: tauri::AppHandle) -> Result<u64, String> {
+pub(crate) async fn clear_all_cached_images(app: tauri::AppHandle) -> Result<u64, String> {
     let images_root = cache_root(&app).join("images");
     if !images_root.exists() {
         return Ok(0);
