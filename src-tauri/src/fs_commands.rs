@@ -45,13 +45,13 @@ fn mark_hidden(_path: &Path) -> Result<(), String> {
   Ok(())
 }
 
-#[tauri::command]
-pub(crate) async fn fs_read_text_file(path: String) -> Result<String, String> {
+#[tauri::command(async)]
+pub(crate) fn fs_read_text_file(path: String) -> Result<String, String> {
   std::fs::read_to_string(&path).map_err(|e| format!("fs_read_text_file failed for '{}': {}", path, e))
 }
 
-#[tauri::command]
-pub(crate) async fn fs_write_text_file(path: String, content: String) -> Result<(), String> {
+#[tauri::command(async)]
+pub(crate) fn fs_write_text_file(path: String, content: String) -> Result<(), String> {
   let file_path = Path::new(&path);
   std::fs::write(file_path, content)
     .map_err(|e| format!("fs_write_text_file failed for '{}': {}", path, e))?;
@@ -63,13 +63,13 @@ pub(crate) async fn fs_write_text_file(path: String, content: String) -> Result<
   Ok(())
 }
 
-#[tauri::command]
-pub(crate) async fn fs_create_dir_all(path: String) -> Result<(), String> {
+#[tauri::command(async)]
+pub(crate) fn fs_create_dir_all(path: String) -> Result<(), String> {
   std::fs::create_dir_all(&path).map_err(|e| format!("fs_create_dir_all failed for '{}': {}", path, e))
 }
 
-#[tauri::command]
-pub(crate) async fn fs_path_exists(path: String) -> Result<bool, String> {
+#[tauri::command(async)]
+pub(crate) fn fs_path_exists(path: String) -> Result<bool, String> {
   Ok(std::path::Path::new(&path).exists())
 }
 
@@ -189,8 +189,8 @@ fn remove_effectively_empty_contents(path: &Path) {
 /// but never installed). This keeps the hidden `.gamevault.game.config.json` /
 /// `.gamevault.metadata.json` files and empty folders from blocking cleanup.
 /// Pruning stops at the first directory that still has real content.
-#[tauri::command]
-pub(crate) async fn remove_empty_directories(path: String, stop_at: String) -> Result<(), String> {
+#[tauri::command(async)]
+pub(crate) fn remove_empty_directories(path: String, stop_at: String) -> Result<(), String> {
   let mut current = std::path::PathBuf::from(&path);
   let stop = std::path::PathBuf::from(&stop_at);
 
