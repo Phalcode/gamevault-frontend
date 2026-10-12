@@ -208,11 +208,15 @@ pub(crate) fn walk_files(
 
       if is_dir {
         if linked {
-          match dir_id(&path) {
-            // Already walked through another link: a cycle. Stop here.
-            Some(id) if !seen_linked.insert(id) => continue,
-            Some(_) => {}
-            None => continue,
+          // A pattern guard may only borrow, so the identity is checked in the
+          // body: this keeps the code compiling for platforms where the
+          // identity is an owned path (Windows) instead of a `Copy` pair.
+          let Some(id) = dir_id(&path) else {
+            continue;
+          };
+          // Already walked through this target: a cycle. Stop here.
+          if !seen_linked.insert(id) {
+            continue;
           }
         }
         queue.push_back(path);
