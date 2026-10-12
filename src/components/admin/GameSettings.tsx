@@ -1042,6 +1042,10 @@ export function GameSettings({
             installedGame.versionDirectory,
             false,
           );
+          // Clean up the empty per-version / per-game folders left behind. The
+          // uninstaller only removes the game files, so without this the empty
+          // "<Game>/Versions/<version>" chain stays on disk.
+          await pruneEmptyVersionFolders(installedGame.versionDirectory);
           await cleanupLeftoverFiles(installedGame.versionDirectory);
           await offerPrefixCleanup(
             installedGame.versionDirectory,

@@ -91,6 +91,7 @@
 - Fixed launch executables being missed on games with very large installation folders: the executable search now looks one level at a time instead of diving into the first big data folder it finds, so an executable sitting next to a huge `*_Data`/`Engine` folder is found again in the game settings, after an installation, and by playtime tracking.
 - The executable and installer searches now follow symbolic links instead of skipping them, so an executable or data folder reached through a link is found again. Links are checked for cycles, so a self-referencing link can no longer stall the search.
 - When an installation folder is too large to search completely, the game settings now say so instead of silently showing an incomplete list, and installing a game into such a folder is no longer reported as failed.
+- Fixed uninstalling a setup game leaving the empty `<Game>/Versions/<version>` folder chain behind: the cleanup that removes the leftover folders only ran for portable games. Both uninstall paths now remove the empty per-game folders up to the configured download location.
 
 ## 17.0.0
 
