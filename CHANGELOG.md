@@ -95,6 +95,7 @@
 - Fixed uninstalling a setup game leaving the empty `<Game>/Versions/<version>` folder chain behind
 - Fixed some umu-launcher setup issues
 - Fixed the app stalling while a download is running on desktop builds
+- Fixed signing in with SSO (Single Sign-On) in the desktop app: logging in via your identity provider now returns to the app instead of leaving it stuck on the server's web page, so the session is saved and survives a restart. On the web, SSO now opens in a popup and no longer puts your session tokens in the address bar.
 
 ## 17.0.0
 
