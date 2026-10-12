@@ -825,7 +825,7 @@ enum LedgerMatch {
   Matched,
   /// Process vanished but the game may still be running (launcher hand-off) —
   /// still credit, for at most [`MATCH_GRACE_TICKS`] ticks.
-  Grace { remaining: u64 },
+  Grace,
   /// The game is not running (or never was) — do not credit.
   Lost,
 }
@@ -943,9 +943,7 @@ fn update_ledger(
           ("reason", reason.to_string()),
         ],
       );
-      return LedgerMatch::Grace {
-        remaining: MATCH_GRACE_TICKS - entry.missing_ticks,
-      };
+      return LedgerMatch::Grace;
     }
 
     entry.matched = false;
