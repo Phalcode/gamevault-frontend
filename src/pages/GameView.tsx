@@ -18,6 +18,7 @@ import { GameVersion } from "@/api/models/GameVersion";
 import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
+import { buildShareUrl } from "@/utils/shareUrl";
 import { formatDate, formatTime, formatYear } from "@/utils/date";
 import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
 import { formatDecimal } from "@/utils/number";
@@ -352,15 +353,26 @@ export default function GameView() {
     showAlert,
   ]);
 
-  const handleShare = useCallback(() => {
+  const handleShare = useCallback(async () => {
+    // Anchor the link to the GameVault server instead of the current origin:
+    // Tauri builds serve the bundled Web UI from `http://tauri.localhost`, so
+    // `window.location.href` would produce a link that is useless to anyone
+    // else.
+    const route = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const shareUrl = buildShareUrl(serverUrl, route);
     try {
-      navigator.clipboard.writeText(window.location.href);
-    } catch {}
-    // Show global alert notification
-    showAlert({
-      title: "Link copied",
-    });
-  }, [showAlert]);
+      await navigator.clipboard.writeText(shareUrl);
+      // Show global alert notification
+      showAlert({
+        title: "Link copied",
+      });
+    } catch {
+      showAlert({
+        title: "Couldn't copy link",
+        description: shareUrl,
+      });
+    }
+  }, [serverUrl, showAlert]);
 
   const resolveVersions = useCallback(async (): Promise<GameVersion[]> => {
     if (game && Array.isArray(game.versions) && game.versions.length > 0) {
