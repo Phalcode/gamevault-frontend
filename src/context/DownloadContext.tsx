@@ -214,6 +214,16 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   >({});
   /** Last taskbar indicator state sent to the native side (e.g. "normal:42"). */
   const lastTaskbarRef = useRef<string | null>(null);
+  /**
+   * Media ids whose bytes are already in the native image cache.
+   *
+   * The cache effect below depends on the session token and the connection
+   * state, so it re-runs whenever the token is refreshed or the connection
+   * flips — which happens regularly while a long download is running. Without
+   * this guard every run re-fetched, re-encoded (base64) and re-wrote the
+   * (multi-megabyte) cover and background art of every active download.
+   */
+  const cachedMediaIdsRef = useRef<Set<number>>(new Set());
   const SPEED_WINDOW_MS = 5000;
   const UI_THROTTLE_MS = 500;
   const SAMPLE_INTERVAL_MS = 250;
@@ -471,7 +481,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
         // Cache cover image
         const coverId = gameJson?.metadata?.cover?.id;
-        if (coverId) {
+        if (coverId && !cachedMediaIdsRef.current.has(Number(coverId))) {
           try {
             const blob = await resolveApiMediaBlob({
               serverUrl,
@@ -486,6 +496,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               dataBase64: bytes,
               contentType: blob.type || "image/png",
             });
+            cachedMediaIdsRef.current.add(Number(coverId));
           } catch {
             /* ignore image cache failures */
           }
@@ -493,7 +504,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
         // Cache background image
         const bgId = gameJson?.metadata?.background?.id;
-        if (bgId) {
+        if (bgId && !cachedMediaIdsRef.current.has(Number(bgId))) {
           try {
             const blob = await resolveApiMediaBlob({
               serverUrl,
@@ -508,6 +519,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               dataBase64: bytes,
               contentType: blob.type || "image/png",
             });
+            cachedMediaIdsRef.current.add(Number(bgId));
           } catch {
             /* ignore image cache failures */
           }

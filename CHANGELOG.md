@@ -91,6 +91,8 @@
 - Fixed launch executables being missed on games with very large installation folders
 - The executable and installer searches now follow symbolic links instead of skipping them
 - Fixed uninstalling a setup game leaving the empty `<Game>/Versions/<version>` folder chain behind
+- Fixed some umu-launcher setup issues
+- Fixed the app stalling while a download is running on desktop builds: the artwork of active downloads is no longer re-fetched and re-encoded every time the session is refreshed or the connection comes back.
 
 ## 17.0.0
 
