@@ -1,4 +1,5 @@
 use crate::events::{emit_game_launch_failed, InstalledGameInfo};
+use crate::executables::{self, ScanLimits};
 use crate::settings::load_settings;
 use crate::util::{
     is_ignored_executable, parse_i64_json, parse_version_folder, resolve_version_id,
@@ -396,176 +397,14 @@ pub(crate) async fn open_external_url(url: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to open URL: {e}"))
 }
 
-/// Safety limits for the recursive candidate walk: a game folder can contain
-/// a huge file tree (or a junction to one), and the walk runs on every tracker
-/// tick for every installed game.
-const MAX_CANDIDATE_DEPTH: usize = 6;
-const MAX_CANDIDATE_ENTRIES: usize = 20_000;
-
-pub(crate) fn collect_launch_candidates(
-    root: &Path,
-    current: &Path,
-    results: &mut Vec<String>,
-) -> Result<(), String> {
-    let mut visited = 0usize;
-    collect_launch_candidates_inner(root, current, results, 0, &mut visited)
-}
-
-fn collect_launch_candidates_inner(
-    root: &Path,
-    current: &Path,
-    results: &mut Vec<String>,
-    depth: usize,
-    visited: &mut usize,
-) -> Result<(), String> {
-    if depth > MAX_CANDIDATE_DEPTH || *visited >= MAX_CANDIDATE_ENTRIES {
-        return Ok(());
-    }
-
-    // A folder we cannot read (permissions, deleted mid-walk) must not abort
-    // the whole scan: skip it and keep the other candidates.
-    let entries = match fs::read_dir(current) {
-        Ok(entries) => entries,
-        Err(error) => {
-            log::warn!(
-                "Skipping unreadable folder during launch candidate scan: {} ({error})",
-                current.display()
-            );
-            return Ok(());
-        }
-    };
-
-    for entry in entries {
-        if *visited >= MAX_CANDIDATE_ENTRIES {
-            log::warn!(
-                "Launch candidate scan stopped after {MAX_CANDIDATE_ENTRIES} entries in {}",
-                root.display()
-            );
-            return Ok(());
-        }
-
-        let Ok(entry) = entry else {
-            continue;
-        };
-        *visited += 1;
-
-        let path = entry.path();
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-
-        // Never follow links/junctions: they can point at a parent folder and
-        // turn this walk into an endless loop.
-        if file_type.is_symlink() {
-            continue;
-        }
-
-        if file_type.is_dir() {
-            collect_launch_candidates_inner(root, &path, results, depth + 1, visited)?;
-            continue;
-        }
-
-        #[cfg(windows)]
-        {
-            let ext = path
-                .extension()
-                .and_then(|v| v.to_str())
-                .map(|v| v.to_ascii_lowercase())
-                .unwrap_or_default();
-
-            if !matches!(ext.as_str(), "exe" | "bat" | "cmd" | "com" | "ps1" | "lnk") {
-                continue;
-            }
-        }
-
-        #[cfg(not(windows))]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let Ok(metadata) = fs::metadata(&path) else {
-                continue;
-            };
-            let mode = metadata.permissions().mode();
-            if mode & 0o111 == 0 {
-                // Not natively executable on Unix — but still offer Windows
-                // executables: on Linux they can be run through umu-launcher
-                // (Proton/Wine), so list them as launch candidates too.
-                let ext = path
-                    .extension()
-                    .and_then(|v| v.to_str())
-                    .map(|v| v.to_ascii_lowercase())
-                    .unwrap_or_default();
-                if !matches!(ext.as_str(), "exe" | "bat" | "cmd" | "com") {
-                    continue;
-                }
-            }
-        }
-
-        if let Ok(relative) = path.strip_prefix(root) {
-            results.push(relative.to_string_lossy().replace('\\', "/"));
-        }
-    }
-
-    Ok(())
-}
-
 #[derive(serde::Serialize)]
 pub(crate) struct LaunchExecutables {
     pub executables: Vec<String>,
     #[serde(rename = "nonExecutableScripts")]
     pub non_executable_scripts: Vec<String>,
-}
-
-#[cfg(not(windows))]
-fn collect_non_executable_scripts(
-    root: &Path,
-    current: &Path,
-    results: &mut Vec<String>,
-) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let entries =
-        fs::read_dir(current).map_err(|e| format!("Failed to read installation folder: {e}"))?;
-
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read installation folder entry: {e}"))?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            collect_non_executable_scripts(root, &path, results)?;
-            continue;
-        }
-
-        let Ok(metadata) = fs::metadata(&path) else {
-            continue;
-        };
-        let mode = metadata.permissions().mode();
-        // Only shell scripts that are missing the executable bit are interesting.
-        if mode & 0o111 != 0 {
-            continue;
-        }
-        let ext = path
-            .extension()
-            .and_then(|v| v.to_str())
-            .map(|v| v.to_ascii_lowercase())
-            .unwrap_or_default();
-        if !matches!(ext.as_str(), "sh" | "bash" | "zsh" | "run" | "command") {
-            continue;
-        }
-        if let Ok(relative) = path.strip_prefix(root) {
-            results.push(relative.to_string_lossy().replace('\\', "/"));
-        }
-    }
-
-    Ok(())
-}
-
-#[cfg(windows)]
-fn collect_non_executable_scripts(
-    _root: &Path,
-    _current: &Path,
-    _results: &mut Vec<String>,
-) -> Result<(), String> {
-    Ok(())
+    /// True when the installation folder was too large to inspect completely,
+    /// so the list may be missing entries.
+    pub truncated: bool,
 }
 
 #[tauri::command]
@@ -590,25 +429,24 @@ fn list_launch_executables_blocking(
         return Ok(LaunchExecutables {
             executables: Vec::new(),
             non_executable_scripts: Vec::new(),
+            truncated: false,
         });
     }
 
     let ignored = load_settings(&app).ignored_executables;
+    let mut scan = executables::scan_launch_folder(&root, ScanLimits::THOROUGH);
 
-    let mut results = Vec::new();
-    collect_launch_candidates(&root, &root, &mut results)?;
-    results.retain(|rel| {
-        let rel_path = PathBuf::from(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
-        !is_ignored_executable(&rel_path, &ignored)
+    // The ignore list holds base names without extension and only applies to
+    // launch candidates, never to the scripts offered for `chmod +x`.
+    scan.executables.retain(|relative| {
+        let path = PathBuf::from(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
+        !is_ignored_executable(&path, &ignored)
     });
-    results.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()));
-
-    let mut non_executable_scripts = Vec::new();
-    collect_non_executable_scripts(&root, &root, &mut non_executable_scripts)?;
 
     Ok(LaunchExecutables {
-        executables: results,
-        non_executable_scripts,
+        executables: scan.executables,
+        non_executable_scripts: scan.non_executable_scripts,
+        truncated: scan.truncated,
     })
 }
 

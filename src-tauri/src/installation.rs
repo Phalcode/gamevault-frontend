@@ -1,4 +1,5 @@
 use crate::events::{emit_install_copy_progress, emit_installer_status};
+use crate::executables::{self, ScanLimits};
 use crate::util::read_saved_installer_preferences;
 #[cfg(windows)]
 use crate::util::run_elevated_installer_and_wait;
@@ -17,38 +18,25 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-pub(crate) fn collect_install_candidates(root: &Path, current: &Path, results: &mut Vec<String>) -> Result<(), String> {
-  let entries = fs::read_dir(current)
-    .map_err(|e| format!("Failed to read extraction folder: {e}"))?;
+/// Files an installer can be shipped as.
+const INSTALLER_EXTENSIONS: [&str; 8] = [
+  "exe", "msi", "bat", "cmd", "com", "sh", "run", "appimage",
+];
 
-  for entry in entries {
-    let entry = entry.map_err(|e| format!("Failed to read extraction folder entry: {e}"))?;
-    let path = entry.path();
-
-    if path.is_dir() {
-      collect_install_candidates(root, &path, results)?;
-      continue;
+/// Finds candidate installers inside an extracted game folder.
+///
+/// Uses the shared breadth-first walk, so a huge repack cannot hide a
+/// top-level installer, and Windows junctions can no longer turn the walk into
+/// an endless loop the way the old plain recursion could.
+pub(crate) fn collect_install_candidates(root: &Path, results: &mut Vec<String>) {
+  executables::walk_files(root, ScanLimits::THOROUGH, |path, _mode| {
+    if !INSTALLER_EXTENSIONS.contains(&executables::extension_lower(path).as_str()) {
+      return;
     }
-
-    let ext = path
-      .extension()
-      .and_then(|v| v.to_str())
-      .map(|v| v.to_ascii_lowercase())
-      .unwrap_or_default();
-
-    if !matches!(
-      ext.as_str(),
-      "exe" | "msi" | "bat" | "cmd" | "com" | "sh" | "run" | "appimage"
-    ) {
-      continue;
+    if let Some(relative) = executables::relative_path(root, path) {
+      results.push(relative);
     }
-
-    if let Ok(relative) = path.strip_prefix(root) {
-      results.push(relative.to_string_lossy().replace('\\', "/"));
-    }
-  }
-
-  Ok(())
+  });
 }
 
 fn compute_directory_size(path: &Path) -> Result<u64, String> {
@@ -200,7 +188,7 @@ fn list_install_executables_blocking(extraction_path: String) -> Result<Vec<Stri
   }
 
   let mut results = Vec::new();
-  collect_install_candidates(&root, &root, &mut results)?;
+  collect_install_candidates(&root, &mut results);
   let (preferred_installer, _) = read_saved_installer_preferences(&root);
   let normalized_preferred = preferred_installer
     .as_ref()

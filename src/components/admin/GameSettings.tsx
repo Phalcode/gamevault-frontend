@@ -282,6 +282,7 @@ export function GameSettings({
 
   // Launch options state
   const [launchExecutables, setLaunchExecutables] = useState<string[]>([]);
+  const [launchScanTruncated, setLaunchScanTruncated] = useState(false);
   const [selectedLaunchExe, setSelectedLaunchExe] = useState<string>("");
   const [nonExecutableScripts, setNonExecutableScripts] = useState<string[]>(
     [],
@@ -534,12 +535,14 @@ export function GameSettings({
         const result = await invoke<{
           executables: string[];
           nonExecutableScripts: string[];
+          truncated: boolean;
         }>("list_launch_executables", {
           installationPath: installedGame.installationDirectory,
         });
         if (!cancelled) {
           setLaunchExecutables(result.executables);
           setNonExecutableScripts(result.nonExecutableScripts);
+          setLaunchScanTruncated(!!result.truncated);
         }
 
         // Read saved launch config
@@ -646,11 +649,13 @@ export function GameSettings({
       const result = await invoke<{
         executables: string[];
         nonExecutableScripts: string[];
+        truncated: boolean;
       }>("list_launch_executables", {
         installationPath: installedGame.installationDirectory,
       });
       setLaunchExecutables(result.executables);
       setNonExecutableScripts(result.nonExecutableScripts);
+      setLaunchScanTruncated(!!result.truncated);
     } catch (err: any) {
       console.error("Failed to make scripts executable:", err);
     } finally {
@@ -4055,6 +4060,12 @@ export function GameSettings({
                                 </ListboxOption>
                               ))}
                             </Listbox>
+                          )}
+                          {launchScanTruncated && (
+                            <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                              This installation folder is very large — the scan
+                              stopped early, so some executables may be missing.
+                            </p>
                           )}
                         </div>
 

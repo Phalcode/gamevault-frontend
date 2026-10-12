@@ -1,6 +1,7 @@
 mod state;
 mod events;
 mod util;
+mod executables;
 mod downloads;
 mod extraction;
 mod installation;

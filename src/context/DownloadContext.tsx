@@ -1980,12 +1980,17 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       if (d.installationDirectory) {
         try {
           const { invoke } = await import("@tauri-apps/api/core");
-          const { executables: installedExecutables } = await invoke<{
-            executables: string[];
-          }>("list_launch_executables", {
-            installationPath: d.installationDirectory,
-          });
-          installVerified = installedExecutables.length > 0;
+          const { executables: installedExecutables, truncated } =
+            await invoke<{
+              executables: string[];
+              truncated?: boolean;
+            }>("list_launch_executables", {
+              installationPath: d.installationDirectory,
+            });
+          // A folder too large to scan completely is populated by definition, so
+          // a truncated scan must not be mistaken for a failed installation
+          // whose executable could not be found.
+          installVerified = installedExecutables.length > 0 || !!truncated;
         } catch {
           installVerified = false;
         }
