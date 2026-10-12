@@ -244,6 +244,18 @@ fn library_path_without_appimage_dirs(app_dir: &OsStr, library_path: &OsStr) -> 
   }
 }
 
+/// Releases the single umu-launcher install slot when an attempt ends,
+/// including on early `?` error returns.
+#[cfg(target_os = "linux")]
+struct UmuInstallGuard;
+
+#[cfg(target_os = "linux")]
+impl Drop for UmuInstallGuard {
+  fn drop(&mut self) {
+    crate::state::end_umu_install();
+  }
+}
+
 /// Download and install umu-launcher into `$HOME/.local/share/umu-launcher`.
 /// Uses the official `*-zipapp.tar` release asset, which is a self-contained
 /// Python zipapp and needs no root privileges or build tools.
@@ -253,10 +265,10 @@ async fn install_umu_launcher_inner(app: &tauri::AppHandle, game_title: Option<&
     return Ok(());
   }
 
-  // Another run may already be installing umu-launcher (e.g. it was started
-  // before the page was reloaded, or by a launch that is still waiting). Wait
-  // for that one instead of downloading a second copy over it.
-  if crate::state::is_umu_install_running() {
+  // Claim the single install slot before touching the network, so a second
+  // caller (a double launch, or the settings button racing a launch) waits for
+  // this one instead of downloading a second copy into the same temp dir.
+  if !crate::state::try_begin_umu_install() {
     for _ in 0..2_400 {
       tokio::time::sleep(std::time::Duration::from_millis(250)).await;
       if find_umu_run().is_some() {
@@ -269,7 +281,13 @@ async fn install_umu_launcher_inner(app: &tauri::AppHandle, game_title: Option<&
     if find_umu_run().is_some() {
       return Ok(());
     }
+    // The other attempt ended without producing umu-run (it failed); take the
+    // slot over and install ourselves.
+    if !crate::state::try_begin_umu_install() {
+      return Err("Another umu-launcher installation is still running.".to_string());
+    }
   }
+  let _install_guard = UmuInstallGuard;
 
   let home = home_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
   let install_dir = home.join(UMU_INSTALL_DIR);
@@ -283,10 +301,18 @@ async fn install_umu_launcher_inner(app: &tauri::AppHandle, game_title: Option<&
     None,
   );
 
-  let client = reqwest::Client::new();
+  let client = reqwest::Client::builder()
+    // Without an explicit timeout a stalled connection would hang the install
+    // (and the overlay) forever; the API call gets a short one, the asset
+    // download a generous one.
+    .connect_timeout(Duration::from_secs(30))
+    .timeout(Duration::from_secs(600))
+    .build()
+    .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
   let release_url = "https://api.github.com/repos/Open-Wine-Components/umu-launcher/releases/latest";
   let response = client
     .get(release_url)
+    .timeout(Duration::from_secs(30))
     .header("User-Agent", "GameVault")
     .header("Accept", "application/vnd.github+json")
     .send()
@@ -389,8 +415,9 @@ pub(crate) async fn install_umu_launcher(
   let result = install_umu_launcher_inner(&app, game_title.as_deref()).await;
   match result {
     Ok(()) => {
-      // Clear the "installing" marker so a reloaded UI knows there is nothing
-      // left to re-attach to.
+      // Tell the overlay the install finished, then clear the "installing"
+      // marker so a reloaded UI knows there is nothing left to re-attach to.
+      emit_umu_status(&app, game_title.as_deref(), "installed", None, None);
       crate::state::set_umu_snapshot(None);
       Ok(())
     }
@@ -428,7 +455,11 @@ pub(crate) fn ensure_umu_installed(app: &tauri::AppHandle, game_title: Option<&s
     }
     match tauri::async_runtime::block_on(install_umu_launcher_inner(app, game_title)) {
       Ok(()) => {
-        crate::state::set_umu_snapshot(None);
+        // The launcher was just installed and the caller is about to start
+        // umu-run, whose first run downloads UMU-Proton and the Steam runtime.
+        // Move the overlay on to that setup phase instead of leaving it stuck
+        // on "Installing umu launcher…".
+        emit_umu_status(app, game_title, "setup", None, None);
         Ok(())
       }
       Err(error) => {

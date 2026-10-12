@@ -238,9 +238,10 @@ pub(crate) fn emit_game_launch_failed(
 }
 
 /// Phases streamed while a Windows executable runs through umu-launcher:
-/// `installing` (umu-launcher itself is being installed), `setup` (umu's
-/// first-run setup: downloading UMU-Proton / steamrt3), `running` (the
-/// game/installer process was detected), `error` and `exit`.
+/// `installing` (umu-launcher itself is being installed), `installed`
+/// (that install just finished), `setup` (umu's first-run setup: downloading
+/// UMU-Proton / steamrt3), `running` (the game/installer process was detected),
+/// `error` and `exit`.
 #[cfg(target_os = "linux")]
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]

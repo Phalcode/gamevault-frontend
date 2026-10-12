@@ -45,12 +45,13 @@ export function UmuProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isTauriApp()) return;
+    let disposed = false;
     let unlisten: (() => void) | undefined;
 
     void (async () => {
       try {
         const { listen } = await import("@tauri-apps/api/event");
-        unlisten = await listen<{
+        const stop = await listen<{
           gameTitle?: string | null;
           phase: string;
           line?: string | null;
@@ -69,18 +70,29 @@ export function UmuProvider({ children }: { children: React.ReactNode }) {
             }
             setVisible(true);
           } else {
-            // running | error | exit → the game/installer started or ended
+            // running | installed | error | exit → the game/installer started,
+            // the install finished, or the sequence failed/ended.
             setVisible(false);
             setLines([]);
             setGameTitle(undefined);
           }
         });
+        // React StrictMode (and fast HMR reloads) clean the effect up while
+        // `listen` is still resolving; without this check the handler would
+        // stay registered and every event would be processed twice (duplicated
+        // log lines).
+        if (disposed) {
+          stop();
+        } else {
+          unlisten = stop;
+        }
       } catch {
         // Non-Tauri environments won't have the IPC bridge; ignore.
       }
     })();
 
     return () => {
+      disposed = true;
       unlisten?.();
     };
   }, []);

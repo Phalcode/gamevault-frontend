@@ -82,9 +82,11 @@
 - Added launch logs: the complete output of every game start (Proton/Wine/umu output included) is written to rotating log files and shown in a dedicated log window. A new setting ("Always show launch logs") opens that window automatically while a game starts, a failed launch opens it regardless, and earlier logs can be browsed or cleared from the window. Installer runs are logged too.
 - The per-game Proton (PROTONPATH) field now offers a dropdown with the Proton builds already installed in `compatibilitytools.d` (Steam and Flatpak Steam), so version names don't have to be typed by hand.
 - Fix multiple time tracking issues
+
 ---
+
 - Fixed Windows games failing to start from the Linux AppImage when its bundled OpenSSL libraries conflicted with umu-launcher's system Python.
-- The desktop app now keeps a rotating log file 
+- The desktop app now keeps a rotating log file
 - Fixed the app freezing after being left open, which until now could only be resolved with a Task Manager kill
 - Added an "Update available" indicator
 - Moved the periodic diagnostics logging behind an off-by-default Developer Tools toggle
@@ -92,7 +94,7 @@
 - The executable and installer searches now follow symbolic links instead of skipping them
 - Fixed uninstalling a setup game leaving the empty `<Game>/Versions/<version>` folder chain behind
 - Fixed some umu-launcher setup issues
-- Fixed the app stalling while a download is running on desktop builds: the artwork of active downloads is no longer re-fetched and re-encoded every time the session is refreshed or the connection comes back.
+- Fixed the app stalling while a download is running on desktop builds
 
 ## 17.0.0
 

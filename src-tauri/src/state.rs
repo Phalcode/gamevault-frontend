@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::watch;
 
@@ -278,7 +278,7 @@ pub(crate) fn is_installer_running(game_id: i64) -> bool {
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UmuSnapshot {
-  /// `installing` | `setup` | `running` | `exit` | `error`
+  /// `installing` | `installed` | `setup` | `running` | `exit` | `error`
   pub status: String,
   pub message: Option<String>,
   pub game_title: Option<String>,
@@ -300,11 +300,30 @@ pub(crate) fn umu_snapshot() -> Option<UmuSnapshot> {
   umu_state().lock().ok().and_then(|state| state.clone())
 }
 
+static UMU_INSTALL_RUNNING: OnceLock<AtomicBool> = OnceLock::new();
+
+fn umu_install_running() -> &'static AtomicBool {
+  UMU_INSTALL_RUNNING.get_or_init(|| AtomicBool::new(false))
+}
+
 /// Whether umu-launcher is currently being downloaded/extracted.
 pub(crate) fn is_umu_install_running() -> bool {
-  umu_snapshot()
-    .map(|snapshot| snapshot.status == "installing")
-    .unwrap_or(false)
+  umu_install_running().load(Ordering::SeqCst)
+}
+
+/// Claim the single umu-launcher install slot. Returns `false` when another
+/// install already holds it. A dedicated flag (instead of the status snapshot)
+/// makes the claim atomic, so two callers racing each other — a double launch,
+/// or the settings button while a launch is waiting — cannot both download.
+pub(crate) fn try_begin_umu_install() -> bool {
+  umu_install_running()
+    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+    .is_ok()
+}
+
+/// Release the umu-launcher install slot once an attempt has ended.
+pub(crate) fn end_umu_install() {
+  umu_install_running().store(false, Ordering::SeqCst);
 }
 
 /// State of the (single) app self-update task.
