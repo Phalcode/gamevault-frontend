@@ -19,6 +19,10 @@ import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
 import { isTauriApp } from "@/utils/tauri";
 import {
+  launchInstalledGame,
+  launchOutcomeAlert,
+} from "@/utils/launchInstalledGame";
+import {
   formatGameSize,
   initialGameBookmarked,
   resolveSortMetric,
@@ -295,70 +299,16 @@ const GameCard = memo(function GameCard({
       e.stopPropagation();
       if (!installedInfo) return;
 
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const { join } = await import("@tauri-apps/api/path");
-
-        const configPath = await join(
-          installedInfo.versionDirectory,
-          ".gamevault.game.config.json",
-        );
-
-        let launchExe: string | undefined;
-        let launchParams: string | undefined;
-        let launchAsAdmin = false;
-        let umuGameId: string | undefined;
-        let umuStore: string | undefined;
-        let umuProtonPath: string | undefined;
-        let umuWinePrefix: string | undefined;
-
-        if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
-          try {
-            const raw = JSON.parse(
-              await invoke<string>("fs_read_text_file", { path: configPath }),
-            );
-            launchExe = raw.launchexecutable;
-            launchParams = raw.launchparameters;
-            launchAsAdmin = !!raw.launchasadmin;
-            umuGameId = raw.umugameid;
-            umuStore = raw.umustore;
-            umuProtonPath = raw.umuprotonpath;
-            umuWinePrefix = raw.umuwineprefix;
-          } catch {
-            console.warn("Failed to parse game config:", configPath);
-          }
-        }
-
-        if (!launchExe) {
-          showAlert({
-            title: "No launch executable configured",
-            description:
-              "Open Game Settings → Launch Options to select an executable first.",
-          });
-          return;
-        }
-
-        await invoke("launch_game", {
-          gameTitle: localGame.metadata?.title || localGame.title || "Game",
-          gameId: game.id,
-          versionDirectory: installedInfo.versionDirectory,
-          installationPath: installedInfo.installationDirectory,
-          executableRelativePath: launchExe,
-          launchParameters: launchParams || null,
-          runAsAdmin: launchAsAdmin,
-          umuGameId: umuGameId || null,
-          umuStore: umuStore || null,
-          umuProtonPath: umuProtonPath || null,
-          umuWinePrefix: umuWinePrefix || null,
-        });
-      } catch (err: any) {
-        showAlert({
-          title: "Failed to launch game",
-          description: err?.message || String(err),
-        });
-      }
+      const outcome = await launchInstalledGame({
+        gameId: game.id,
+        title: localGame.metadata?.title || localGame.title || "Game",
+        versionDirectory: installedInfo.versionDirectory,
+        installationDirectory: installedInfo.installationDirectory,
+      });
+      const alert = launchOutcomeAlert(outcome);
+      if (alert) showAlert(alert);
     },
-    [installedInfo, showAlert],
+    [installedInfo, localGame, game.id, showAlert],
   );
 
   const handleClientDownload = useCallback(async () => {

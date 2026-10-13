@@ -146,6 +146,7 @@ dependencies = [
  "urlencoding",
  "webkit2gtk",
  "winapi",
+ "windows 0.61.3",
  "xz2",
  "zip 2.4.2",
  "zstd",

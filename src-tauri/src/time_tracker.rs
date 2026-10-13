@@ -161,8 +161,13 @@ pub(crate) async fn start_game_time_tracker(
 }
 
 #[tauri::command]
-pub(crate) async fn stop_game_time_tracker(reason: Option<String>) -> Result<(), String> {
+pub(crate) async fn stop_game_time_tracker(
+  app: tauri::AppHandle,
+  reason: Option<String>,
+) -> Result<(), String> {
   let reason = reason.unwrap_or_else(|| "unspecified".to_string());
+
+  crate::tray::clear_now_playing(&app);
 
   if let Ok(mut tx) = tracker_stop_tx().lock() {
     if let Some(sender) = tx.take() {
@@ -325,7 +330,10 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     let config = match tracker_config().lock() {
       Ok(guard) => match guard.clone() {
         Some(c) => c,
-        None => continue,
+        None => {
+          crate::tray::clear_now_playing(&app);
+          continue;
+        }
       },
       Err(_) => continue,
     };
@@ -340,6 +348,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
           ("reason", "tracker has no roots or no server url".to_string()),
         ],
       );
+      crate::tray::clear_now_playing(&app);
       continue;
     }
 
@@ -386,6 +395,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
           ("library_ms", library_ms.to_string()),
         ],
       );
+      crate::tray::clear_now_playing(&app);
       continue;
     }
 
@@ -644,6 +654,11 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
 
     let match_ms = match_start.elapsed().as_millis() as u64;
 
+    // The tray mirrors what actually runs: a live "Now playing" line with the
+    // elapsed minutes, and a play badge on the tray icon. It is refreshed every
+    // tick so the minute counter keeps moving.
+    sync_tray_now_playing(&app, &matched_game_ids, &game_titles);
+
     if matched_game_ids.is_empty() {
       tracker_log::push_kv(
         "tick",
@@ -780,9 +795,39 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
   }
 
   tracker_log::push("info", "lifecycle", "tracker loop exited");
+  crate::tray::clear_now_playing(&app);
   if let Ok(mut stats) = tracker_stats().lock() {
     stats.running = false;
   }
+}
+
+/// Publishes the game the tracker currently sees running to the tray menu.
+///
+/// `matched` may contain several games (rare, but possible when two installed
+/// games share an executable name); the first one is the one shown. Called on
+/// every tick, which is also what keeps the elapsed minutes advancing.
+fn sync_tray_now_playing(
+  app: &tauri::AppHandle,
+  matched: &[i64],
+  titles: &HashMap<i64, String>,
+) {
+  let Some(game_id) = matched.first() else {
+    crate::tray::clear_now_playing(app);
+    return;
+  };
+
+  let (title, started_at_ms) = tracker_ledger()
+    .lock()
+    .ok()
+    .and_then(|ledger| {
+      ledger
+        .get(game_id)
+        .map(|entry| (entry.game_title.clone(), entry.first_matched_at))
+    })
+    .unwrap_or_else(|| (String::new(), None));
+
+  let title = titles.get(game_id).cloned().unwrap_or(title);
+  crate::tray::set_now_playing(app, *game_id, &title, started_at_ms.unwrap_or(0));
 }
 
 /// Records that no game could be matched this tick, e.g. an empty library scan.

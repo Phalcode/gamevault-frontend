@@ -53,6 +53,18 @@ isomage = "2.1.0"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["fileapi", "shellapi", "winnt", "winuser", "synchapi", "handleapi", "winbase", "winerror", "processthreadsapi", "sysinfoapi"] }
+# Taskbar jump list (ICustomDestinationList). winapi does not generate those
+# interfaces, and the `windows` crate is already in the tree via wry, so only
+# the features are added here.
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+  "Win32_UI_Shell_PropertiesSystem",
+] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Direct dependency so we can read/configure WebKitGTK WebKitSettings at runtime

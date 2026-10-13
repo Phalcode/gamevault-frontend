@@ -96,6 +96,8 @@
 - Fixed some umu-launcher setup issues
 - Fixed the app stalling while a download is running on desktop builds
 - Fixed signing in with SSO (Single Sign-On) in the desktop app: logging in via your identity provider now returns to the app instead of leaving it stuck on the server's web page, so the session is saved and survives a restart. On the web, SSO now opens in a popup and no longer puts your session tokens in the address bar.
+- The desktop system tray menu got a full redesign: every entry has an icon, the game you are playing right now is shown with live playtime (and marks the tray icon with a play badge), and your five most recently used games can be launched directly, with the running one highlighted in green. It also offers one-click links to Library, Downloads, Community and Settings plus a Restart option.
+- On Windows, right-clicking the taskbar button now offers the same list of your five most recently used games along with quick links to Library, Downloads, Community and Settings.
 
 ## 17.0.0
 

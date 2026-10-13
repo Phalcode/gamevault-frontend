@@ -5,6 +5,7 @@ mod executables;
 mod downloads;
 mod extraction;
 mod installation;
+mod jumplist;
 mod launch_log;
 mod tracker_log;
 mod games;
@@ -16,6 +17,7 @@ mod secure_store;
 mod net;
 mod youtube;
 mod taskbar;
+mod tray;
 mod umu;
 mod rendering;
 mod frontend_watchdog;
@@ -24,9 +26,7 @@ use crate::settings::AppSettings;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::path::BaseDirectory;
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
@@ -413,11 +413,29 @@ async fn run_app_update(app: AppHandle, channel: UpdateChannel) -> Result<Option
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  let context = tauri::generate_context!();
+
+  // The Windows taskbar jump list is keyed on this id, so it has to be set
+  // before the first window appears.
+  jumplist::set_process_app_id(&context.config().identifier);
+
+  // Jump list and "open with" entries start the app again with a flag.
+  // Queue them before the frontend asks for work, so a cold start still
+  // launches the requested game / opens the requested page.
+  for action in tray::actions_from_args(std::env::args()) {
+    tray::queue(action);
+  }
+
   let mut builder = tauri::Builder::default()
     // Must be the first plugin: when a second instance is launched it is
     // killed here and only the existing instance receives this callback,
     // which brings its window back to the foreground.
-    .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+      // The second instance was very likely a jump list entry: hand its
+      // request to the running app instead of dropping it.
+      for action in tray::actions_from_args(args) {
+        tray::queue_and_notify(app, action);
+      }
       if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -499,51 +517,9 @@ pub fn run() {
       // counters in memory either way.
       tracker_log::init(app.handle());
 
-      // ── System tray with Show / Quit menu ──────────────────────────────
+      // ── System tray: quick actions, recents, now-playing indicator ─────
 
-      let show_item = MenuItemBuilder::with_id("show", "Show").build(app)?;
-      let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-      let menu = MenuBuilder::new(app)
-        .item(&show_item)
-        .item(&quit_item)
-        .build()?;
-
-      let _tray = TrayIconBuilder::new()
-        .icon(app.default_window_icon().unwrap().clone())
-        .menu(&menu)
-        .on_menu_event(|app, event| {
-          match event.id.as_ref() {
-            "show" => {
-              if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-              }
-            }
-            "quit" => {
-              app.exit(0);
-            }
-            _ => {}
-          }
-        })
-        .on_tray_icon_event(|tray, event| {
-          if let TrayIconEvent::Click {
-            button: MouseButton::Left,
-            button_state: MouseButtonState::Up,
-            ..
-          } = event
-          {
-            let app = tray.app_handle();
-            if let Some(window) = app.get_webview_window("main") {
-              if window.is_visible().unwrap_or(false) {
-                let _ = window.hide();
-              } else {
-                let _ = window.show();
-                let _ = window.set_focus();
-              }
-            }
-          }
-        })
-        .build(app)?;
+      tray::create(app.handle())?;
 
       // ── Close-to-tray: intercept window close, hide instead of quit ────
 
@@ -659,6 +635,8 @@ pub fn run() {
       secure_store::get_or_create_vault_password,
       taskbar::set_taskbar_progress,
       taskbar::clear_taskbar_progress,
+      tray::set_tray_recent_games,
+      tray::take_tray_actions,
       umu::umu_status,
       umu::install_umu_launcher,
       umu::resolve_windows_install_path,
@@ -675,6 +653,6 @@ pub fn run() {
       check_for_app_update,
       download_and_install_app_update
     ])
-    .run(tauri::generate_context!())
+    .run(context)
     .expect("error while running tauri application");
 }
