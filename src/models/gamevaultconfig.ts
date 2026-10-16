@@ -13,4 +13,6 @@ export interface GameVaultConfig {
   umustore?: string;
   umuprotonpath?: string;
   umuwineprefix?: string;
+  /** Runs the game through umu-launcher even when it is not a Windows exe. */
+  forceumu?: boolean;
 }

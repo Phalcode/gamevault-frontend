@@ -28,12 +28,13 @@ interface LaunchConfig {
   umuStore?: string;
   umuProtonPath?: string;
   umuWinePrefix?: string;
+  forceUmu: boolean;
 }
 
 /** Reads the per-game launch config, tolerating a missing or broken file. */
 async function readLaunchConfig(configPath: string): Promise<LaunchConfig> {
   const { invoke } = await import("@tauri-apps/api/core");
-  const empty: LaunchConfig = { runAsAdmin: false };
+  const empty: LaunchConfig = { runAsAdmin: false, forceUmu: false };
 
   if (!(await invoke<boolean>("fs_path_exists", { path: configPath }))) {
     return empty;
@@ -51,6 +52,7 @@ async function readLaunchConfig(configPath: string): Promise<LaunchConfig> {
       umuStore: raw.umustore,
       umuProtonPath: raw.umuprotonpath,
       umuWinePrefix: raw.umuwineprefix,
+      forceUmu: !!raw.forceumu,
     };
   } catch {
     console.warn("Failed to parse game config:", configPath);
@@ -88,6 +90,7 @@ export async function launchInstalledGame(
       umuStore: config.umuStore || null,
       umuProtonPath: config.umuProtonPath || null,
       umuWinePrefix: config.umuWinePrefix || null,
+      forceUmu: config.forceUmu,
     });
 
     return { status: "launched" };

@@ -80,7 +80,7 @@
 - The per-game Wine Prefix field now shows the path that is actually used (with a click-to-copy) instead of a path GameVault never used, and the prefix settings explain the real default location.
 - Fixed uninstalling a game silently dropping the per-game umu-launcher overrides (GAMEID, STORE, Proton version, Wine prefix) and the "run as administrator" flag from the game's configuration.
 - Added launch logs: the complete output of every game start (Proton/Wine/umu output included) is written to rotating log files and shown in a dedicated log window. A new setting ("Always show launch logs") opens that window automatically while a game starts, a failed launch opens it regardless, and earlier logs can be browsed or cleared from the window. Installer runs are logged too.
-- The per-game Proton (PROTONPATH) field now offers a dropdown with the Proton builds already installed in `compatibilitytools.d` (Steam and Flatpak Steam), so version names don't have to be typed by hand.
+- The per-game Proton (PROTONPATH) field is now a searchable dropdown that lists the Proton builds already installed on your system — with the folder each one was found in and umu's codenames on top — while still accepting a folder name or path typed by hand.
 - Fix multiple time tracking issues
 
 ---
@@ -98,6 +98,8 @@
 - Fixed signing in with SSO (Single Sign-On) in the desktop app: logging in via your identity provider now returns to the app instead of leaving it stuck on the server's web page, so the session is saved and survives a restart. On the web, SSO now opens in a popup and no longer puts your session tokens in the address bar.
 - The desktop system tray menu got a full redesign: every entry has an icon, the game you are playing right now is shown with live playtime (and marks the tray icon with a play badge), and your five most recently used games can be launched directly, with the running one highlighted in green. It also offers one-click links to Library, Downloads, Community and Settings plus a Restart option.
 - On Windows, right-clicking the taskbar button now offers the same list of your five most recently used games along with quick links to Library, Downloads, Community and Settings.
+- Cleaned up the game settings dialog: the Linux/Wine/Proton launch options now live in a single collapsible section with evenly aligned fields instead of a mismatched two-column grid, and the umu-launcher defaults in the custom metadata are plain fields like all the others (labelled "Linux umu") instead of a visually separate block.
+- Linux: a game that is not a Windows executable can now be started through umu-launcher as well: the "Wine/Proton" section of the game settings has a "Launch through umu-launcher" switch, which is useful when a game's `start.sh` or AppImage ends up running a Windows build.
 
 ## 17.0.0
 

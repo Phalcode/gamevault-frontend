@@ -497,6 +497,7 @@ pub(crate) async fn launch_game(
     umu_store: Option<String>,
     umu_proton_path: Option<String>,
     umu_wine_prefix: Option<String>,
+    force_umu: Option<bool>,
 ) -> Result<(), String> {
     // Launching can first install umu-launcher (a multi-megabyte download) and
     // spawns processes, so it must not run on the UI thread: the setup overlay
@@ -515,6 +516,7 @@ pub(crate) async fn launch_game(
             umu_store,
             umu_proton_path,
             umu_wine_prefix,
+            force_umu,
         )
     })
     .await
@@ -535,6 +537,7 @@ fn launch_game_blocking(
     umu_store: Option<String>,
     umu_proton_path: Option<String>,
     umu_wine_prefix: Option<String>,
+    force_umu: Option<bool>,
 ) -> Result<(), String> {
     let root = PathBuf::from(&installation_path);
     let exe_path = root.join(executable_relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
@@ -558,8 +561,10 @@ fn launch_game_blocking(
     // umu-launcher (Proton/Wine), auto-installing it when missing. This comes
     // before the admin branch: elevating a Windows exe (e.g. running wine as
     // root) is wrong, so umu takes precedence and ignores run_as_admin.
+    // `force_umu` routes a native Linux executable (e.g. a vendor `start.sh`
+    // that ends up running a Windows build) through Proton as well.
     #[cfg(target_os = "linux")]
-    if crate::umu::is_windows_executable(&exe_path) {
+    if force_umu.unwrap_or(false) || crate::umu::is_windows_executable(&exe_path) {
         crate::umu::ensure_umu_installed(&app, Some(&game_title))?;
         return crate::umu::launch_with_umu(
             app,

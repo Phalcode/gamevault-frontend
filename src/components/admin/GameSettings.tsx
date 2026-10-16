@@ -47,10 +47,10 @@ import {
   LinkSlashIcon,
   TrashIcon,
   DocumentTextIcon,
+  ChevronDownIcon,
 } from "@heroicons/react/24/outline";
 import { PaintBrushIcon } from "@heroicons/react/16/solid";
-import { Switch, SwitchField } from "../tailwind/switch";
-import { Label } from "../tailwind/fieldset";
+import { Switch } from "../tailwind/switch";
 
 interface Props {
   game: GamevaultGame;
@@ -120,6 +120,12 @@ import { getRootPaths } from "@/utils/rootPaths";
 import { getErrorMessage } from "@/utils/apiError";
 import { useDiskUsage } from "@/hooks/useDiskUsage";
 import DiskUsageChart from "@/components/DiskUsageChart";
+import { UmuLaunchFields, type UmuLaunchField } from "./UmuLaunchFields";
+import type { ProtonBuild } from "@/models/proton";
+import {
+  SettingsRow,
+  SettingsRowGroup,
+} from "@/components/tailwind/settings-row";
 
 function isSetupInstallType(gameType?: string) {
   return gameType === GamevaultGameTypeEnum.windows_setup;
@@ -294,9 +300,9 @@ export function GameSettings({
   const [umuStore, setUmuStore] = useState<string>("");
   const [umuProtonPath, setUmuProtonPath] = useState<string>("");
   const [umuWinePrefix, setUmuWinePrefix] = useState<string>("");
-  const [protonBuilds, setProtonBuilds] = useState<
-    { name: string; path: string; source: string }[]
-  >([]);
+  const [forceUmu, setForceUmu] = useState<boolean>(false);
+  const [protonBuilds, setProtonBuilds] = useState<ProtonBuild[]>([]);
+  const [umuSectionOpen, setUmuSectionOpen] = useState(false);
   const [resolvedPrefixPath, setResolvedPrefixPath] = useState<string | null>(
     null,
   );
@@ -563,6 +569,7 @@ export function GameSettings({
               setUmuStore(raw.umustore || "");
               setUmuProtonPath(raw.umuprotonpath || "");
               setUmuWinePrefix(raw.umuwineprefix || "");
+              setForceUmu(!!raw.forceumu);
             }
           } catch {}
         }
@@ -587,10 +594,7 @@ export function GameSettings({
     (async () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const builds =
-          await invoke<{ name: string; path: string; source: string }[]>(
-            "list_proton_builds",
-          );
+        const builds = await invoke<ProtonBuild[]>("list_proton_builds");
         if (!cancelled) setProtonBuilds(builds);
       } catch {
         if (!cancelled) setProtonBuilds([]);
@@ -635,6 +639,13 @@ export function GameSettings({
     umuGameId,
     umuWinePrefix,
   ]);
+
+  // A Windows executable always runs through umu-launcher, and a game the user
+  // pinned to umu should show its overrides too. Never close the section here —
+  // the user's own choice wins.
+  useEffect(() => {
+    if (isWindowsLaunchExe || forceUmu) setUmuSectionOpen(true);
+  }, [isWindowsLaunchExe, forceUmu]);
 
   const handleMakeExecutable = useCallback(async () => {
     if (!installedGame) return;
@@ -690,6 +701,42 @@ export function GameSettings({
     workingGame.title,
   ]);
 
+  const handleUmuFieldChange = useCallback(
+    (field: UmuLaunchField, value: string) => {
+      switch (field) {
+        case "umuGameId":
+          setUmuGameId(value);
+          break;
+        case "umuStore":
+          setUmuStore(value);
+          break;
+        case "umuProtonPath":
+          setUmuProtonPath(value);
+          break;
+        case "umuWinePrefix":
+          setUmuWinePrefix(value);
+          break;
+      }
+    },
+    [],
+  );
+
+  const handleOpenPrefixFolder = useCallback(
+    async (path: string) => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("open_in_file_explorer", { path });
+      } catch (error: any) {
+        await showAlert({
+          title: "Could not open the prefix folder",
+          description: error?.message || String(error),
+          affirmativeText: "OK",
+        });
+      }
+    },
+    [showAlert],
+  );
+
   const persistLaunchOptions = useCallback(
     async (
       exe: string,
@@ -699,6 +746,7 @@ export function GameSettings({
       umuStore: string,
       umuProtonPath: string,
       umuWinePrefix: string,
+      forceUmu: boolean,
     ) => {
       if (!installedGame) return;
       try {
@@ -728,6 +776,7 @@ export function GameSettings({
         current.umustore = umuStore.trim() || undefined;
         current.umuprotonpath = umuProtonPath.trim() || undefined;
         current.umuwineprefix = umuWinePrefix.trim() || undefined;
+        current.forceumu = forceUmu || undefined;
 
         await invoke("fs_write_text_file", {
           path: configPath,
@@ -752,6 +801,7 @@ export function GameSettings({
         umuStore,
         umuProtonPath,
         umuWinePrefix,
+        forceUmu,
       );
     }, 500);
     return () => clearTimeout(timeout);
@@ -763,6 +813,7 @@ export function GameSettings({
     umuStore,
     umuProtonPath,
     umuWinePrefix,
+    forceUmu,
     persistLaunchOptions,
   ]);
 
@@ -3400,112 +3451,105 @@ export function GameSettings({
                           </div>
                         </div>
 
-                        {/* umu-launcher defaults (Linux) */}
-                        <div className="rounded-lg border border-gv-line/60 p-3 space-y-4">
-                          <p className="text-sm font-medium text-gv-text">
-                            umu-launcher (Linux)
-                          </p>
-                          <p className="text-xs text-gv-muted">
-                            Applied by Linux clients when running this game
-                            through umu-launcher/Proton. Leave empty for umu's
-                            defaults.
-                          </p>
-
-                          <div>
-                            <label className="block text-sm font-medium text-gv-muted mb-1">
-                              Game ID (GAMEID)
-                            </label>
-                            <div className="relative">
-                              <Input
-                                type="text"
-                                value={customMetadata.umu_game_id}
-                                onChange={(e) =>
-                                  setCustomMetadata({
-                                    ...customMetadata,
-                                    umu_game_id: e.target.value,
-                                  })
-                                }
-                                placeholder={
-                                  getWatermark("umu_game_id") || "umu-12345"
-                                }
-                                className="pr-10"
-                              />
-                              {getWatermark("umu_game_id") && (
-                                <button
-                                  type="button"
-                                  onClick={() => applyWatermark("umu_game_id")}
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
-                                  title="Apply current value"
-                                >
-                                  <ArrowUturnLeftIcon className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
+                        {/* Linux (umu-launcher) defaults, same shape as the fields above */}
+                        <div>
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
+                            Game ID (Linux umu)
+                          </label>
+                          <div className="relative">
+                            <Input
+                              type="text"
+                              value={customMetadata.umu_game_id}
+                              onChange={(e) =>
+                                setCustomMetadata({
+                                  ...customMetadata,
+                                  umu_game_id: e.target.value,
+                                })
+                              }
+                              placeholder={
+                                getWatermark("umu_game_id") ||
+                                "umu-database ID, e.g. 1811260"
+                              }
+                              className="pr-10"
+                            />
+                            {getWatermark("umu_game_id") && (
+                              <button
+                                type="button"
+                                onClick={() => applyWatermark("umu_game_id")}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
+                                title="Apply current value"
+                              >
+                                <ArrowUturnLeftIcon className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
+                        </div>
 
-                          <div>
-                            <label className="block text-sm font-medium text-gv-muted mb-1">
-                              Store (STORE)
-                            </label>
-                            <div className="relative">
-                              <Input
-                                type="text"
-                                value={customMetadata.umu_store}
-                                onChange={(e) =>
-                                  setCustomMetadata({
-                                    ...customMetadata,
-                                    umu_store: e.target.value,
-                                  })
-                                }
-                                placeholder={getWatermark("umu_store") || "egs"}
-                                className="pr-10"
-                              />
-                              {getWatermark("umu_store") && (
-                                <button
-                                  type="button"
-                                  onClick={() => applyWatermark("umu_store")}
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
-                                  title="Apply current value"
-                                >
-                                  <ArrowUturnLeftIcon className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
+                            Store (Linux umu)
+                          </label>
+                          <div className="relative">
+                            <Input
+                              type="text"
+                              value={customMetadata.umu_store}
+                              onChange={(e) =>
+                                setCustomMetadata({
+                                  ...customMetadata,
+                                  umu_store: e.target.value,
+                                })
+                              }
+                              placeholder={
+                                getWatermark("umu_store") ||
+                                "steam, gog, epic, …"
+                              }
+                              className="pr-10"
+                            />
+                            {getWatermark("umu_store") && (
+                              <button
+                                type="button"
+                                onClick={() => applyWatermark("umu_store")}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
+                                title="Apply current value"
+                              >
+                                <ArrowUturnLeftIcon className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
+                        </div>
 
-                          <div>
-                            <label className="block text-sm font-medium text-gv-muted mb-1">
-                              Proton Version (PROTONPATH)
-                            </label>
-                            <div className="relative">
-                              <Input
-                                type="text"
-                                value={customMetadata.umu_proton_path}
-                                onChange={(e) =>
-                                  setCustomMetadata({
-                                    ...customMetadata,
-                                    umu_proton_path: e.target.value,
-                                  })
+                        <div>
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
+                            Proton Version (Linux umu)
+                          </label>
+                          <div className="relative">
+                            <Input
+                              type="text"
+                              value={customMetadata.umu_proton_path}
+                              onChange={(e) =>
+                                setCustomMetadata({
+                                  ...customMetadata,
+                                  umu_proton_path: e.target.value,
+                                })
+                              }
+                              placeholder={
+                                getWatermark("umu_proton_path") ||
+                                "e.g. GE-Proton11-6"
+                              }
+                              className="pr-10"
+                            />
+                            {getWatermark("umu_proton_path") && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  applyWatermark("umu_proton_path")
                                 }
-                                placeholder={
-                                  getWatermark("umu_proton_path") ||
-                                  "GE-Proton9-5"
-                                }
-                                className="pr-10"
-                              />
-                              {getWatermark("umu_proton_path") && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    applyWatermark("umu_proton_path")
-                                  }
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
-                                  title="Apply current value"
-                                >
-                                  <ArrowUturnLeftIcon className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
+                                title="Apply current value"
+                              >
+                                <ArrowUturnLeftIcon className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -4011,286 +4055,198 @@ export function GameSettings({
                       </div>
                     ) : (
                       <>
-                        {/* Launch Executable Picker */}
-                        <div>
-                          <label className="block text-sm font-medium text-gv-muted mb-1">
-                            Launch Executable
-                          </label>
-                          {launchExecutables.length === 0 ? (
-                            <div className="space-y-3">
-                              <p className="text-sm text-gv-muted">
-                                No executables found in the installation folder.
-                              </p>
-                              {nonExecutableScripts.length > 0 && (
-                                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-                                  <p className="text-sm text-amber-700 dark:text-amber-300">
-                                    Found {nonExecutableScripts.length}{" "}
-                                    {nonExecutableScripts.length === 1
-                                      ? "shell script"
-                                      : "shell scripts"}{" "}
-                                    that is missing the executable (
-                                    <code className="font-mono">+x</code>)
-                                    permission.
-                                  </p>
-                                  <Button
-                                    color="amber"
-                                    onClick={handleMakeExecutable}
-                                    disabled={makingExecutable}
-                                    className="mt-3"
-                                  >
-                                    {makingExecutable
-                                      ? "Making executable…"
-                                      : "Make executable"}
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <Listbox
-                              name="launchExe"
-                              value={selectedLaunchExe}
-                              onChange={(v: any) =>
-                                setSelectedLaunchExe(String(v))
-                              }
-                            >
-                              <ListboxOption value="">
-                                <ListboxLabel>
-                                  -- Select executable --
-                                </ListboxLabel>
-                              </ListboxOption>
-                              {launchExecutables.map((exe) => (
-                                <ListboxOption key={exe} value={exe}>
-                                  <ListboxLabel>{exe}</ListboxLabel>
-                                </ListboxOption>
-                              ))}
-                            </Listbox>
-                          )}
-                          {launchScanTruncated && (
-                            <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-                              This installation folder is very large — the scan
-                              stopped early, so some executables may be missing.
-                            </p>
-                          )}
-                        </div>
-
-                        {isWindowsLaunchExe && (
-                          <>
-                            <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-3">
-                              <p className="text-sm text-indigo-700 dark:text-indigo-300">
-                                This is a Windows executable — it will be run
-                                with umu-launcher (Wine/Proton) on Linux.
-                              </p>
-                              {!umuStatus?.installed && (
-                                <Button
-                                  color="indigo"
-                                  onClick={() => void handleInstallUmu()}
-                                  disabled={installingUmu}
-                                  className="mt-3"
-                                >
-                                  {installingUmu
-                                    ? "Installing umu-launcher…"
-                                    : "Install umu-launcher"}
-                                </Button>
-                              )}
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                              <div>
-                                <label className="block text-sm font-medium text-gv-muted mb-1">
-                                  Game ID (GAMEID)
-                                </label>
-                                <Input
-                                  name="umuGameId"
-                                  value={umuGameId}
-                                  onChange={(e: any) =>
-                                    setUmuGameId(e.target.value)
-                                  }
-                                  placeholder="umu-default"
-                                />
-                                <p className="mt-1 text-xs text-gv-muted">
-                                  Optional umu-database ID so protonfixes apply
-                                  automatically.
+                        <SettingsRowGroup>
+                          <SettingsRow
+                            label="Launch Executable"
+                            description="The file GameVault starts when you press play."
+                          >
+                            {launchExecutables.length === 0 ? (
+                              <div className="space-y-3">
+                                <p className="text-sm text-gv-muted">
+                                  No executables found in the installation
+                                  folder.
                                 </p>
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gv-muted mb-1">
-                                  Store (STORE)
-                                </label>
-                                <Input
-                                  name="umuStore"
-                                  value={umuStore}
-                                  onChange={(e: any) =>
-                                    setUmuStore(e.target.value)
-                                  }
-                                  placeholder="e.g. gog, epic, ubisoft-connect"
-                                />
-                                <p className="mt-1 text-xs text-gv-muted">
-                                  Storefront used together with GAMEID to look
-                                  up fixes.
-                                </p>
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gv-muted mb-1">
-                                  Proton (PROTONPATH)
-                                </label>
-                                <Input
-                                  name="umuProtonPath"
-                                  value={umuProtonPath}
-                                  onChange={(e: any) =>
-                                    setUmuProtonPath(e.target.value)
-                                  }
-                                  placeholder="UMU-Proton"
-                                />
-                                {protonBuilds.length > 0 && (
-                                  <div className="mt-2">
-                                    <Listbox
-                                      name="umuProtonBuild"
-                                      value=""
-                                      onChange={(value: any) =>
-                                        setUmuProtonPath(String(value))
-                                      }
+                                {nonExecutableScripts.length > 0 && (
+                                  <div className="rounded-xl border border-gv-warning/30 bg-gv-warning/10 px-3 py-2.5">
+                                    <p className="text-xs text-gv-warning">
+                                      Found {nonExecutableScripts.length}{" "}
+                                      {nonExecutableScripts.length === 1
+                                        ? "shell script"
+                                        : "shell scripts"}{" "}
+                                      that is missing the executable (
+                                      <code className="font-mono">+x</code>)
+                                      permission.
+                                    </p>
+                                    <Button
+                                      color="amber"
+                                      onClick={handleMakeExecutable}
+                                      disabled={makingExecutable}
+                                      className="mt-2"
                                     >
-                                      <ListboxOption value="">
-                                        <ListboxLabel>
-                                          -- Installed Proton builds --
-                                        </ListboxLabel>
-                                      </ListboxOption>
-                                      {protonBuilds.map((build) => (
-                                        <ListboxOption
-                                          key={build.path}
-                                          value={build.name}
-                                        >
-                                          <ListboxLabel>
-                                            {build.name}
-                                          </ListboxLabel>
-                                        </ListboxOption>
-                                      ))}
-                                    </Listbox>
+                                      {makingExecutable
+                                        ? "Making executable…"
+                                        : "Make executable"}
+                                    </Button>
                                   </div>
                                 )}
-                                <p className="mt-1 text-xs text-gv-muted">
-                                  Proton directory, version name (GE-Proton9-5)
-                                  or codename (GE-Proton).
-                                  {protonBuilds.length === 0 &&
-                                    " Builds installed in compatibilitytools.d (e.g. via ProtonUp-Qt) are offered here for selection."}
-                                </p>
                               </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gv-muted mb-1">
-                                  Wine Prefix (WINEPREFIX)
-                                </label>
-                                <Input
-                                  name="umuWinePrefix"
-                                  value={umuWinePrefix}
-                                  onChange={(e: any) =>
-                                    setUmuWinePrefix(e.target.value)
-                                  }
-                                  placeholder="Automatic (per game)"
+                            ) : (
+                              <Listbox
+                                name="launchExe"
+                                value={selectedLaunchExe}
+                                onChange={(v: any) =>
+                                  setSelectedLaunchExe(String(v))
+                                }
+                              >
+                                <ListboxOption value="">
+                                  <ListboxLabel>
+                                    -- Select executable --
+                                  </ListboxLabel>
+                                </ListboxOption>
+                                {launchExecutables.map((exe) => (
+                                  <ListboxOption key={exe} value={exe}>
+                                    <ListboxLabel>{exe}</ListboxLabel>
+                                  </ListboxOption>
+                                ))}
+                              </Listbox>
+                            )}
+                            {launchScanTruncated && (
+                              <p className="mt-1.5 text-xs text-gv-warning">
+                                This installation folder is very large — the
+                                scan stopped early, so some executables may be
+                                missing.
+                              </p>
+                            )}
+                          </SettingsRow>
+
+                          <SettingsRow
+                            label="Launch Parameters"
+                            description="Optional command-line arguments passed to the executable."
+                          >
+                            <Input
+                              name="launchParams"
+                              value={launchParams}
+                              onChange={(e: any) =>
+                                setLaunchParams(e.target.value)
+                              }
+                              placeholder="e.g. -fullscreen -width 1920"
+                            />
+                          </SettingsRow>
+
+                          <SettingsRow
+                            label="Run as Administrator"
+                            description="Launch the game with elevated privileges (UAC on Windows, root prompt on Linux)."
+                          >
+                            <div className="flex sm:justify-end">
+                              <Switch
+                                name="launchAsAdmin"
+                                color="indigo"
+                                aria-label="Run as Administrator"
+                                checked={launchAsAdmin}
+                                onChange={(v: boolean) => setLaunchAsAdmin(v)}
+                              />
+                            </div>
+                          </SettingsRow>
+                        </SettingsRowGroup>
+
+                        {/* umu-launcher (Linux) — collapsed until it is needed */}
+                        {isLinux && (
+                          <section className="overflow-hidden rounded-2xl border border-gv-line bg-gv-panel">
+                            <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setUmuSectionOpen((open) => !open)
+                                }
+                                aria-expanded={umuSectionOpen}
+                                className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gv-accent-cool"
+                              >
+                                <ChevronDownIcon
+                                  className={`h-4 w-4 shrink-0 text-gv-muted transition-transform ${
+                                    umuSectionOpen ? "rotate-180" : ""
+                                  }`}
                                 />
-                                <p className="mt-1 text-xs text-gv-muted">
-                                  Leave empty to let GameVault use its own
-                                  folder per game (named like the game's install
-                                  folder) inside the Wine/Proton Prefix
-                                  Directory from the settings.
-                                  {resolvedPrefixPath && (
-                                    <>
-                                      {" "}
-                                      Currently:{" "}
-                                      <button
-                                        type="button"
-                                        className="underline decoration-dotted hover:text-gv-text"
-                                        title="Copy path"
-                                        onClick={async () => {
-                                          try {
-                                            await navigator.clipboard.writeText(
-                                              resolvedPrefixPath,
-                                            );
-                                            await showAlert({
-                                              title: "Prefix path copied",
-                                              description: resolvedPrefixPath,
-                                              affirmativeText: "OK",
-                                            });
-                                          } catch {
-                                            await showAlert({
-                                              title: "Wine/Proton prefix",
-                                              description: resolvedPrefixPath,
-                                              affirmativeText: "OK",
-                                            });
-                                          }
-                                        }}
-                                      >
-                                        {resolvedPrefixPath}
-                                      </button>{" "}
-                                      <button
-                                        type="button"
-                                        className="underline decoration-dotted hover:text-gv-text"
-                                        onClick={async () => {
-                                          try {
-                                            const { invoke } =
-                                              await import("@tauri-apps/api/core");
-                                            await invoke(
-                                              "open_in_file_explorer",
-                                              {
-                                                path: resolvedPrefixPath,
-                                              },
-                                            );
-                                          } catch (error: any) {
-                                            await showAlert({
-                                              title:
-                                                "Could not open the prefix folder",
-                                              description:
-                                                error?.message || String(error),
-                                              affirmativeText: "OK",
-                                            });
-                                          }
-                                        }}
-                                      >
-                                        Open folder
-                                      </button>
-                                    </>
-                                  )}
-                                </p>
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-medium text-gv-text">
+                                    Linux · Wine/Proton
+                                  </span>
+                                  <span className="mt-0.5 block text-xs leading-5 text-gv-muted">
+                                    {isWindowsLaunchExe
+                                      ? "This is a Windows executable — it runs through umu-launcher (Wine/Proton)."
+                                      : forceUmu
+                                        ? "This game is always started through umu-launcher (Wine/Proton)."
+                                        : "Options for starting this game through umu-launcher (Wine/Proton)."}
+                                  </span>
+                                </span>
+                              </button>
+                              <div className="flex shrink-0 items-center gap-3">
+                                {umuStatus?.installed && (
+                                  <span className="rounded-full bg-gv-panel-soft px-2.5 py-1 text-xs text-gv-muted">
+                                    umu-launcher
+                                    {umuStatus.version
+                                      ? ` ${umuStatus.version}`
+                                      : ""}
+                                  </span>
+                                )}
+                                {!umuStatus?.installed && (
+                                  <>
+                                    {umuStatus && (
+                                      <span className="rounded-full bg-gv-warning/10 px-2.5 py-1 text-xs text-gv-warning">
+                                        Not installed
+                                      </span>
+                                    )}
+                                    <Button
+                                      color="indigo"
+                                      onClick={() => void handleInstallUmu()}
+                                      disabled={installingUmu}
+                                    >
+                                      {installingUmu
+                                        ? "Installing umu-launcher…"
+                                        : "Install umu-launcher"}
+                                    </Button>
+                                  </>
+                                )}
                               </div>
                             </div>
-                          </>
+                            {umuSectionOpen && (
+                              <div className="divide-y divide-gv-line border-t border-gv-line">
+                                {/* A Windows exe always runs through umu, so the
+                                    switch would only be misleading there. */}
+                                {!isWindowsLaunchExe && (
+                                  <SettingsRow
+                                    label="Launch through umu-launcher"
+                                    description="Also starts a native Linux executable through Proton/Wine — useful when a game's start.sh or AppImage ends up running a Windows build."
+                                  >
+                                    <div className="flex sm:justify-end">
+                                      <Switch
+                                        name="forceUmu"
+                                        color="indigo"
+                                        aria-label="Launch through umu-launcher"
+                                        checked={forceUmu}
+                                        onChange={(v: boolean) =>
+                                          setForceUmu(v)
+                                        }
+                                      />
+                                    </div>
+                                  </SettingsRow>
+                                )}
+                                <UmuLaunchFields
+                                  desktop={isTauri}
+                                  values={{
+                                    umuGameId,
+                                    umuStore,
+                                    umuProtonPath,
+                                    umuWinePrefix,
+                                  }}
+                                  onChange={handleUmuFieldChange}
+                                  protonBuilds={protonBuilds}
+                                  resolvedPrefixPath={resolvedPrefixPath}
+                                  onOpenPrefixFolder={handleOpenPrefixFolder}
+                                />
+                              </div>
+                            )}
+                          </section>
                         )}
-
-                        {/* Launch Parameters */}
-                        <div>
-                          <label className="block text-sm font-medium text-gv-muted mb-1">
-                            Launch Parameters
-                          </label>
-                          <Input
-                            name="launchParams"
-                            value={launchParams}
-                            onChange={(e: any) =>
-                              setLaunchParams(e.target.value)
-                            }
-                            placeholder="e.g. -fullscreen -width 1920"
-                          />
-                          <p className="mt-1 text-xs text-gv-muted">
-                            Optional command-line arguments passed to the
-                            executable.
-                          </p>
-                        </div>
-
-                        {/* Run as Admin */}
-                        <div>
-                          <SwitchField>
-                            <Switch
-                              name="launchAsAdmin"
-                              color="indigo"
-                              aria-label="Run as Administrator"
-                              checked={launchAsAdmin}
-                              onChange={(v: boolean) => setLaunchAsAdmin(v)}
-                            />
-                            <Label>Run as Administrator</Label>
-                          </SwitchField>
-                          <p className="mt-1 ml-0 text-xs text-gv-muted">
-                            Launch the game with elevated privileges (UAC on
-                            Windows, root prompt on Linux).
-                          </p>
-                        </div>
                       </>
                     )}
                   </div>
