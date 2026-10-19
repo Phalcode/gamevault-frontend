@@ -100,6 +100,8 @@
 ---
 - Fixed the "Update available" indicator showing an update when the server only had a newer version for a different platform (e.g. a newer Linux build while you have the Windows version installed). Only versions for the installed platform are considered now.
 - Fixed "Open Directory" failing with "No desktop launcher succeeded" on Linux desktops such as KDE Plasma 6: the host's `kde-open6`/`kioclient6` are now tried (not just the Plasma 5 names), and Dolphin or another installed file manager opens the folder directly if the generic launchers fail.
+- [#43](https://github.com/Phalcode/gamevault-frontend/issues/43) Fixed only the first URL appearing in a game's Additional Metadata when multiple website URLs were configured; every URL is now listed as its own link.
+
 
 ## 17.0.0
 

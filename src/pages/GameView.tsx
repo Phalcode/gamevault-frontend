@@ -658,8 +658,19 @@ export default function GameView() {
     ? formatYear(game.release_date)
     : (game as any)?.metadata?.release_year || null;
   const versionTag = game?.version || (game as any)?.metadata?.version || null;
-  const websites: string[] = (game as any)?.metadata?.url_websites || [];
-  const primaryWebsite = websites.length > 0 ? websites[0] : null;
+  const rawWebsites = (game as any)?.metadata?.url_websites;
+  const websites: string[] = Array.isArray(rawWebsites)
+    ? [
+        ...new Set<string>(
+          rawWebsites
+            .filter(
+              (url: unknown): url is string =>
+                typeof url === "string" && url.trim().length > 0,
+            )
+            .map((url: string) => url.trim()),
+        ),
+      ]
+    : [];
   const devNames: string[] = ((game as any)?.metadata?.developers || [])
     .map((d: any) => d?.name || d)
     .filter(Boolean);
@@ -1168,25 +1179,30 @@ export default function GameView() {
                     <GlobeAltIcon className="w-5 h-5 mt-0.5 text-gv-muted" />
                     <div className="flex-1 min-w-0">
                       <div className="text-[11px] uppercase tracking-wide text-gv-muted whitespace-nowrap">
-                        Website
+                        {websites.length > 1 ? "Websites" : "Website"}
                       </div>
-                      <div
-                        className="font-medium whitespace-nowrap truncate"
-                        title={primaryWebsite || "—"}
-                      >
-                        {primaryWebsite ? (
-                          <a
-                            href={primaryWebsite}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="underline hover:text-gv-accent-cool"
-                          >
-                            {primaryWebsite.replace(/^https?:\/\//, "")}
-                          </a>
-                        ) : (
-                          "—"
-                        )}
-                      </div>
+                      {websites.length > 0 ? (
+                        <div className="space-y-1">
+                          {websites.map((website) => (
+                            <div
+                              key={website}
+                              className="font-medium truncate"
+                              title={website}
+                            >
+                              <a
+                                href={website}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline hover:text-gv-accent-cool"
+                              >
+                                {website.replace(/^https?:\/\//, "")}
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="font-medium">—</div>
+                      )}
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
