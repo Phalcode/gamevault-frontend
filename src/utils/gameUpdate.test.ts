@@ -3,6 +3,7 @@ import {
   isGameUpdateAvailable,
   normalizeVersionTag,
   resolveServerVersionTag,
+  resolveVersionPlatform,
 } from "./gameUpdate";
 
 describe("normalizeVersionTag", () => {
@@ -23,6 +24,23 @@ describe("normalizeVersionTag", () => {
     expect(normalizeVersionTag(undefined)).toBe("");
     expect(normalizeVersionTag(null)).toBe("");
     expect(normalizeVersionTag("")).toBe("");
+  });
+});
+
+describe("resolveVersionPlatform", () => {
+  it("maps version types to OS families", () => {
+    expect(resolveVersionPlatform("WINDOWS_SETUP")).toBe("windows");
+    expect(resolveVersionPlatform("WINDOWS_PORTABLE")).toBe("windows");
+    expect(resolveVersionPlatform("WINDOWS_SOFTWARE")).toBe("windows");
+    expect(resolveVersionPlatform("LINUX_PORTABLE")).toBe("linux");
+    expect(resolveVersionPlatform("LINUX_SOFTWARE")).toBe("linux");
+  });
+
+  it("returns null for undetectable or missing types", () => {
+    expect(resolveVersionPlatform("UNDETECTABLE")).toBeNull();
+    expect(resolveVersionPlatform("")).toBeNull();
+    expect(resolveVersionPlatform(undefined)).toBeNull();
+    expect(resolveVersionPlatform(null)).toBeNull();
   });
 });
 
@@ -56,6 +74,101 @@ describe("resolveServerVersionTag", () => {
   it("returns null when no version information is present", () => {
     expect(resolveServerVersionTag({})).toBeNull();
     expect(resolveServerVersionTag({ versions: [] })).toBeNull();
+  });
+
+  it("ignores a default version that belongs to another platform", () => {
+    const game = {
+      // The backend default is the newer Linux build …
+      version: "v23896151",
+      type: "LINUX_PORTABLE",
+      versions: [
+        {
+          id: 1,
+          version: "v23896151",
+          type: "LINUX_PORTABLE",
+          indexed_at: "2024-06-01T00:00:00Z",
+        },
+        // … while the Windows build has no version tag at all.
+        {
+          id: 2,
+          version: "",
+          type: "WINDOWS_PORTABLE",
+          indexed_at: "2024-01-01T00:00:00Z",
+        },
+      ],
+    };
+    expect(
+      resolveServerVersionTag(game, {
+        versionName: "Unspecified",
+        gameType: "WINDOWS_PORTABLE",
+      }),
+    ).toBeNull();
+  });
+
+  it("does not trust game.type when the mirror belongs to another platform", () => {
+    // Installed-only cards overwrite `type` with the installed type, so the
+    // mirror's platform has to come from the version list.
+    const game = {
+      version: "v23896151",
+      type: "WINDOWS_PORTABLE",
+      versions: [
+        { id: 1, version: "v23896151", type: "LINUX_PORTABLE" },
+        { id: 2, version: "", type: "WINDOWS_PORTABLE" },
+      ],
+    };
+    expect(
+      resolveServerVersionTag(game, {
+        versionName: "Unspecified",
+        gameType: "WINDOWS_PORTABLE",
+      }),
+    ).toBeNull();
+  });
+
+  it("picks the newest tag of the installed platform", () => {
+    const game = {
+      version: "v3.0.0",
+      type: "LINUX_PORTABLE",
+      versions: [
+        {
+          id: 1,
+          version: "v1.0.0",
+          type: "WINDOWS_PORTABLE",
+          indexed_at: "2024-01-01T00:00:00Z",
+        },
+        {
+          id: 2,
+          version: "v2.0.0",
+          type: "WINDOWS_PORTABLE",
+          indexed_at: "2024-05-01T00:00:00Z",
+        },
+        {
+          id: 3,
+          version: "v3.0.0",
+          type: "LINUX_PORTABLE",
+          indexed_at: "2024-06-01T00:00:00Z",
+        },
+      ],
+    };
+    expect(
+      resolveServerVersionTag(game, {
+        versionName: "v1.0.0",
+        gameType: "WINDOWS_PORTABLE",
+      }),
+    ).toBe("v2.0.0");
+  });
+
+  it("uses the installed version id to determine the platform", () => {
+    const game = {
+      version: "v3.0.0",
+      type: "LINUX_PORTABLE",
+      versions: [
+        { id: 10, version: "v1.0.0", type: "WINDOWS_PORTABLE" },
+        { id: 20, version: "v3.0.0", type: "LINUX_PORTABLE" },
+      ],
+    };
+    expect(
+      resolveServerVersionTag(game, { versionName: "v1.0.0", versionId: 10 }),
+    ).toBe("v1.0.0");
   });
 });
 
@@ -97,5 +210,48 @@ describe("isGameUpdateAvailable", () => {
       isGameUpdateAvailable({ version: "v2.0.0" }, { versionName: "" }),
     ).toBe(false);
     expect(isGameUpdateAvailable({}, { versionName: "v1.0.0" })).toBe(false);
+  });
+
+  it("does not report an update for a version from another platform", () => {
+    // Windows install, but the server's default version is the newer Linux
+    // build while the Windows build has no version tag.
+    const game = {
+      version: "v23896151",
+      type: "LINUX_PORTABLE",
+      versions: [
+        { id: 1, version: "v23896151", type: "LINUX_PORTABLE" },
+        { id: 2, version: "", type: "WINDOWS_PORTABLE" },
+      ],
+    };
+    expect(
+      isGameUpdateAvailable(game, {
+        versionName: "Unspecified",
+        gameType: "WINDOWS_PORTABLE",
+      }),
+    ).toBe(false);
+  });
+
+  it("reports an update when the installed platform has a newer tag", () => {
+    const game = {
+      version: "v3.0.0",
+      type: "LINUX_PORTABLE",
+      versions: [
+        { id: 1, version: "v1.0.0", type: "WINDOWS_PORTABLE" },
+        { id: 2, version: "v2.0.0", type: "WINDOWS_PORTABLE" },
+        { id: 3, version: "v3.0.0", type: "LINUX_PORTABLE" },
+      ],
+    };
+    expect(
+      isGameUpdateAvailable(game, {
+        versionName: "v1.0.0",
+        gameType: "WINDOWS_PORTABLE",
+      }),
+    ).toBe(true);
+    expect(
+      isGameUpdateAvailable(game, {
+        versionName: "v2.0.0",
+        gameType: "WINDOWS_PORTABLE",
+      }),
+    ).toBe(false);
   });
 });

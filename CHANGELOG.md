@@ -82,9 +82,6 @@
 - Added launch logs: the complete output of every game start (Proton/Wine/umu output included) is written to rotating log files and shown in a dedicated log window. A new setting ("Always show launch logs") opens that window automatically while a game starts, a failed launch opens it regardless, and earlier logs can be browsed or cleared from the window. Installer runs are logged too.
 - The per-game Proton (PROTONPATH) field is now a searchable dropdown that lists the Proton builds already installed on your system — with the folder each one was found in and umu's codenames on top — while still accepting a folder name or path typed by hand.
 - Fix multiple time tracking issues
-
----
-
 - Fixed Windows games failing to start from the Linux AppImage when its bundled OpenSSL libraries conflicted with umu-launcher's system Python.
 - The desktop app now keeps a rotating log file
 - Fixed the app freezing after being left open, which until now could only be resolved with a Task Manager kill
@@ -100,6 +97,8 @@
 - On Windows, right-clicking the taskbar button now offers the same list of your five most recently used games along with quick links to Library, Downloads, Community and Settings.
 - Cleaned up the game settings dialog: the Linux/Wine/Proton launch options now live in a single collapsible section with evenly aligned fields instead of a mismatched two-column grid, and the umu-launcher defaults in the custom metadata are plain fields like all the others (labelled "Linux umu") instead of a visually separate block.
 - Linux: a game that is not a Windows executable can now be started through umu-launcher as well: the "Wine/Proton" section of the game settings has a "Launch through umu-launcher" switch, which is useful when a game's `start.sh` or AppImage ends up running a Windows build.
+---
+- Fixed the "Update available" indicator showing an update when the server only had a newer version for a different platform (e.g. a newer Linux build while you have the Windows version installed). Only versions for the installed platform are considered now.
 
 ## 17.0.0
 

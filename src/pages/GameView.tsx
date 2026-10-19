@@ -111,8 +111,11 @@ export default function GameView() {
   );
 
   // Whether the locally installed version differs from the server's current
-  // default version (i.e. a newer version is available to download).
-  const serverVersionTag = useMemo(() => resolveServerVersionTag(game), [game]);
+  // version for the same platform (i.e. an update is available to download).
+  const serverVersionTag = useMemo(
+    () => resolveServerVersionTag(game, installedInfo),
+    [game, installedInfo],
+  );
   const updateAvailable = useMemo(
     () => isGameUpdateAvailable(game, installedInfo),
     [game, installedInfo],

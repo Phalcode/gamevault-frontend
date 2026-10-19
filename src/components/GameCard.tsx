@@ -59,6 +59,7 @@ const GameCard = memo(function GameCard({
         versionDirectory: string;
         versionId: number;
         versionName: string;
+        gameType?: string | null;
       }
     | undefined;
   const onUninstalledCallback = (game as any)?._onUninstalled as

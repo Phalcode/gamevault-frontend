@@ -504,6 +504,7 @@ export default function Library() {
         versionDirectory: ig.versionDirectory,
         versionId: ig.versionId,
         versionName: ig.versionName,
+        gameType: ig.gameType,
         installedAt: ig.installedAt ?? 0,
         lastPlayedAt: ig.lastPlayedAt ?? 0,
       };
@@ -1077,6 +1078,7 @@ export default function Library() {
                         versionDirectory: installed.versionDirectory,
                         versionId: installed.versionId,
                         versionName: installed.versionName,
+                        gameType: installed.gameType,
                       },
                       _onUninstalled: refetchInstalledGames,
                     }
@@ -1169,6 +1171,7 @@ export default function Library() {
                         versionDirectory: installed.versionDirectory,
                         versionId: installed.versionId,
                         versionName: installed.versionName,
+                        gameType: installed.gameType,
                       },
                       _onUninstalled: refetchInstalledGames,
                     }
