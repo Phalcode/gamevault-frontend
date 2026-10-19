@@ -280,7 +280,19 @@ fn get_disk_usage_blocking(
     })
 }
 
-/// Returns the host's `PATH` with AppImage-internal directories removed.
+// Linux launcher workaround — see https://github.com/Byron/open-rs/issues/134
+//
+// `tauri-plugin-opener` delegates to `open::that_detached()`, which reports
+// success as soon as a launcher binary spawns. That masks launchers that fail
+// right after spawning (e.g. the AppImage-bundled `xdg-open`, or KDE Plasma 6
+// where `xdg-utils` still looks for the removed `kde-open`/`kde-open5`), and it
+// never falls back to one that works. Keep this block until the plugin (and the
+// `open` crate it wraps) detects a non-zero launcher exit, tries the remaining
+// launchers, and knows the Plasma 6 launchers. Once that lands, the helpers
+// below can be deleted and the calls can go back to `tauri_plugin_opener`.
+
+/// Returns the host's `PATH` entries with AppImage-internal directories
+/// removed.
 ///
 /// The AppImage runtime prepends the bundled `$APPDIR/usr/bin` and
 /// `$APPDIR/usr/sbin` to `PATH`. The bundle ships its own `xdg-open`, which
@@ -289,17 +301,68 @@ fn get_disk_usage_blocking(
 /// first launcher it finds without checking its exit status, so the
 /// fallbacks (`gio`, `kde-open`, …) are never reached. Resolving launchers
 /// against a `PATH` without the bundle's directories makes sure the system
-/// `xdg-open` — which understands the user's real desktop — is used.
+/// launchers — which understand the user's real desktop — are used.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn system_path_without_appimage_dirs() -> Option<std::ffi::OsString> {
-    let app_dir = std::env::var_os("APPDIR")?;
-    let current_path = std::env::var_os("PATH")?;
-    let cleaned: Vec<PathBuf> = std::env::split_paths(&current_path)
-        .filter(|entry| !entry.starts_with(&app_dir))
+fn host_path_entries() -> Vec<PathBuf> {
+    let Some(path) = std::env::var_os("PATH") else {
+        return Vec::new();
+    };
+    let Some(app_dir) = std::env::var_os("APPDIR") else {
+        return std::env::split_paths(&path).collect();
+    };
+    let app_dir = Path::new(&app_dir);
+    std::env::split_paths(&path)
+        .filter(|entry| !entry.starts_with(app_dir))
+        .collect()
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+/// Finds `program` in the given `PATH` entries. Resolving the path explicitly
+/// (instead of relying on the command's `PATH` lookup) also guarantees that the
+/// AppImage-bundled copy is never picked.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn find_in_path(program: &str, path_entries: &[PathBuf]) -> Option<PathBuf> {
+    path_entries
+        .iter()
+        .map(|directory| directory.join(program))
+        .find(|candidate| is_executable_file(candidate))
+}
+
+/// AppImages add their bundled libraries to `LD_LIBRARY_PATH` and preload a
+/// host `libwayland-client`. Host launchers (gio, Dolphin, …) must not load the
+/// bundled libraries, or they can fail to start due to version mismatches.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn apply_host_environment(command: &mut Command, path: Option<&std::ffi::OsStr>) {
+    if let Some(path) = path {
+        command.env("PATH", path);
+    }
+
+    let (Some(library_path), Some(app_dir)) = (
+        std::env::var_os("LD_LIBRARY_PATH"),
+        std::env::var_os("APPDIR"),
+    ) else {
+        return;
+    };
+    let app_dir = Path::new(&app_dir);
+    let host_libraries: Vec<PathBuf> = std::env::split_paths(&library_path)
+        .filter(|entry| !entry.starts_with(app_dir))
         .collect();
-    std::env::join_paths(cleaned)
-        .ok()
-        .filter(|path| !path.is_empty())
+
+    match std::env::join_paths(host_libraries) {
+        Ok(path) if !path.is_empty() => {
+            command.env("LD_LIBRARY_PATH", path);
+        }
+        _ => {
+            command.env_remove("LD_LIBRARY_PATH");
+        }
+    }
 }
 
 /// Spawns `command` and reports whether the launcher looks successful.
@@ -310,50 +373,125 @@ fn system_path_without_appimage_dirs() -> Option<std::ffi::OsString> {
 /// has already opened the target. This lets us fall back to the next
 /// launcher on a quick non-zero exit without ever blocking indefinitely.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn launcher_succeeded(command: &mut Command, timeout: Duration) -> bool {
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(_) => return false,
-    };
+fn launcher_result(command: &mut Command, timeout: Duration) -> Result<(), String> {
+    command.stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
     let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) => {
+                let mut stderr = String::new();
+                if let Some(mut pipe) = child.stderr.take() {
+                    let _ = pipe.read_to_string(&mut stderr);
+                }
+                let stderr = stderr.trim();
+                return Err(if stderr.is_empty() {
+                    format!("exited with {status}")
+                } else {
+                    stderr.to_string()
+                });
+            }
             Ok(None) => {
                 if Instant::now() >= deadline {
-                    return true;
+                    return Ok(());
                 }
                 thread::sleep(Duration::from_millis(25));
             }
-            Err(_) => return false,
+            Err(error) => return Err(error.to_string()),
         }
     }
+}
+
+/// Runs the first launcher that succeeds.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn run_desktop_launchers(target: &str, candidates: &[(&str, Vec<&str>)]) -> Result<(), String> {
+    let path_entries = host_path_entries();
+    let clean_path = std::env::join_paths(&path_entries).ok();
+    let mut failures: Vec<String> = Vec::new();
+
+    for (program, args) in candidates {
+        let program_path = match find_in_path(program, &path_entries) {
+            Some(path) => path,
+            None => continue,
+        };
+
+        let mut command = Command::new(&program_path);
+        command.args(args);
+        apply_host_environment(&mut command, clean_path.as_deref());
+
+        match launcher_result(&mut command, Duration::from_secs(3)) {
+            Ok(()) => return Ok(()),
+            Err(reason) => failures.push(format!("{program}: {reason}")),
+        }
+    }
+
+    if failures.is_empty() {
+        Err(format!(
+            "Could not open '{target}': no supported desktop launcher was found"
+        ))
+    } else {
+        Err(format!(
+            "Could not open '{target}': {}",
+            failures.join("; ")
+        ))
+    }
+}
+
+/// Launchers that can open a folder in the desktop's file manager.
+///
+/// KDE Plasma 6 renamed its launchers to `kde-open6`/`kioclient6`; older
+/// versions use the `5`-suffixed variants. Dolphin (and other common file
+/// managers) are tried directly as a last resort, because `xdg-open` and
+/// `gio` can both fail when their handler configuration is incomplete (e.g.
+/// KDE without `xdg-utils` or `gvfs`).
+#[cfg(all(unix, not(target_os = "macos")))]
+fn folder_launchers<'a>(target: &'a str, file_url: &'a str) -> Vec<(&'static str, Vec<&'a str>)> {
+    vec![
+        ("xdg-open", vec![target]),
+        ("gio", vec!["open", target]),
+        ("kde-open6", vec!["--", target]),
+        ("kde-open5", vec!["--", target]),
+        ("kde-open", vec!["--", target]),
+        ("kioclient6", vec!["exec", file_url]),
+        ("kioclient5", vec!["exec", file_url]),
+        ("dolphin", vec![target]),
+        ("nautilus", vec!["--new-window", target]),
+        ("thunar", vec![target]),
+        ("nemo", vec![target]),
+        ("caja", vec![target]),
+        ("pcmanfm", vec![target]),
+        ("gnome-open", vec![target]),
+    ]
+}
+
+/// Launchers that can open a URL in the default browser.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn url_launchers<'a>(target: &'a str) -> Vec<(&'static str, Vec<&'a str>)> {
+    vec![
+        ("xdg-open", vec![target]),
+        ("gio", vec!["open", target]),
+        ("kde-open6", vec!["--", target]),
+        ("kde-open5", vec!["--", target]),
+        ("kde-open", vec!["--", target]),
+        ("kioclient6", vec!["exec", target]),
+        ("kioclient5", vec!["exec", target]),
+        ("gnome-open", vec![target]),
+    ]
 }
 
 /// Opens `target` (a folder path or URL) with the host's desktop launchers,
 /// bypassing any launcher binaries bundled inside the AppImage.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn open_with_desktop_launchers(target: &str) -> Result<(), String> {
-    let clean_path = system_path_without_appimage_dirs();
-    let candidates: [(&str, &[&str]); 4] = [
-        ("xdg-open", &[target]),
-        ("gio", &["open", target]),
-        ("gnome-open", &[target]),
-        ("kde-open", &["--", target]),
-    ];
-
-    for (program, args) in candidates {
-        let mut command = Command::new(program);
-        command.args(args);
-        if let Some(path) = &clean_path {
-            command.env("PATH", path);
-        }
-        if launcher_succeeded(&mut command, Duration::from_secs(3)) {
-            return Ok(());
-        }
+fn open_with_desktop_launchers(target: &str, is_folder: bool) -> Result<(), String> {
+    if is_folder {
+        let file_url = url::Url::from_file_path(target)
+            .map_err(|_| format!("Invalid folder path: {target}"))?
+            .to_string();
+        run_desktop_launchers(target, &folder_launchers(target, &file_url))
+    } else {
+        run_desktop_launchers(target, &url_launchers(target))
     }
-
-    Err("No desktop launcher (xdg-open, gio, gnome-open, kde-open) succeeded".to_string())
 }
 
 #[tauri::command]
@@ -365,7 +503,7 @@ pub(crate) async fn open_in_file_explorer(path: String) -> Result<(), String> {
     // On Linux, resolve launchers against the host's PATH so the system
     // `xdg-open` (rather than the AppImage-bundled one) opens the folder.
     #[cfg(all(unix, not(target_os = "macos")))]
-    return open_with_desktop_launchers(&path);
+    return open_with_desktop_launchers(&path, true);
 
     // Delegate to the opener plugin (system default file manager / app).
     #[cfg(not(all(unix, not(target_os = "macos"))))]
@@ -389,7 +527,7 @@ pub(crate) async fn open_external_url(url: String) -> Result<(), String> {
     // On Linux, resolve launchers against the host's PATH so the system
     // `xdg-open` (rather than the AppImage-bundled one) opens the URL.
     #[cfg(all(unix, not(target_os = "macos")))]
-    return open_with_desktop_launchers(&url);
+    return open_with_desktop_launchers(&url, false);
 
     // Delegate to the opener plugin (system default browser / mail client).
     #[cfg(not(all(unix, not(target_os = "macos"))))]
@@ -1076,5 +1214,28 @@ mod tests {
     fn rejects_non_web_urls() {
         assert!(validate_external_url("file:///C:/games/image.png").is_err());
         assert!(validate_external_url("javascript:alert(1)").is_err());
+    }
+
+    /// KDE Plasma 6 no longer ships `kde-open`/`kde-open5`, so the launcher
+    /// list must include the Plasma 6 names and a direct Dolphin fallback.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn folder_launchers_cover_kde_plasma_6() {
+        let launchers = super::folder_launchers("/games/foo", "file:///games/foo");
+        let programs: Vec<&str> = launchers.iter().map(|(program, _)| *program).collect();
+        for expected in ["kde-open6", "kioclient6", "dolphin"] {
+            assert!(programs.contains(&expected), "missing launcher: {expected}");
+        }
+    }
+
+    /// File managers cannot open URLs and must not be in the URL list.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn url_launchers_do_not_open_file_managers() {
+        let launchers = super::url_launchers("https://example.test/");
+        let programs: Vec<&str> = launchers.iter().map(|(program, _)| *program).collect();
+        for unexpected in ["dolphin", "nautilus", "thunar", "nemo", "caja", "pcmanfm"] {
+            assert!(!programs.contains(&unexpected), "unexpected launcher: {unexpected}");
+        }
     }
 }
