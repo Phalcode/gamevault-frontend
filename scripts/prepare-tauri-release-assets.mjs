@@ -179,6 +179,12 @@ function toStructuredReleaseName(
   return `${productName}-${osLabel}-${archLabel}-${version}${suffix}`;
 }
 
+// Stable alias for the docs download page: the version segment becomes
+// "-latest", so https://.../releases/latest/download/<alias> keeps working.
+function toLatestAlias(assetName, version) {
+  return assetName.replace(`-${version}`, "-latest");
+}
+
 const tauriConfig = JSON.parse(
   await readFile(path.join(repoRoot, "src-tauri", "tauri.conf.json"), "utf8"),
 );
@@ -222,6 +228,10 @@ for (const updater of config.updaters) {
   releaseFiles.push(
     { source: assetPath, target: assetName },
     { source: signaturePath, target: `${assetName}.sig` },
+    {
+      source: assetPath,
+      target: toLatestAlias(assetName, version),
+    },
   );
 
   updaters.push({ installer: updater.installer, assetName, signaturePath });
@@ -233,16 +243,17 @@ for (const optionalAsset of config.optionalReleaseAssets) {
     optionalAsset.suffix,
   );
   if (assetPath) {
-    releaseFiles.push({
-      source: assetPath,
-      target: toStructuredReleaseName(
-        path.basename(assetPath),
-        version,
-        productName,
-        platform,
-        archLabel,
-      ),
-    });
+    const assetName = toStructuredReleaseName(
+      path.basename(assetPath),
+      version,
+      productName,
+      platform,
+      archLabel,
+    );
+    releaseFiles.push(
+      { source: assetPath, target: assetName },
+      { source: assetPath, target: toLatestAlias(assetName, version) },
+    );
   }
 }
 

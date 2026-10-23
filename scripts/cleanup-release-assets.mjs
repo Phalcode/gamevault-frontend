@@ -102,6 +102,9 @@ const manifestAssetNames = await fetchManifestAssetNames(release.assets ?? []);
 
 for (const asset of release.assets ?? []) {
   if (ALWAYS_KEEP.has(asset.name)) continue;
+  // Stable download aliases are referenced by the docs download page and must
+  // survive prerelease cleanup.
+  if (asset.name.includes("-latest")) continue;
   if (keepVersion && asset.name.includes(keepVersion)) continue;
   if (manifestAssetNames.has(asset.name)) continue;
 
