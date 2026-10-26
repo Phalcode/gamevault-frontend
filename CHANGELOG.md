@@ -21,6 +21,7 @@
 - Added an "Open" button for download locations.
 - Fixed various stability issues: playtime tracking across session refreshes and offline periods, umu-launcher setup, freezes during uninstall, scans or large folders, and downloads stalling.
 - Fixed various UI issues: tab switching, the sidebar indicator, settings dialogs on small screens, and Escape handling.
+- Game websites in Additional Metadata are now collapsed behind a "More" button when a game has more than three, keeping the panel compact.
 - Fixed extracting UDF-only disc images ([#36](https://github.com/Phalcode/gamevault-frontend/issues/36)) and only the first URL appearing in Additional Metadata ([#43](https://github.com/Phalcode/gamevault-frontend/issues/43)).
 
 ## 17.0.0

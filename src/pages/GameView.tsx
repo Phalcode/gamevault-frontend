@@ -73,6 +73,8 @@ import {
 import { LayoutGroup, motion } from "motion/react";
 import { EASE_OUT } from "@/lib/motion";
 
+const MAX_VISIBLE_WEBSITES = 3;
+
 export default function GameView() {
   const { id } = useParams<{ id: string }>();
   const numericId = Number(id);
@@ -91,6 +93,8 @@ export default function GameView() {
   >(null);
   const [progressUpdating, setProgressUpdating] = useState(false);
   const insertedPlaceholderRef = useRef(false);
+  const websitesListRef = useRef<HTMLDivElement | null>(null);
+  const [websitesExpanded, setWebsitesExpanded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [versionDialogOpen, setVersionDialogOpen] = useState(false);
   const [pendingDownloadAction, setPendingDownloadAction] = useState<
@@ -188,6 +192,19 @@ export default function GameView() {
       cancelled = true;
     };
   }, [serverUrl, authFetch, numericId, isOnline]);
+
+  useEffect(() => {
+    setWebsitesExpanded(false);
+  }, [numericId]);
+
+  // The "More" button unmounts after expanding. Move focus to the first
+  // newly revealed link so keyboard and gamepad navigation continue there.
+  useEffect(() => {
+    if (!websitesExpanded) return;
+    const links =
+      websitesListRef.current?.querySelectorAll<HTMLAnchorElement>("a");
+    links?.[MAX_VISIBLE_WEBSITES]?.focus();
+  }, [websitesExpanded]);
 
   const coverId = game?.metadata?.cover?.id;
   const trailers = [
@@ -671,6 +688,10 @@ export default function GameView() {
         ),
       ]
     : [];
+  const hasHiddenWebsites = websites.length > MAX_VISIBLE_WEBSITES;
+  const visibleWebsites = websitesExpanded
+    ? websites
+    : websites.slice(0, MAX_VISIBLE_WEBSITES);
   const devNames: string[] = ((game as any)?.metadata?.developers || [])
     .map((d: any) => d?.name || d)
     .filter(Boolean);
@@ -1182,8 +1203,8 @@ export default function GameView() {
                         {websites.length > 1 ? "Websites" : "Website"}
                       </div>
                       {websites.length > 0 ? (
-                        <div className="space-y-1">
-                          {websites.map((website) => (
+                        <div className="space-y-1" ref={websitesListRef}>
+                          {visibleWebsites.map((website) => (
                             <div
                               key={website}
                               className="font-medium truncate"
@@ -1199,6 +1220,16 @@ export default function GameView() {
                               </a>
                             </div>
                           ))}
+                          {hasHiddenWebsites && !websitesExpanded && (
+                            <button
+                              type="button"
+                              onClick={() => setWebsitesExpanded(true)}
+                              aria-label={`Show all ${websites.length} websites`}
+                              className="w-fit cursor-pointer font-medium text-gv-accent-cool underline underline-offset-2 hover:text-gv-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gv-accent-cool"
+                            >
+                              More
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <div className="font-medium">—</div>
