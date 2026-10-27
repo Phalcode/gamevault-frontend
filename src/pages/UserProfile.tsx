@@ -8,16 +8,18 @@ import { Text } from "@tw/text";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Media } from "@/components/Media";
 import CoverPlaceholder from "@/components/CoverPlaceholder";
+import BackButton from "@/components/BackButton";
 import { UserEditorModal } from "@/components/admin/UserEditorModal";
+import { formatDecimal } from "@/utils/number";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { getGameCoverMediaId } from "@/hooks/useGames";
 import { getRoleLabel } from "@/utils/roles";
+import { maskUser, useStreamerMode } from "@/utils/streamerMode";
 import { GamevaultUserRoleEnum } from "@/api";
 import clsx from "clsx";
 import {
-  ChevronLeftIcon,
   BookmarkIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -28,7 +30,7 @@ import {
   UserGroupIcon,
 } from "@heroicons/react/24/outline";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import type { GamevaultGame, GamevaultUser, Progress } from "../api";
 
 type ProfileProgressSort = "last" | "time" | "title" | "state";
@@ -116,7 +118,7 @@ function formatPlaytime(minutes: number) {
   if (!minutes) return "0 min";
   if (minutes < 60) return `${minutes} min`;
   const hours = minutes / 60;
-  return `${hours.toFixed(hours < 10 ? 1 : 0)} h`;
+  return `${formatDecimal(hours, hours < 10 ? 1 : 0)} h`;
 }
 
 function getDisplayName(user: GamevaultUser | null | undefined) {
@@ -286,25 +288,12 @@ function GamePoster({
   );
 }
 
-function BackButton({ navigate }: { navigate: (delta: number) => void }) {
-  return (
-    <button
-      onClick={() => navigate(-1)}
-      aria-label="Go back"
-      className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm/5 text-gv-muted transition-colors hover:text-gv-text"
-    >
-      <ChevronLeftIcon className="size-4 shrink-0 transition-transform group-hover:-translate-x-0.5" />
-      Back
-    </button>
-  );
-}
-
 function ProfileProgressCard({
   progress,
   onDelete,
 }: {
   progress: Progress;
-  onDelete?: (progressId: number, gameId: number) => void;
+  onDelete?: (progressId: number, gameId: number, title: string) => void;
 }) {
   const game = progress.game;
   const title = game?.metadata?.title || game?.title || "Unknown Game";
@@ -360,11 +349,11 @@ function ProfileProgressCard({
               e.preventDefault();
               e.stopPropagation();
               const gid = (progress.game as any)?.id ?? (game as any)?.id ?? 0;
-              onDelete(progress.id, gid);
+              onDelete(progress.id, gid, title);
             }}
             className="absolute bottom-3 right-3 rounded-xl p-2 text-gv-muted hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer"
-            aria-label="Delete progress entry"
-            title="Delete progress entry"
+            aria-label={`Delete progress for ${title}`}
+            title={`Delete progress for ${title}`}
           >
             <TrashIcon className="h-4 w-4" />
           </button>
@@ -378,8 +367,10 @@ export default function UserProfile() {
   const { serverUrl, authFetch, user: loggedIn } = useAuth();
   const { showAlert } = useAlertDialog();
   const { id } = useParams<{ id?: string }>();
+  const streamerMode = useStreamerMode();
 
   const [user, setUser] = useState<GamevaultUser | null>(null);
+  const masked = streamerMode && user ? maskUser(user) : null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -387,7 +378,6 @@ export default function UserProfile() {
   const [progressFilter, setProgressFilter] = useState<string>("all");
   const [progressSort, setProgressSort] = useState<ProfileProgressSort>("last");
 
-  const navigate = useNavigate();
   const userId = id ? Number(id) : null;
   const currentUserId = (loggedIn as any)?.id ?? (loggedIn as any)?.ID ?? null;
   const currentUserRole = Number((loggedIn as any)?.role ?? 0);
@@ -474,13 +464,14 @@ export default function UserProfile() {
   }, [userId]);
 
   const handleDeleteProgress = useCallback(
-    async (progressId: number, gameId: number) => {
+    async (progressId: number, gameId: number, title?: string) => {
       if (!serverUrl || !userId || !gameId) return;
 
       const confirmed = await showAlert({
         title: "Delete progress entry?",
-        description:
-          "This will permanently remove the playtime, state, and history for this game. This action cannot be undone.",
+        description: title
+          ? `This will permanently remove the playtime, state, and history for "${title}". This action cannot be undone.`
+          : "This will permanently remove the playtime, state, and history for this game. This action cannot be undone.",
         affirmativeText: "Delete",
         negativeText: "Cancel",
       });
@@ -531,9 +522,9 @@ export default function UserProfile() {
   if (!userId || Number.isNaN(userId)) {
     return (
       <div className="flex min-h-full flex-col gap-6">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-4">
+          <BackButton />
           <Heading>Community</Heading>
-          <BackButton navigate={navigate} />
         </div>
         <Divider className="border-gv-line/80" />
         <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
@@ -546,9 +537,9 @@ export default function UserProfile() {
   if (loading) {
     return (
       <div className="flex min-h-full flex-col gap-6">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-4">
+          <BackButton />
           <Heading>Community</Heading>
-          <BackButton navigate={navigate} />
         </div>
         <Divider className="border-gv-line/80" />
         <div className="surface-panel h-96 animate-pulse rounded-[1.75rem]" />
@@ -559,9 +550,9 @@ export default function UserProfile() {
   if (error || !user) {
     return (
       <div className="flex min-h-full flex-col gap-6">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-4">
+          <BackButton />
           <Heading>Community</Heading>
-          <BackButton navigate={navigate} />
         </div>
         <Divider className="border-gv-line/80" />
         <div className="surface-panel-soft rounded-3xl p-8 text-sm text-gv-muted">
@@ -573,21 +564,21 @@ export default function UserProfile() {
 
   return (
     <div className="flex min-h-full flex-col gap-6 overflow-x-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0">
-          <Heading>Community</Heading>
-          <Text>
-            Browse player profiles, stats, and shared library history.
-          </Text>
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-4">
+        <BackButton />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
+            <Heading>Community</Heading>
+            <Text>
+              Browse player profiles, stats, and shared library history.
+            </Text>
+          </div>
           {canEdit && (
             <Button outline onClick={() => setShowEditProfile(true)}>
               <PencilSquareIcon className="size-4" />
               Edit profile
             </Button>
           )}
-          <BackButton navigate={navigate} />
         </div>
       </div>
       <Divider className="border-gv-line/80" />
@@ -620,8 +611,9 @@ export default function UserProfile() {
               <UserAvatar
                 media={user.avatar}
                 size={110}
-                alt={getDisplayName(user)}
+                alt={masked?.displayName ?? getDisplayName(user)}
                 fallback={getAvatarFallback(user)}
+                seed={user?.id != null ? String(user.id) : undefined}
                 className="border-4 border-white/20 bg-gv-panel-soft/50 shadow-lg backdrop-blur-xl"
               />
               <div className="min-w-0 space-y-3">
@@ -634,10 +626,10 @@ export default function UserProfile() {
                 </div>
                 <div>
                   <h2 className="truncate text-3xl font-bold tracking-[-0.04em] text-white">
-                    {getDisplayName(user)}
+                    {masked?.displayName ?? getDisplayName(user)}
                   </h2>
                   <p className="mt-1 text-base text-white/80">
-                    @{getUserHandle(user)}
+                    @{masked?.handle ?? getUserHandle(user)}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3 text-sm text-white/80">
@@ -707,7 +699,11 @@ export default function UserProfile() {
           <div className="mt-5 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {recent.length > 0 ? (
               recent.map((progress) => (
-                <ProfileProgressCard key={progress.id} progress={progress} />
+                <ProfileProgressCard
+                  key={progress.id}
+                  progress={progress}
+                  onDelete={canEdit ? handleDeleteProgress : undefined}
+                />
               ))
             ) : (
               <div className="surface-panel-soft rounded-3xl p-6 text-sm text-gv-muted">
@@ -789,7 +785,7 @@ export default function UserProfile() {
                 >
                   <ProfileProgressCard
                     progress={progress}
-                    onDelete={isOwnProfile ? handleDeleteProgress : undefined}
+                    onDelete={canEdit ? handleDeleteProgress : undefined}
                   />
                 </div>
               ))

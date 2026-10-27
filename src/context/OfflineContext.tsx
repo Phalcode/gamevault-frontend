@@ -5,6 +5,7 @@ import {
   useRef,
   useEffect,
   useCallback,
+  useMemo,
   type ReactNode,
 } from "react";
 import { isTauriApp } from "@/utils/tauri";
@@ -98,19 +99,14 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     if (!isTauri || !serverUrl) return;
 
     const checkStatus = async () => {
-      setIsChecking(true);
       if (forceOffline) {
         setIsOnline(false);
-        setIsChecking(false);
         return;
       }
       try {
-        const res = await fetch(`${serverUrl}/api/status`, {
+        await fetch(`${serverUrl}/api/status`, {
           signal: AbortSignal.timeout(8000),
         });
-        if (!res.ok) {
-          // Server reachable but unhealthy — still "online"
-        }
         if (!isOnlineRef.current) {
           // Transition: offline → online
           console.log(
@@ -118,16 +114,20 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
           );
           wasOfflineRef.current = true;
         }
-        setIsOnline(true);
-        setLastOnlineAt(Date.now());
+        // Only refresh the timestamp once a minute. Writing it on every 15 s
+        // poll forces a new context value (and a re-render of every consumer)
+        // four times a minute for no benefit, since the value is informational.
+        setLastOnlineAt((previous) =>
+          previous !== null && Date.now() - previous < 60_000
+            ? previous
+            : Date.now(),
+        );
       } catch {
         // Network error — server unreachable
         if (isOnlineRef.current) {
           console.log("[offline] transition: ONLINE → OFFLINE");
         }
         setIsOnline(false);
-      } finally {
-        setIsChecking(false);
       }
     };
 
@@ -186,21 +186,30 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  return (
-    <OfflineCtx.Provider
-      value={{
-        isOnline,
-        isChecking,
-        lastOnlineAt,
-        checkNow,
-        onReconnect,
-        forceOffline,
-        setForceOffline,
-      }}
-    >
-      {children}
-    </OfflineCtx.Provider>
+  // Stable value identity: without this, every provider render handed consumers
+  // a brand-new object and re-rendered the whole tree.
+  const value = useMemo<OfflineContextValue>(
+    () => ({
+      isOnline,
+      isChecking,
+      lastOnlineAt,
+      checkNow,
+      onReconnect,
+      forceOffline,
+      setForceOffline,
+    }),
+    [
+      isOnline,
+      isChecking,
+      lastOnlineAt,
+      checkNow,
+      onReconnect,
+      forceOffline,
+      setForceOffline,
+    ],
   );
+
+  return <OfflineCtx.Provider value={value}>{children}</OfflineCtx.Provider>;
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────

@@ -1,24 +1,32 @@
 mod state;
 mod events;
 mod util;
+mod executables;
 mod downloads;
 mod extraction;
 mod installation;
+mod jumplist;
+mod launch_log;
+mod tracker_log;
 mod games;
 mod fs_commands;
 mod time_tracker;
 mod cache;
 mod settings;
+mod secure_store;
 mod net;
 mod youtube;
+mod taskbar;
+mod tray;
+mod umu;
+mod rendering;
+mod frontend_watchdog;
 
 use crate::settings::AppSettings;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::path::BaseDirectory;
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
@@ -121,37 +129,118 @@ fn normalize_version_string(value: &str) -> String {
   value.trim().trim_start_matches(['v', 'V']).to_string()
 }
 
+fn default_build_channel() -> UpdateChannel {
+  match option_env!("GV_BUILD_CHANNEL") {
+    Some("early-access") => UpdateChannel::EarlyAccess,
+    Some("unstable") => UpdateChannel::Unstable,
+    _ => UpdateChannel::Stable,
+  }
+}
+
 fn build_version_comparator(
   channel: UpdateChannel,
   state: Option<UpdateState>,
 ) -> impl Fn(Version, tauri_plugin_updater::RemoteRelease) -> bool + Send + Sync + 'static {
   move |current, release| {
-    let current_version = current.to_string();
-    let matching_state = state
+    // Determine the channel the running build came from. The persisted state is
+    // written after every in-app install (channel + version), so it is the
+    // authoritative source when its version matches the running one; otherwise
+    // fall back to the channel this binary was built for (fresh installs).
+    let current_channel = state
       .as_ref()
-      .filter(|value| normalize_version_string(&value.version) == current_version);
+      .filter(|value| normalize_version_string(&value.version) == current.to_string())
+      .map(|value| value.channel)
+      .unwrap_or_else(default_build_channel);
 
-    if release.version > current {
-      return true;
-    }
+    should_offer_release(&current, &release.version, channel, current_channel)
+  }
+}
 
-    let same_core = current.major == release.version.major
-      && current.minor == release.version.minor
-      && current.patch == release.version.patch;
+/// Core decision for whether a release on the requested channel should be
+/// offered to update to. Kept as a pure helper so the channel-switch and
+/// downgrade rules are unit-testable.
+fn should_offer_release(
+  current: &Version,
+  release: &Version,
+  channel: UpdateChannel,
+  current_channel: UpdateChannel,
+) -> bool {
+  // Switching to a different channel is intentional and always allowed, even
+  // when the target release is older (a downgrade). The endpoint only lists
+  // releases for the requested channel, so this surfaces that channel's latest
+  // build. Skip only when it happens to equal the version currently running.
+  if current_channel != channel {
+    return release != current;
+  }
 
-    match channel {
-      // Switching back to a less-experimental channel stays allowed even when
-      // it is not semver-newer (e.g. the app was previously installed from a
-      // prerelease channel).
-      UpdateChannel::Stable => matching_state
-        .is_some_and(|value| value.channel != UpdateChannel::Stable),
-      // Prerelease channels (early-access and unstable) are offered when the
-      // running build is the plain release of the same core, i.e. switching
-      // from stable up into a prerelease channel. Otherwise semver decides.
-      UpdateChannel::EarlyAccess | UpdateChannel::Unstable => {
-        current.pre.is_empty() && !release.version.pre.is_empty() && same_core
-      }
-    }
+  // Staying on the same channel: only surface genuinely newer releases.
+  release > current
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use semver::Version;
+
+  fn v(value: &str) -> Version {
+    Version::parse(value).unwrap()
+  }
+
+  #[test]
+  fn same_channel_only_offers_newer() {
+    assert!(should_offer_release(
+      &v("17.1.0"),
+      &v("17.2.0"),
+      UpdateChannel::Stable,
+      UpdateChannel::Stable,
+    ));
+    assert!(!should_offer_release(
+      &v("17.1.0"),
+      &v("17.1.0"),
+      UpdateChannel::Stable,
+      UpdateChannel::Stable,
+    ));
+    assert!(!should_offer_release(
+      &v("17.2.0"),
+      &v("17.1.0"),
+      UpdateChannel::Stable,
+      UpdateChannel::Stable,
+    ));
+  }
+
+  #[test]
+  fn switching_channels_allows_downgrade() {
+    // From a newer unstable build back down to stable.
+    assert!(should_offer_release(
+      &v("18.0.0-alpha.1"),
+      &v("17.1.0"),
+      UpdateChannel::Stable,
+      UpdateChannel::Unstable,
+    ));
+    // From a newer unstable build down to early-access.
+    assert!(should_offer_release(
+      &v("18.0.0-alpha.1"),
+      &v("17.1.1-beta.1"),
+      UpdateChannel::EarlyAccess,
+      UpdateChannel::Unstable,
+    ));
+    // From stable up into a prerelease channel.
+    assert!(should_offer_release(
+      &v("17.1.0"),
+      &v("17.1.1-beta.1"),
+      UpdateChannel::EarlyAccess,
+      UpdateChannel::Stable,
+    ));
+  }
+
+  #[test]
+  fn switching_to_identical_version_is_skipped() {
+    assert!(!should_offer_release(
+      &v("17.1.0"),
+      &v("17.1.0"),
+      UpdateChannel::Stable,
+      UpdateChannel::Unstable,
+    ));
   }
 }
 
@@ -201,6 +290,54 @@ async fn download_and_install_app_update(
   app: AppHandle,
   channel: UpdateChannel,
 ) -> Result<Option<String>, String> {
+  // A reloaded page can ask again while the update task started earlier keeps
+  // running. Downloading the update twice (and installing it twice) would be a
+  // mess, so refuse while one is already in flight.
+  if crate::state::app_update_snapshot()
+    .map(|snapshot| snapshot.status == "downloading" || snapshot.status == "installing")
+    .unwrap_or(false)
+  {
+    return Err("An update is already being downloaded or installed.".to_string());
+  }
+
+  crate::state::set_app_update_snapshot(Some(crate::state::AppUpdateSnapshot {
+    status: "downloading".to_string(),
+    version: None,
+    error: None,
+  }));
+
+  match run_app_update(app, channel).await {
+    Ok(version) => {
+      crate::state::set_app_update_snapshot(Some(crate::state::AppUpdateSnapshot {
+        status: "finished".to_string(),
+        version: version.clone(),
+        error: None,
+      }));
+      Ok(version)
+    }
+    Err(error) => {
+      crate::state::set_app_update_snapshot(Some(crate::state::AppUpdateSnapshot {
+        status: "error".to_string(),
+        version: None,
+        error: Some(error.clone()),
+      }));
+      Err(error)
+    }
+  }
+}
+
+/// State of everything that keeps running in the background (downloads,
+/// extractions, installations, umu setup, app updates).
+///
+/// The frontend calls this right after loading so it can re-attach to work that
+/// is still in flight, and pick up results that finished while its page was
+/// reloaded or the app was restarted.
+#[tauri::command]
+fn get_background_states() -> crate::state::BackgroundStates {
+  crate::state::background_states()
+}
+
+async fn run_app_update(app: AppHandle, channel: UpdateChannel) -> Result<Option<String>, String> {
   let Some(update) = resolve_update_for_channel(&app, channel).await? else {
     return Ok(None);
   };
@@ -276,10 +413,39 @@ async fn download_and_install_app_update(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  let context = tauri::generate_context!();
+
+  // The Windows taskbar jump list is keyed on this id, so it has to be set
+  // before the first window appears.
+  jumplist::set_process_app_id(&context.config().identifier);
+
+  // Jump list and "open with" entries start the app again with a flag.
+  // Queue them before the frontend asks for work, so a cold start still
+  // launches the requested game / opens the requested page.
+  for action in tray::actions_from_args(std::env::args()) {
+    tray::queue(action);
+  }
+
   let mut builder = tauri::Builder::default()
+    // Must be the first plugin: when a second instance is launched it is
+    // killed here and only the existing instance receives this callback,
+    // which brings its window back to the foreground.
+    .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+      // The second instance was very likely a jump list entry: hand its
+      // request to the running app instead of dropping it.
+      for action in tray::actions_from_args(args) {
+        tray::queue_and_notify(app, action);
+      }
+      if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+      }
+    }))
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
+    .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_autostart::init(Default::default(), None));
 
   if let Some(pubkey) = updater_public_key() {
@@ -296,59 +462,64 @@ pub fn run() {
       // working in packaged builds (tauri-apps/tauri#14422).
       youtube::start_embed_server();
 
+      // Stronghold: the official Tauri secret-store plugin. It keeps secrets
+      // (the auth refresh token) encrypted at rest in a vault that works on
+      // Windows, macOS and Linux. The salt file lives in the app data dir.
+      let salt_path = app
+        .path()
+        .app_local_data_dir()
+        .expect("could not resolve app local data path")
+        .join("salt.txt");
+      app.handle().plugin(
+        tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build(),
+      )?;
+
+      // ── Persistent logging ─────────────────────────────────────────────
+      // Always write a rotating log file into the OS log directory. Release
+      // builds previously installed no logger at all, so a freeze or crash left
+      // no trace to inspect. Debug builds also mirror everything to stdout.
+      let mut log_targets = vec![tauri_plugin_log::Target::new(
+        tauri_plugin_log::TargetKind::LogDir {
+          file_name: Some(frontend_watchdog::LOG_FILE_NAME.to_string()),
+        },
+      )];
       if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
+        log_targets.push(tauri_plugin_log::Target::new(
+          tauri_plugin_log::TargetKind::Stdout,
+        ));
+      }
+      app.handle().plugin(
+        tauri_plugin_log::Builder::default()
+          .level(log::LevelFilter::Info)
+          .max_file_size(4 * 1024 * 1024)
+          .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
+          .targets(log_targets)
+          .build(),
+      )?;
+
+      if let Ok(log_dir) = app.path().app_log_dir() {
+        log::info!(
+          "logging to {}.log in {}",
+          frontend_watchdog::LOG_FILE_NAME,
+          log_dir.display()
+        );
       }
 
-      // ── System tray with Show / Quit menu ──────────────────────────────
+      // ── Frontend responsiveness watchdog ───────────────────────────────
+      // Records webview hangs from the Rust side, because a frozen webview
+      // cannot log its own freeze. See `frontend_watchdog`.
+      frontend_watchdog::set_verbose(settings::load_settings(app.handle()).diagnostics_verbose);
+      frontend_watchdog::start_watchdog(app.handle().clone());
 
-      let show_item = MenuItemBuilder::with_id("show", "Show").build(app)?;
-      let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-      let menu = MenuBuilder::new(app)
-        .item(&show_item)
-        .item(&quit_item)
-        .build()?;
+      // ── Time tracker diagnostics log ───────────────────────────────────
+      // Records every tracker tick, match transition and credit outcome.
+      // Disabled for now via `tracker_log::ENABLED`; the tracker keeps its
+      // counters in memory either way.
+      tracker_log::init(app.handle());
 
-      let _tray = TrayIconBuilder::new()
-        .icon(app.default_window_icon().unwrap().clone())
-        .menu(&menu)
-        .on_menu_event(|app, event| {
-          match event.id.as_ref() {
-            "show" => {
-              if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-              }
-            }
-            "quit" => {
-              app.exit(0);
-            }
-            _ => {}
-          }
-        })
-        .on_tray_icon_event(|tray, event| {
-          if let TrayIconEvent::Click {
-            button: MouseButton::Left,
-            button_state: MouseButtonState::Up,
-            ..
-          } = event
-          {
-            let app = tray.app_handle();
-            if let Some(window) = app.get_webview_window("main") {
-              if window.is_visible().unwrap_or(false) {
-                let _ = window.hide();
-              } else {
-                let _ = window.show();
-                let _ = window.set_focus();
-              }
-            }
-          }
-        })
-        .build(app)?;
+      // ── System tray: quick actions, recents, now-playing indicator ─────
+
+      tray::create(app.handle())?;
 
       // ── Close-to-tray: intercept window close, hide instead of quit ────
 
@@ -383,13 +554,19 @@ pub fn run() {
         }
       }
 
+      // ── Apply persisted WebKitGTK rendering settings (Linux) ──────────
+      #[cfg(target_os = "linux")]
+      rendering::apply_webkit_settings(app.handle());
+
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
       games::open_in_file_explorer,
       games::open_external_url,
+      util::open_devtools,
       youtube::youtube_embed_base,
       extraction::extract_archive,
+      get_background_states,
       installation::list_install_executables,
       installation::copy_installation_files,
       installation::launch_installation_executable,
@@ -399,6 +576,7 @@ pub fn run() {
       downloads::pause_download_task,
       downloads::recover_download_cards,
       games::list_installed_games,
+      games::get_disk_usage,
       games::list_launch_executables,
       games::make_script_executable,
       games::launch_game,
@@ -409,7 +587,9 @@ pub fn run() {
       fs_commands::fs_write_text_file,
       fs_commands::fs_create_dir_all,
       fs_commands::fs_path_exists,
+      fs_commands::fs_has_leftover_content,
       fs_commands::fs_remove,
+      fs_commands::remove_empty_directories,
       net::fetch_url_bytes,
       net::fs_read_binary_file,
       cache::cache_game_data,
@@ -420,17 +600,59 @@ pub fn run() {
       cache::list_cached_game_ids,
       cache::delete_cached_game,
       cache::delete_cached_image,
+      cache::clear_all_cached_images,
       time_tracker::get_offline_time_files,
       time_tracker::delete_offline_time_file,
       time_tracker::sync_offline_time,
+      time_tracker::debug_tracker_scan,
+      time_tracker::get_tracker_status,
+      time_tracker::reset_tracker_ledger,
+      tracker_log::get_tracker_log,
+      tracker_log::clear_tracker_log,
+      tracker_log::open_tracker_log_folder,
+      tracker_log::read_tracker_log_file,
+      tracker_log::tracker_log_line,
       settings::get_start_minimized,
       settings::set_start_minimized,
+      settings::get_minimize_on_game_launch,
+      settings::set_minimize_on_game_launch,
       settings::get_ignore_list,
       settings::set_ignore_list,
+      settings::get_default_wine_prefix,
+      settings::set_default_wine_prefix,
+      settings::get_prerelease_notice_channel,
+      settings::set_prerelease_notice_channel,
+      settings::get_always_show_launch_logs,
+      settings::set_always_show_launch_logs,
+      settings::get_diagnostics_verbose,
+      settings::set_diagnostics_verbose,
+      rendering::get_rendering_diagnostics,
+      rendering::get_webkit_settings,
+      rendering::set_webkit_smooth_scrolling,
+      rendering::set_webkit_hardware_acceleration_policy,
+      frontend_watchdog::frontend_heartbeat,
+      frontend_watchdog::get_diagnostics_log_path,
+      secure_store::get_or_create_vault_password,
+      taskbar::set_taskbar_progress,
+      taskbar::clear_taskbar_progress,
+      tray::set_tray_recent_games,
+      tray::take_tray_actions,
+      umu::umu_status,
+      umu::install_umu_launcher,
+      umu::resolve_windows_install_path,
+      umu::resolve_game_wine_prefix,
+      umu::delete_game_wine_prefix,
+      umu::list_proton_builds,
+      launch_log::get_launch_log,
+      launch_log::list_launch_logs,
+      launch_log::open_launch_log_window,
+      launch_log::open_launch_log_folder,
+      launch_log::clear_launch_logs,
+      launch_log::read_launch_log_file,
       is_updater_enabled,
       check_for_app_update,
       download_and_install_app_update
     ])
-    .run(tauri::generate_context!())
+    .run(context)
     .expect("error while running tauri application");
 }

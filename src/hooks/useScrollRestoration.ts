@@ -26,17 +26,47 @@ export function useScrollRestoration(
     ) as HTMLElement | null;
     if (!el) return;
 
+    // Throttle the synchronous `sessionStorage` write. `sessionStorage.setItem`
+    // blocks the main thread, and a held/drifting controller stick can scroll
+    // this container on every animation frame for an unbounded amount of time —
+    // writing the position 60×/s in that situation keeps the UI busy for as
+    // long as the container moves. A trailing timer still persists the final
+    // position shortly after scrolling stops.
+    const WRITE_INTERVAL_MS = 150;
     let rafId = 0;
+    let trailingTimer = 0;
+    let lastWriteAt = 0;
+
+    const write = () => {
+      lastWriteAt = performance.now();
+      sessionStorage.setItem(storageKey, String(el.scrollTop));
+    };
+
     const onScroll = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        sessionStorage.setItem(storageKey, String(el.scrollTop));
+        const now = performance.now();
+        if (now - lastWriteAt >= WRITE_INTERVAL_MS) {
+          if (trailingTimer) {
+            window.clearTimeout(trailingTimer);
+            trailingTimer = 0;
+          }
+          write();
+          return;
+        }
+        if (!trailingTimer) {
+          trailingTimer = window.setTimeout(() => {
+            trailingTimer = 0;
+            write();
+          }, WRITE_INTERVAL_MS);
+        }
       });
     };
 
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       cancelAnimationFrame(rafId);
+      if (trailingTimer) window.clearTimeout(trailingTimer);
       el.removeEventListener("scroll", onScroll);
     };
   }, [storageKey]);

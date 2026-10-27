@@ -45,12 +45,12 @@ fn mark_hidden(_path: &Path) -> Result<(), String> {
   Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fs_read_text_file(path: String) -> Result<String, String> {
   std::fs::read_to_string(&path).map_err(|e| format!("fs_read_text_file failed for '{}': {}", path, e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fs_write_text_file(path: String, content: String) -> Result<(), String> {
   let file_path = Path::new(&path);
   std::fs::write(file_path, content)
@@ -63,34 +63,164 @@ pub(crate) fn fs_write_text_file(path: String, content: String) -> Result<(), St
   Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fs_create_dir_all(path: String) -> Result<(), String> {
   std::fs::create_dir_all(&path).map_err(|e| format!("fs_create_dir_all failed for '{}': {}", path, e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn fs_path_exists(path: String) -> Result<bool, String> {
   Ok(std::path::Path::new(&path).exists())
 }
 
+/// Returns true if `path` contains leftover content that is not just GameVault
+/// metadata (`.gamevault.game.config.json` / `.gamevault.metadata.json`).
+///
+/// Used after an uninstall to detect files/folders that were not removed, so
+/// the UI can offer to delete the remains.
+fn dir_has_leftover_content(path: &std::path::Path) -> bool {
+  let Ok(entries) = std::fs::read_dir(path) else {
+    return false;
+  };
+  for entry in entries.flatten() {
+    let entry_path = entry.path();
+    if entry_path.is_dir() {
+      if dir_has_leftover_content(&entry_path) {
+        return true;
+      }
+    } else if !is_gamevault_metadata_file(&entry_path) {
+      return true;
+    }
+  }
+  false
+}
+
 #[tauri::command]
-pub(crate) fn fs_remove(path: String, recursive: bool) -> Result<(), String> {
-  let p = std::path::Path::new(&path);
-  if !p.exists() {
-    return Ok(());
+pub(crate) async fn fs_has_leftover_content(path: String) -> Result<bool, String> {
+  // Walks the folder recursively: keep it off the UI thread.
+  tauri::async_runtime::spawn_blocking(move || {
+    let p = std::path::PathBuf::from(&path);
+    if !p.exists() {
+      return Ok(false);
+    }
+    if p.is_dir() {
+      Ok(dir_has_leftover_content(&p))
+    } else {
+      Ok(!is_gamevault_metadata_file(&p))
+    }
+  })
+  .await
+  .map_err(|e| format!("fs_has_leftover_content failed: {e}"))?
+}
+
+#[tauri::command]
+pub(crate) async fn fs_remove(path: String, recursive: bool) -> Result<(), String> {
+  // Removing a game folder can delete tens of gigabytes, which must not block
+  // the UI thread.
+  tauri::async_runtime::spawn_blocking(move || {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+      return Ok(());
+    }
+    if recursive && p.is_dir() {
+      std::fs::remove_dir_all(&path).map_err(|e| format!("fs_remove (recursive) failed for '{}': {}", path, e))
+    } else if p.is_dir() {
+      std::fs::remove_dir(&path).map_err(|e| format!("fs_remove (dir) failed for '{}': {}", path, e))
+    } else {
+      std::fs::remove_file(&path).map_err(|e| format!("fs_remove (file) failed for '{}': {}", path, e))
+    }
+  })
+  .await
+  .map_err(|e| format!("fs_remove failed: {e}"))?
+}
+
+/// Returns true if `path` contains no real content: no files other than
+/// GameVault metadata files, and all subdirectories are themselves effectively
+/// empty. A completely empty directory also qualifies.
+fn dir_is_effectively_empty(path: &Path) -> bool {
+  let entries = match std::fs::read_dir(path) {
+    Ok(entries) => entries,
+    Err(_) => return false,
+  };
+
+  for entry in entries.flatten() {
+    let entry_path = entry.path();
+    if entry_path.is_dir() {
+      if !dir_is_effectively_empty(&entry_path) {
+        return false;
+      }
+    } else if !is_gamevault_metadata_file(&entry_path) {
+      return false;
+    }
   }
-  if recursive && p.is_dir() {
-    std::fs::remove_dir_all(&path).map_err(|e| format!("fs_remove (recursive) failed for '{}': {}", path, e))
-  } else if p.is_dir() {
-    std::fs::remove_dir(&path).map_err(|e| format!("fs_remove (dir) failed for '{}': {}", path, e))
-  } else {
-    std::fs::remove_file(&path).map_err(|e| format!("fs_remove (file) failed for '{}': {}", path, e))
+
+  true
+}
+
+/// Removes GameVault metadata files and effectively-empty subdirectories within
+/// `path`, leaving real content untouched. Used to clean up leftover empty
+/// folders (e.g. an `Installation` directory for a game that was downloaded but
+/// never installed). Only call on a directory already known to be effectively
+/// empty.
+fn remove_effectively_empty_contents(path: &Path) {
+  let Ok(entries) = std::fs::read_dir(path) else {
+    return;
+  };
+
+  for entry in entries.flatten() {
+    let entry_path = entry.path();
+    if entry_path.is_dir() {
+      remove_effectively_empty_contents(&entry_path);
+      let _ = std::fs::remove_dir(&entry_path);
+    } else if is_gamevault_metadata_file(&entry_path) {
+      let _ = std::fs::remove_file(&entry_path);
+    }
   }
+}
+
+/// Removes empty directories starting at `path` and walking up toward
+/// `stop_at` (which is never removed). Used to clean up the empty per-version
+/// and per-game folders left behind after a download is deleted or a game is
+/// uninstalled.
+///
+/// A directory is considered removable when it is empty, OR only contains
+/// GameVault metadata files, OR only contains effectively-empty subdirectories
+/// (e.g. a leftover empty `Installation` folder for a game that was downloaded
+/// but never installed). This keeps the hidden `.gamevault.game.config.json` /
+/// `.gamevault.metadata.json` files and empty folders from blocking cleanup.
+/// Pruning stops at the first directory that still has real content.
+#[tauri::command(async)]
+pub(crate) fn remove_empty_directories(path: String, stop_at: String) -> Result<(), String> {
+  let mut current = std::path::PathBuf::from(&path);
+  let stop = std::path::PathBuf::from(&stop_at);
+
+  while current != stop && current.starts_with(&stop) {
+    if std::fs::remove_dir(&current).is_ok() {
+      // Directory was truly empty; keep pruning upward.
+    } else if dir_is_effectively_empty(&current) {
+      // Only metadata files and/or effectively-empty folders remain — remove
+      // them, then the directory itself.
+      remove_effectively_empty_contents(&current);
+      if std::fs::remove_dir(&current).is_err() {
+        return Ok(());
+      }
+    } else {
+      // Directory still has real content; stop pruning.
+      return Ok(());
+    }
+
+    match current.parent() {
+      Some(parent) => current = parent.to_path_buf(),
+      None => break,
+    }
+  }
+
+  Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-  use super::{fs_write_text_file, is_gamevault_metadata_file};
+  use super::{dir_is_effectively_empty, fs_write_text_file, is_gamevault_metadata_file, remove_empty_directories};
   use std::fs;
   use std::path::{Path, PathBuf};
   use std::time::{SystemTime, UNIX_EPOCH};
@@ -150,5 +280,93 @@ mod tests {
     }
 
     fs::remove_dir_all(directory).expect("remove test directory");
+  }
+
+  #[test]
+  fn dir_with_only_metadata_files_counts_as_empty() {
+    let directory = test_directory();
+    let stop = directory.parent().expect("parent").to_path_buf();
+    let version_dir = directory.join("Versions").join("v1");
+    fs::create_dir_all(&version_dir).expect("create version dir");
+
+    // Only GameVault metadata files remain.
+    fs_write_text_file(
+      version_dir
+        .join(".gamevault.game.config.json")
+        .to_string_lossy()
+        .into_owned(),
+      "{}".to_string(),
+    )
+    .expect("write version config");
+
+    assert!(dir_is_effectively_empty(&version_dir));
+
+    remove_empty_directories(
+      version_dir.to_string_lossy().into_owned(),
+      stop.to_string_lossy().into_owned(),
+    )
+    .expect("prune empty dirs");
+
+    // The version and (empty) Versions directory should be gone.
+    assert!(!version_dir.exists());
+    assert!(!directory.join("Versions").exists());
+    assert!(stop.exists());
+
+    fs::remove_dir_all(directory).ok();
+  }
+
+  #[test]
+  fn dir_with_real_content_is_not_pruned() {
+    let directory = test_directory();
+    let stop = directory.parent().expect("parent").to_path_buf();
+    let version_dir = directory.join("Versions").join("v1");
+    fs::create_dir_all(&version_dir).expect("create version dir");
+
+    // A real file should block pruning of this directory.
+    fs::write(version_dir.join("game.exe"), b"data").expect("write real file");
+    fs_write_text_file(
+      version_dir
+        .join(".gamevault.game.config.json")
+        .to_string_lossy()
+        .into_owned(),
+      "{}".to_string(),
+    )
+    .expect("write version config");
+
+    remove_empty_directories(
+      version_dir.to_string_lossy().into_owned(),
+      stop.to_string_lossy().into_owned(),
+    )
+    .expect("prune empty dirs");
+
+    assert!(version_dir.exists());
+    assert!(version_dir.join("game.exe").exists());
+
+    fs::remove_dir_all(directory).ok();
+  }
+
+  #[test]
+  fn prunes_leftover_empty_installation_folder() {
+    let directory = test_directory();
+    let stop = directory.parent().expect("parent").to_path_buf();
+    let version_dir = directory.join("Versions").join("v1");
+    let installation_dir = version_dir.join("Installation");
+    fs::create_dir_all(&installation_dir).expect("create installation dir");
+
+    // Game was downloaded & extracted but never installed: the Installation
+    // folder is empty and there is no real content anywhere in the tree.
+    remove_empty_directories(
+      version_dir.to_string_lossy().into_owned(),
+      stop.to_string_lossy().into_owned(),
+    )
+    .expect("prune empty dirs");
+
+    // The empty Installation folder and the whole per-game tree should be gone.
+    assert!(!installation_dir.exists());
+    assert!(!version_dir.exists());
+    assert!(!directory.join("Versions").exists());
+    assert!(stop.exists());
+
+    fs::remove_dir_all(directory).ok();
   }
 }

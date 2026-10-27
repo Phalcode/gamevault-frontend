@@ -10,6 +10,7 @@ import {
   ExclamationTriangleIcon,
   KeyIcon,
 } from "@heroicons/react/24/outline";
+import { formatDecimal } from "@/utils/number";
 
 type PhaseDetailProps = {
   download: ActiveDownload;
@@ -23,7 +24,7 @@ type PhaseDetailProps = {
   onForceInstall: () => void;
 };
 
-function ErrorNote({ message }: { message: string }) {
+function ErrorNote({ message }: Readonly<{ message: string }>) {
   return (
     <div className="flex items-start gap-2 text-xs text-red-600 dark:text-red-400">
       <ExclamationTriangleIcon
@@ -45,7 +46,7 @@ export function PhaseDetail({
   onCloseInstallView,
   onSetUndetectedMode,
   onForceInstall,
-}: PhaseDetailProps) {
+}: Readonly<PhaseDetailProps>) {
   const isDownloadingOrPaused =
     download.status === "downloading" || download.status === "paused";
   const isFailed =
@@ -58,20 +59,24 @@ export function PhaseDetail({
     download.installationStatus === "copying" ||
     download.installationStatus === "launching";
 
-  const extractionProgressText =
+  let extractionProgressText = "In progress";
+  if (
     download.extractionProgress !== null &&
     download.extractionProgress !== undefined
-      ? `${download.extractionProgress.toFixed(1)}%`
-      : "In progress";
+  ) {
+    extractionProgressText = `${formatDecimal(download.extractionProgress, 1)}%`;
+  }
 
-  const installProgressText =
+  let installProgressText = "In progress";
+  if (
     download.installationStatus === "copying" &&
     download.installationProgress !== null &&
     download.installationProgress !== undefined
-      ? `${download.installationProgress.toFixed(1)}%`
-      : download.installationStatus === "launching"
-        ? "Starting"
-        : "In progress";
+  ) {
+    installProgressText = `${formatDecimal(download.installationProgress, 1)}%`;
+  } else if (download.installationStatus === "launching") {
+    installProgressText = "Starting";
+  }
 
   return (
     <div className="surface-panel-soft rounded-xl p-4">
@@ -91,7 +96,7 @@ export function PhaseDetail({
           valueText={
             download.status === "paused"
               ? "Paused"
-              : `${download.progress?.toFixed(1) ?? "0.0"}%`
+              : `${formatDecimal(download.progress ?? 0, 1)}%`
           }
         />
       ) : isFailed ? (

@@ -5,10 +5,15 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Media } from "@/components/Media";
 import MediaSlider from "@/components/MediaSlider";
 import MarkdownContent from "@/components/MarkdownContent";
+import BackButton from "@/components/BackButton";
 import { Spinner } from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
+import {
+  launchInstalledGame,
+  launchOutcomeAlert,
+} from "@/utils/launchInstalledGame";
 import { Button } from "@tw/button";
 import { Listbox, ListboxOption, ListboxLabel } from "@tw/listbox";
 import Card from "@/components/Card";
@@ -17,6 +22,10 @@ import { GameVersion } from "@/api/models/GameVersion";
 import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
+import { buildShareUrl } from "@/utils/shareUrl";
+import { formatDate, formatTime, formatYear } from "@/utils/date";
+import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
+import { formatDecimal } from "@/utils/number";
 import {
   useEffect,
   useMemo,
@@ -34,13 +43,13 @@ import {
   WrenchScrewdriverIcon,
   BuildingOffice2Icon,
   ShieldCheckIcon,
+  ArrowUpCircleIcon,
 } from "@heroicons/react/24/solid";
 import {
   StarIcon as StarOutline,
   CalendarDaysIcon,
   GlobeAltIcon,
   HashtagIcon,
-  ChevronLeftIcon,
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
 import {
@@ -55,14 +64,23 @@ import { GameSettings } from "@/components/admin/GameSettings";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { isTauriApp } from "@/utils/tauri";
+import { onGameDeleted } from "@/utils/gameUpdates";
+import { maskDisplayName, useStreamerMode } from "@/utils/streamerMode";
+import {
+  isGameUpdateAvailable,
+  resolveServerVersionTag,
+} from "@/utils/gameUpdate";
 import { LayoutGroup, motion } from "motion/react";
 import { EASE_OUT } from "@/lib/motion";
+
+const MAX_VISIBLE_WEBSITES = 3;
 
 export default function GameView() {
   const { id } = useParams<{ id: string }>();
   const numericId = Number(id);
   const navigate = useNavigate();
   const { serverUrl, authFetch, user } = useAuth();
+  const streamerMode = useStreamerMode();
   const [game, setGame] = useState<GamevaultGame | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +93,8 @@ export default function GameView() {
   >(null);
   const [progressUpdating, setProgressUpdating] = useState(false);
   const insertedPlaceholderRef = useRef(false);
+  const websitesListRef = useRef<HTMLDivElement | null>(null);
+  const [websitesExpanded, setWebsitesExpanded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [versionDialogOpen, setVersionDialogOpen] = useState(false);
   const [pendingDownloadAction, setPendingDownloadAction] = useState<
@@ -87,11 +107,45 @@ export default function GameView() {
   const [pendingRootPath, setPendingRootPath] = useState<string | null>(null);
   const isTauri = isTauriApp();
   const { isOnline } = useOnlineStatus();
-  const { installedGames } = useInstalledGames();
+  const { installedGames, refetch: refetchInstalledGames } =
+    useInstalledGames();
   const installedInfo = useMemo(
     () => installedGames.find((ig) => ig.gameId === numericId),
     [installedGames, numericId],
   );
+
+  // Whether the locally installed version differs from the server's current
+  // version for the same platform (i.e. an update is available to download).
+  const serverVersionTag = useMemo(
+    () => resolveServerVersionTag(game, installedInfo),
+    [game, installedInfo],
+  );
+  const updateAvailable = useMemo(
+    () => isGameUpdateAvailable(game, installedInfo),
+    [game, installedInfo],
+  );
+
+  // ESC returns to the library (same as the Back button). Open overlays
+  // (dialogs/popovers) and editable inputs handle their own Escape first.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (hasOpenOverlay() || isEditableTarget(event)) return;
+      navigate(-1);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [navigate]);
+
+  // If the currently-viewed game is removed from the library (e.g. its last
+  // version file was deleted), close the settings modal and return to library.
+  useEffect(() => {
+    return onGameDeleted((gameId) => {
+      if (gameId !== numericId) return;
+      setSettingsOpen(false);
+      navigate("/library", { replace: true });
+    });
+  }, [numericId, navigate]);
   const backgroundMediaId = game?.metadata?.background?.id;
   const { url: backgroundUrl } = useAuthMediaUrl(
     backgroundMediaId,
@@ -138,6 +192,19 @@ export default function GameView() {
       cancelled = true;
     };
   }, [serverUrl, authFetch, numericId, isOnline]);
+
+  useEffect(() => {
+    setWebsitesExpanded(false);
+  }, [numericId]);
+
+  // The "More" button unmounts after expanding. Move focus to the first
+  // newly revealed link so keyboard and gamepad navigation continue there.
+  useEffect(() => {
+    if (!websitesExpanded) return;
+    const links =
+      websitesListRef.current?.querySelectorAll<HTMLAnchorElement>("a");
+    links?.[MAX_VISIBLE_WEBSITES]?.focus();
+  }, [websitesExpanded]);
 
   const coverId = game?.metadata?.cover?.id;
   const trailers = [
@@ -292,20 +359,44 @@ export default function GameView() {
       if (!res.ok) throw new Error("Bookmark toggle failed");
     } catch {
       setBookmarked(!next);
+      showAlert({
+        title: "Couldn't update bookmark",
+        description:
+          "The bookmark couldn't be updated. The game may no longer exist on the server.",
+      });
     } finally {
       setBookmarkBusy(false);
     }
-  }, [serverUrl, game, currentUserId, bookmarked, authFetch, bookmarkBusy]);
+  }, [
+    serverUrl,
+    game,
+    currentUserId,
+    bookmarked,
+    authFetch,
+    bookmarkBusy,
+    showAlert,
+  ]);
 
-  const handleShare = useCallback(() => {
+  const handleShare = useCallback(async () => {
+    // Anchor the link to the GameVault server instead of the current origin:
+    // Tauri builds serve the bundled Web UI from `http://tauri.localhost`, so
+    // `window.location.href` would produce a link that is useless to anyone
+    // else.
+    const route = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const shareUrl = buildShareUrl(serverUrl, route);
     try {
-      navigator.clipboard.writeText(window.location.href);
-    } catch {}
-    // Show global alert notification
-    showAlert({
-      title: "Link copied",
-    });
-  }, [showAlert]);
+      await navigator.clipboard.writeText(shareUrl);
+      // Show global alert notification
+      showAlert({
+        title: "Link copied",
+      });
+    } catch {
+      showAlert({
+        title: "Couldn't copy link",
+        description: shareUrl,
+      });
+    }
+  }, [serverUrl, showAlert]);
 
   const resolveVersions = useCallback(async (): Promise<GameVersion[]> => {
     if (game && Array.isArray(game.versions) && game.versions.length > 0) {
@@ -450,56 +541,16 @@ export default function GameView() {
       e.stopPropagation();
       if (!installedInfo) return;
 
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const { join } = await import("@tauri-apps/api/path");
-
-        const configPath = await join(
-          installedInfo.versionDirectory,
-          ".gamevault.game.config.json",
-        );
-
-        let launchExe: string | undefined;
-        let launchParams: string | undefined;
-        let launchAsAdmin = false;
-
-        if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
-          try {
-            const raw = JSON.parse(
-              await invoke<string>("fs_read_text_file", { path: configPath }),
-            );
-            launchExe = raw.launchexecutable;
-            launchParams = raw.launchparameters;
-            launchAsAdmin = !!raw.launchasadmin;
-          } catch {
-            console.warn("Failed to parse game config:", configPath);
-          }
-        }
-
-        if (!launchExe) {
-          showAlert({
-            title: "No launch executable configured",
-            description:
-              "Open Game Settings → Launch Options to select an executable first.",
-          });
-          return;
-        }
-
-        await invoke("launch_game", {
-          gameTitle: title || game?.title || "Game",
-          installationPath: installedInfo.installationDirectory,
-          executableRelativePath: launchExe,
-          launchParameters: launchParams || null,
-          runAsAdmin: launchAsAdmin,
-        });
-      } catch (err: any) {
-        showAlert({
-          title: "Failed to launch game",
-          description: err?.message || String(err),
-        });
-      }
+      const outcome = await launchInstalledGame({
+        gameId: installedInfo.gameId,
+        title: title || game?.title || "Game",
+        versionDirectory: installedInfo.versionDirectory,
+        installationDirectory: installedInfo.installationDirectory,
+      });
+      const alert = launchOutcomeAlert(outcome);
+      if (alert) showAlert(alert);
     },
-    [installedInfo, showAlert],
+    [installedInfo, title, game, showAlert],
   );
 
   const handleVersionSelect = useCallback(
@@ -573,17 +624,10 @@ export default function GameView() {
     : null;
   const lastPlayedValid =
     !!lastPlayedDate && !Number.isNaN(lastPlayedDate.getTime());
-  // European date format: DD.MM.YYYY on the first line, HH:mm on the second.
-  const lastPlayedDay = lastPlayedValid
-    ? `${String(lastPlayedDate.getDate()).padStart(2, "0")}.${String(
-        lastPlayedDate.getMonth() + 1,
-      ).padStart(2, "0")}.${lastPlayedDate.getFullYear()}`
-    : "—";
-  const lastPlayedTime = lastPlayedValid
-    ? `${String(lastPlayedDate.getHours()).padStart(2, "0")}:${String(
-        lastPlayedDate.getMinutes(),
-      ).padStart(2, "0")}`
-    : null;
+  // Locale-aware date + time (first line date, second line time), e.g.
+  // `15.08.2025` / `16:01` (de) or `08/15/2025` / `4:01 PM` (en-US).
+  const lastPlayedDay = lastPlayedValid ? formatDate(lastPlayedDate, "—") : "—";
+  const lastPlayedTime = lastPlayedValid ? formatTime(lastPlayedDate) : null;
   const avgPlaytime =
     game?.metadata?.average_playtime ||
     (game as any)?.metadata?.average_playtime ||
@@ -609,7 +653,7 @@ export default function GameView() {
       value /= 1024;
       unitIndex++;
     }
-    return `${value.toFixed(value < 10 ? 2 : value < 100 ? 1 : 0)} ${units[unitIndex]}`;
+    return `${formatDecimal(value, value < 10 ? 2 : value < 100 ? 1 : 0)} ${units[unitIndex]}`;
   };
 
   const formattedSize = useMemo(
@@ -619,21 +663,35 @@ export default function GameView() {
 
   const glassPanelClassName =
     "border border-white/35 bg-white/[0.42] backdrop-blur-md dark:border-white/10 dark:bg-gv-panel/80 dark:backdrop-blur-md";
-  const darkGlassInsetClassName =
-    "dark:bg-gv-panel/80 dark:backdrop-blur-md";
+  const darkGlassInsetClassName = "dark:bg-gv-panel/80 dark:backdrop-blur-md";
   const progressSelectClassName = clsx(
-    "rounded-lg before:bg-white/60 before:backdrop-blur-md before:shadow-sm",
+    "before:bg-white/60 before:backdrop-blur-md before:shadow-sm",
     "dark:before:hidden",
     darkGlassInsetClassName,
   );
 
   // Derive additional metadata fields
   const releaseYear = game?.release_date
-    ? new Date(game.release_date).getFullYear()
+    ? formatYear(game.release_date)
     : (game as any)?.metadata?.release_year || null;
   const versionTag = game?.version || (game as any)?.metadata?.version || null;
-  const websites: string[] = (game as any)?.metadata?.url_websites || [];
-  const primaryWebsite = websites.length > 0 ? websites[0] : null;
+  const rawWebsites = (game as any)?.metadata?.url_websites;
+  const websites: string[] = Array.isArray(rawWebsites)
+    ? [
+        ...new Set<string>(
+          rawWebsites
+            .filter(
+              (url: unknown): url is string =>
+                typeof url === "string" && url.trim().length > 0,
+            )
+            .map((url: string) => url.trim()),
+        ),
+      ]
+    : [];
+  const hasHiddenWebsites = websites.length > MAX_VISIBLE_WEBSITES;
+  const visibleWebsites = websitesExpanded
+    ? websites
+    : websites.slice(0, MAX_VISIBLE_WEBSITES);
   const devNames: string[] = ((game as any)?.metadata?.developers || [])
     .map((d: any) => d?.name || d)
     .filter(Boolean);
@@ -699,15 +757,8 @@ export default function GameView() {
 
       <div className="relative z-10 flex w-full flex-1 flex-col">
         {/* Back button — always visible so users can leave at any state */}
-        <div className="px-2 pt-4 pb-1">
-          <button
-            onClick={() => navigate(-1)}
-            aria-label="Go back"
-            className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm/5 text-gv-muted transition-colors hover:text-gv-text"
-          >
-            <ChevronLeftIcon className="size-4 shrink-0 transition-transform group-hover:-translate-x-0.5" />
-            Back
-          </button>
+        <div className="mx-auto w-full max-w-350 px-2 pt-4 pb-1">
+          <BackButton />
         </div>
         {loading && (
           <div className="flex flex-1 items-center justify-center py-20">
@@ -753,6 +804,22 @@ export default function GameView() {
                 <div className="text-xl font-semibold leading-tight truncate pr-2">
                   {title}
                 </div>
+                {updateAvailable && (
+                  <span
+                    title={
+                      installedInfo?.versionName && serverVersionTag
+                        ? `${installedInfo.versionName} → ${serverVersionTag}`
+                        : "A newer version is available on the server"
+                    }
+                    className="inline-flex w-fit items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-300"
+                  >
+                    <ArrowUpCircleIcon
+                      className="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    />
+                    Update available
+                  </span>
+                )}
                 {/* Added flex-wrap to allow buttons to wrap on extremely narrow viewports, preventing horizontal overflow that could push the media slider and cause cutoff */}
                 <div className="flex flex-row flex-wrap gap-2">
                   {isTauri && installedInfo && (
@@ -775,7 +842,9 @@ export default function GameView() {
                   )}
                   {isTauri ? (
                     <Button
-                      color="indigo"
+                      {...(installedInfo
+                        ? { outline: true }
+                        : { color: "indigo" })}
                       aria-label={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
                       className="h-9 px-3 gap-2 flex items-center justify-center"
                       title={`Download${formattedSize ? ` (${formattedSize})` : ""}`}
@@ -898,7 +967,7 @@ export default function GameView() {
                   </div>
                   <div className="flex min-h-9 flex-col items-center justify-center text-sm font-semibold leading-tight tabular-nums text-gv-text">
                     {playtimeHours >= 1
-                      ? `${playtimeHours.toFixed(playtimeHours < 10 ? 1 : 0)} h`
+                      ? `${formatDecimal(playtimeHours, playtimeHours < 10 ? 1 : 0)} h`
                       : `${playtimeMinutes} m`}
                   </div>
                 </div>
@@ -908,7 +977,11 @@ export default function GameView() {
                   </div>
                   <div
                     className="flex min-h-9 flex-col items-center justify-center text-sm font-semibold leading-tight text-gv-text"
-                    title={lastPlayedTime ? `${lastPlayedDay}, ${lastPlayedTime}` : lastPlayedDay}
+                    title={
+                      lastPlayedTime
+                        ? `${lastPlayedDay}, ${lastPlayedTime}`
+                        : lastPlayedDay
+                    }
                   >
                     {lastPlayedTime ? (
                       <>
@@ -928,7 +1001,7 @@ export default function GameView() {
                   </div>
                   <div className="flex min-h-9 flex-col items-center justify-center text-sm font-semibold leading-tight tabular-nums text-gv-text">
                     {avgPlaytime
-                      ? `${(avgPlaytime / 60).toFixed(avgPlaytime / 60 < 10 ? 1 : 0)} h`
+                      ? `${formatDecimal(avgPlaytime / 60, avgPlaytime / 60 < 10 ? 1 : 0)} h`
                       : "—"}
                   </div>
                 </div>
@@ -1127,25 +1200,40 @@ export default function GameView() {
                     <GlobeAltIcon className="w-5 h-5 mt-0.5 text-gv-muted" />
                     <div className="flex-1 min-w-0">
                       <div className="text-[11px] uppercase tracking-wide text-gv-muted whitespace-nowrap">
-                        Website
+                        {websites.length > 1 ? "Websites" : "Website"}
                       </div>
-                      <div
-                        className="font-medium whitespace-nowrap truncate"
-                        title={primaryWebsite || "—"}
-                      >
-                        {primaryWebsite ? (
-                          <a
-                            href={primaryWebsite}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="underline hover:text-gv-accent-cool"
-                          >
-                            {primaryWebsite.replace(/^https?:\/\//, "")}
-                          </a>
-                        ) : (
-                          "—"
-                        )}
-                      </div>
+                      {websites.length > 0 ? (
+                        <div className="space-y-1" ref={websitesListRef}>
+                          {visibleWebsites.map((website) => (
+                            <div
+                              key={website}
+                              className="font-medium truncate"
+                              title={website}
+                            >
+                              <a
+                                href={website}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline hover:text-gv-accent-cool"
+                              >
+                                {website.replace(/^https?:\/\//, "")}
+                              </a>
+                            </div>
+                          ))}
+                          {hasHiddenWebsites && !websitesExpanded && (
+                            <button
+                              type="button"
+                              onClick={() => setWebsitesExpanded(true)}
+                              aria-label={`Show all ${websites.length} websites`}
+                              className="w-fit cursor-pointer font-medium text-gv-accent-cool underline underline-offset-2 hover:text-gv-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gv-accent-cool"
+                            >
+                              More
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="font-medium">—</div>
+                      )}
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
@@ -1228,8 +1316,12 @@ export default function GameView() {
                     <ul className="flex flex-col gap-3 text-sm">
                       {others.map((p) => {
                         const uid = p.user?.id ?? (p.user as any)?.ID;
-                        const uname =
+                        const rawUname =
                           (p.user as any)?.username || `User #${uid}`;
+                        const userSeed = uid != null ? String(uid) : rawUname;
+                        const uname = streamerMode
+                          ? maskDisplayName(userSeed)
+                          : rawUname;
                         const avatarMedia = (p.user as any)?.avatar;
                         const lastPlayedStr = p.last_played_at
                           ? new Date(p.last_played_at).toLocaleDateString()
@@ -1242,6 +1334,7 @@ export default function GameView() {
                               media={avatarMedia}
                               size={32}
                               alt={uname}
+                              seed={userSeed}
                               fallback={
                                 <div className="flex h-full w-full items-center justify-center rounded-[20%] bg-gv-panel-soft text-[10px] font-semibold text-gv-text">
                                   {uname.slice(0, 2).toUpperCase()}
@@ -1261,7 +1354,7 @@ export default function GameView() {
                                 <span className="truncate">
                                   Played:{" "}
                                   {hours >= 1
-                                    ? `${hours.toFixed(hours < 10 ? 1 : 0)} h`
+                                    ? `${formatDecimal(hours, hours < 10 ? 1 : 0)} h`
                                     : `${minutes} m`}
                                 </span>
                                 <span className="shrink-0 text-right">
@@ -1286,6 +1379,7 @@ export default function GameView() {
             game={game}
             onClose={() => setSettingsOpen(false)}
             onGameUpdated={(updatedGame) => setGame(updatedGame)}
+            onUninstalled={refetchInstalledGames}
           />
         )}
         <RootPathSelectDialog

@@ -42,6 +42,7 @@ import { GamevaultUserRoleEnum } from "../api";
 import { useNews } from "../hooks/useNews";
 import { UserEditorModal } from "./admin/UserEditorModal";
 import { NewsDialog } from "./news/NewsDialog";
+import { maskUser, useStreamerMode } from "@/utils/streamerMode";
 
 export function Sidebar() {
   const { user, logout } = useAuth();
@@ -49,9 +50,12 @@ export function Sidebar() {
   const location = useLocation();
   const [showNews, setShowNews] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const username = user?.username || "Unknown User";
-  const email = user?.email || "";
+  const streamerMode = useStreamerMode();
+  const masked = streamerMode && user ? maskUser(user) : null;
+  const username = masked?.displayName ?? (user?.username || "Unknown User");
+  const email = masked?.email ?? (user?.email || "");
   const avatar = user?.avatar;
+  const userAvatarSeed = user?.id != null ? String(user.id) : undefined;
   const { hasNewNews } = useNews();
   const [badgeVisible, setBadgeVisible] = useState(hasNewNews);
   useEffect(() => {
@@ -62,7 +66,7 @@ export function Sidebar() {
 
   const handleLogout = (e: React.MouseEvent) => {
     e.preventDefault();
-    logout();
+    void logout();
     navigate("/library", { replace: true });
   };
   const handleCloseNewsDialog = () => {
@@ -83,8 +87,7 @@ export function Sidebar() {
     }
 
     return (
-      location.pathname === path ||
-      location.pathname.startsWith(`${path}/`)
+      location.pathname === path || location.pathname.startsWith(`${path}/`)
     );
   };
 
@@ -121,7 +124,9 @@ export function Sidebar() {
                   ? (e: React.MouseEvent) => e.preventDefault()
                   : undefined
               }
-              className={isTauri && !isOnline ? "opacity-40 cursor-not-allowed" : ""}
+              className={
+                isTauri && !isOnline ? "opacity-40 cursor-not-allowed" : ""
+              }
             >
               <UserGroupIcon />
               <SidebarLabel className="flex justify-between w-full">
@@ -143,7 +148,9 @@ export function Sidebar() {
                     ? (e: React.MouseEvent) => e.preventDefault()
                     : undefined
                 }
-                className={isTauri && !isOnline ? "opacity-40 cursor-not-allowed" : ""}
+                className={
+                  isTauri && !isOnline ? "opacity-40 cursor-not-allowed" : ""
+                }
               >
                 <ShieldExclamationIcon />
                 <SidebarLabel>Administration</SidebarLabel>
@@ -162,17 +169,11 @@ export function Sidebar() {
 
           <SidebarSpacer />
           <SidebarSection>
-            <SidebarItem
-              href="https://gamevau.lt/docs/intro"
-              target="_blank"
-            >
+            <SidebarItem href="https://gamevau.lt/docs/intro" target="_blank">
               <LifebuoyIcon />
               <SidebarLabel>Documentation</SidebarLabel>
             </SidebarItem>
-            <SidebarItem
-              href="https://discord.gg/NEdNen2dSu"
-              target="_blank"
-            >
+            <SidebarItem href="https://discord.gg/NEdNen2dSu" target="_blank">
               <ChatBubbleLeftRightIcon />
               <SidebarLabel>Discord</SidebarLabel>
             </SidebarItem>
@@ -186,7 +187,10 @@ export function Sidebar() {
               <SidebarLabel className="flex justify-between w-full items-center">
                 News
                 {badgeVisible && (
-                  <Badge color="amber" className="ml-2 motion-safe:animate-pulse">
+                  <Badge
+                    color="amber"
+                    className="ml-2 motion-safe:animate-pulse"
+                  >
                     New
                   </Badge>
                 )}
@@ -209,6 +213,7 @@ export function Sidebar() {
                   media={avatar}
                   size={40}
                   alt={username}
+                  seed={userAvatarSeed}
                 />
                 <span className="min-w-0">
                   <span className="block truncate text-sm/5 font-medium text-gv-text">
@@ -235,7 +240,9 @@ export function Sidebar() {
                 <DropdownLabel>Edit profile</DropdownLabel>
               </DropdownItem>
               <DropdownDivider />
-              <DropdownItem href={user?.id ? `/community/${user.id}` : "/community"}>
+              <DropdownItem
+                href={user?.id ? `/community/${user.id}` : "/community"}
+              >
                 <UserIcon />
                 <DropdownLabel>My profile</DropdownLabel>
               </DropdownItem>

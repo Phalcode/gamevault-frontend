@@ -9,6 +9,7 @@ import { CloudArrowDownIcon } from "@heroicons/react/16/solid";
 import {
   StarIcon as StarSolid,
   Cog8ToothIcon,
+  ArrowUpCircleIcon,
 } from "@heroicons/react/24/solid";
 import { StarIcon as StarOutline } from "@heroicons/react/24/outline";
 import { Button } from "@tw/button";
@@ -17,6 +18,16 @@ import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
 import { isTauriApp } from "@/utils/tauri";
+import {
+  launchInstalledGame,
+  launchOutcomeAlert,
+} from "@/utils/launchInstalledGame";
+import {
+  formatGameSize,
+  initialGameBookmarked,
+  resolveSortMetric,
+} from "@/utils/gameCard";
+import { isGameUpdateAvailable } from "@/utils/gameUpdate";
 import { Alert, AlertTitle } from "@tw/alert";
 import {
   Dropdown,
@@ -30,18 +41,14 @@ import { memo, useCallback, useMemo, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router";
 import { GameVersion } from "@/api/models/GameVersion";
 
-const releaseDateFormatter = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
-
 const GameCard = memo(function GameCard({
   game,
   sortBy,
+  hideInstalledBadge = false,
 }: {
   game: GamevaultGame;
   sortBy?: string;
+  hideInstalledBadge?: boolean;
 }) {
   const { serverUrl, user, authFetch } = useAuth();
   const { showAlert } = useAlertDialog();
@@ -52,6 +59,7 @@ const GameCard = memo(function GameCard({
         versionDirectory: string;
         versionId: number;
         versionName: string;
+        gameType?: string | null;
       }
     | undefined;
   const onUninstalledCallback = (game as any)?._onUninstalled as
@@ -59,12 +67,10 @@ const GameCard = memo(function GameCard({
   const isInstalled = !!installedInfo;
   // Derive initial bookmarked state from raw API shape (bookmarked_users or bookmarkedUsers)
   const currentUserId = (user as any)?.id ?? (user as any)?.ID;
-  const initialBookmarked = useMemo(() => {
-    if (!currentUserId) return false;
-    const raw = (game as any).bookmarked_users || (game as any).bookmarkedUsers;
-    if (!Array.isArray(raw)) return false;
-    return raw.some((u: any) => (u?.id ?? u?.ID) === currentUserId);
-  }, [game, currentUserId]);
+  const initialBookmarked = useMemo(
+    () => initialGameBookmarked(game, currentUserId),
+    [game, currentUserId],
+  );
   const [bookmarked, setBookmarked] = useState<boolean>(initialBookmarked);
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -86,6 +92,13 @@ const GameCard = memo(function GameCard({
     setLocalGame(game);
   }, [game]);
 
+  // A game only has an update when it is installed locally and the server's
+  // current default version tag differs from the installed one.
+  const updateAvailable = useMemo(
+    () => isGameUpdateAvailable(localGame, installedInfo),
+    [localGame, installedInfo],
+  );
+
   const toggleBookmark = useCallback(
     async (e: React.MouseEvent) => {
       e.preventDefault();
@@ -100,13 +113,27 @@ const GameCard = memo(function GameCard({
         const res = await authFetch(url, { method: next ? "POST" : "DELETE" });
         if (!res.ok) throw new Error(`Bookmark toggle failed (${res.status})`);
       } catch (err) {
-        // rollback on error
+        // Roll back the optimistic state and surface the failure instead of
+        // failing silently (e.g. when the game no longer exists on the server).
         setBookmarked(!next);
+        showAlert({
+          title: "Couldn't update bookmark",
+          description:
+            "The bookmark couldn't be updated. The game may no longer exist on the server.",
+        });
       } finally {
         setBookmarkBusy(false);
       }
     },
-    [serverUrl, currentUserId, bookmarkBusy, authFetch, game.id, bookmarked],
+    [
+      serverUrl,
+      currentUserId,
+      bookmarkBusy,
+      authFetch,
+      game.id,
+      bookmarked,
+      showAlert,
+    ],
   );
   const { startDownload } = useDownloads() as any;
 
@@ -114,54 +141,15 @@ const GameCard = memo(function GameCard({
 
   const rawSize = localGame.size;
 
-  const formatBytes = useCallback((bytes?: number) => {
-    if (bytes === undefined || bytes === null || isNaN(bytes)) return null;
-    if (bytes < 1024) return `${bytes} B`;
-    const units = ["KB", "MB", "GB", "TB", "PB"];
-    let value = bytes / 1024;
-    let unitIndex = 0;
-    while (value >= 1024 && unitIndex < units.length - 1) {
-      value /= 1024;
-      unitIndex++;
-    }
-    return `${value.toFixed(value < 10 ? 2 : value < 100 ? 1 : 0)} ${units[unitIndex]}`;
-  }, []);
-
-  const formattedSize = formatBytes(
+  const formattedSize = formatGameSize(
     typeof rawSize === "number" ? rawSize : Number(rawSize),
   );
 
   // Dynamic metric based on current sort
-  const sortMetric = useMemo(() => {
-    switch (sortBy) {
-      case "size":
-        return formattedSize;
-      case "created_at":
-        return localGame.created_at
-          ? releaseDateFormatter.format(new Date(localGame.created_at))
-          : null;
-      case "metadata.release_date":
-        return localGame.metadata?.release_date
-          ? releaseDateFormatter.format(
-              new Date(localGame.metadata.release_date),
-            )
-          : null;
-      case "metadata.rating":
-        return localGame.metadata?.rating != null
-          ? `${localGame.metadata.rating.toFixed(1)}%`
-          : null;
-      case "download_count":
-        return localGame.download_count != null
-          ? localGame.download_count.toLocaleString()
-          : null;
-      case "metadata.average_playtime":
-        return (localGame as any).metadata?.average_playtime != null
-          ? `${Math.round((localGame as any).metadata.average_playtime / 60)}h`
-          : null;
-      default:
-        return formattedSize;
-    }
-  }, [sortBy, formattedSize, localGame]);
+  const sortMetric = useMemo(
+    () => resolveSortMetric(sortBy, localGame, formattedSize),
+    [sortBy, formattedSize, localGame],
+  );
 
   const resolveVersions = useCallback(async (): Promise<GameVersion[]> => {
     if (Array.isArray(localGame.versions) && localGame.versions.length > 0) {
@@ -312,56 +300,16 @@ const GameCard = memo(function GameCard({
       e.stopPropagation();
       if (!installedInfo) return;
 
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const { join } = await import("@tauri-apps/api/path");
-
-        const configPath = await join(
-          installedInfo.versionDirectory,
-          ".gamevault.game.config.json",
-        );
-
-        let launchExe: string | undefined;
-        let launchParams: string | undefined;
-        let launchAsAdmin = false;
-
-        if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
-          try {
-            const raw = JSON.parse(
-              await invoke<string>("fs_read_text_file", { path: configPath }),
-            );
-            launchExe = raw.launchexecutable;
-            launchParams = raw.launchparameters;
-            launchAsAdmin = !!raw.launchasadmin;
-          } catch {
-            console.warn("Failed to parse game config:", configPath);
-          }
-        }
-
-        if (!launchExe) {
-          showAlert({
-            title: "No launch executable configured",
-            description:
-              "Open Game Settings → Launch Options to select an executable first.",
-          });
-          return;
-        }
-
-        await invoke("launch_game", {
-          gameTitle: localGame.metadata?.title || localGame.title || "Game",
-          installationPath: installedInfo.installationDirectory,
-          executableRelativePath: launchExe,
-          launchParameters: launchParams || null,
-          runAsAdmin: launchAsAdmin,
-        });
-      } catch (err: any) {
-        showAlert({
-          title: "Failed to launch game",
-          description: err?.message || String(err),
-        });
-      }
+      const outcome = await launchInstalledGame({
+        gameId: game.id,
+        title: localGame.metadata?.title || localGame.title || "Game",
+        versionDirectory: installedInfo.versionDirectory,
+        installationDirectory: installedInfo.installationDirectory,
+      });
+      const alert = launchOutcomeAlert(outcome);
+      if (alert) showAlert(alert);
     },
-    [installedInfo, showAlert],
+    [installedInfo, localGame, game.id, showAlert],
   );
 
   const handleClientDownload = useCallback(async () => {
@@ -407,170 +355,189 @@ const GameCard = memo(function GameCard({
           "transition-transform duration-200 ease-out hover:[transform:translateY(-4px)_translateZ(0)]",
         )}
       >
-      <Link
-        to={gameViewUrl}
-        className={clsx(
-          // No own layer here — rasterize into the wrapper's single composited
-          // layer so content + shadow move as one texture (a second layer
-          // misaligns 1px at the bottom during the transform move).
-          "relative flex flex-col overflow-hidden rounded-3xl bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)]",
-          "cursor-pointer select-none",
-          "focus:outline-none focus:ring-2 focus:ring-gv-accent-cool",
-        )}
-      >
-        {/* Cover art container. NO overflow-hidden here: the oversized Media is
+        <Link
+          to={gameViewUrl}
+          className={clsx(
+            // No own layer here — rasterize into the wrapper's single composited
+            // layer so content + shadow move as one texture (a second layer
+            // misaligns 1px at the bottom during the transform move).
+            "relative flex flex-col overflow-hidden rounded-3xl bg-[linear-gradient(180deg,var(--color-gv-panel-strong)_0%,var(--color-gv-panel)_100%)]",
+            "cursor-pointer select-none",
+            "focus:outline-none focus:ring-2 focus:ring-gv-accent-cool",
+          )}
+        >
+          {/* Cover art container. NO overflow-hidden here: the oversized Media is
             clipped by the inner absolute wrapper, while the bottom fade below
             is free to bleed 1px into the footer — an overflow-hidden on this
             box would clip that bleed and leave a 1px open line at the bottom
             of the artwork in Chromium. */}
-        <div
-          className={clsx(
-            "relative flex aspect-3/4 w-full items-center justify-center",
-            coverId &&
-              "bg-[radial-gradient(circle_at_top,rgba(100,89,223,0.14),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0))]",
-          )}
-        >
-          <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-          {coverId ? (
-            <Media
-              media={
-                {
-                  id:
-                    typeof coverId === "number"
-                      ? coverId
-                      : Number(coverId) || 0,
-                  created_at: new Date(0),
-                  entity_version: 0,
-                } as any
-              }
-              size={300}
-              className="h-full w-full object-contain rounded-none"
-              square
-              alt={localGame.title}
-              gameId={localGame.id}
-              mediaSlot="cover"
-              fallback={
+          <div
+            className={clsx(
+              "relative flex aspect-3/4 w-full items-center justify-center",
+              coverId &&
+                "bg-[radial-gradient(circle_at_top,rgba(100,89,223,0.14),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0))]",
+            )}
+          >
+            <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+              {coverId ? (
+                <Media
+                  media={
+                    {
+                      id:
+                        typeof coverId === "number"
+                          ? coverId
+                          : Number(coverId) || 0,
+                      created_at: new Date(0),
+                      entity_version: 0,
+                    } as any
+                  }
+                  size={300}
+                  className="h-full w-full object-contain rounded-none"
+                  square
+                  alt={localGame.title}
+                  gameId={localGame.id}
+                  mediaSlot="cover"
+                  fallback={
+                    <CoverPlaceholder
+                      title={
+                        localGame.metadata?.title || localGame.title || "Game"
+                      }
+                      size="large"
+                      className="h-full w-full"
+                    />
+                  }
+                />
+              ) : (
                 <CoverPlaceholder
                   title={localGame.metadata?.title || localGame.title || "Game"}
                   size="large"
                   className="h-full w-full"
                 />
-              }
-            />
-          ) : (
-            <CoverPlaceholder
-              title={localGame.metadata?.title || localGame.title || "Game"}
-              size="large"
-              className="h-full w-full"
-            />
-          )}
-          </div>
+              )}
+            </div>
 
-          {/* Gradient fade at bottom for button contrast. Snapped on hover,
+            {/* Gradient fade at bottom for button contrast. Snapped on hover,
               extended 1px below the cover bottom (`-bottom-px`) and NOT inside
               the Media clip wrapper, so it bleeds 1px into the footer and the
               bottom of the artwork never shows a 1px open line in Chromium. */}
-          <div className="pointer-events-none absolute inset-x-0 -bottom-px h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 group-hover/card:opacity-100! group-focus-within/card:opacity-100!" />
+            <div className="pointer-events-none absolute inset-x-0 -bottom-px h-24 bg-[linear-gradient(transparent,var(--color-gv-panel)_90%)] opacity-0 group-hover/card:opacity-100! group-focus-within/card:opacity-100!" />
 
-          {/* Corner action buttons - hidden until hover */}
-          {/* Bookmark */}
-          <button
-            type="button"
-            onClick={toggleBookmark}
-            aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
-            aria-pressed={bookmarked}
-            disabled={!currentUserId || bookmarkBusy}
-            className={clsx(
-              "absolute top-2 right-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border backdrop-blur-xl transition-all duration-200",
-              "opacity-0 translate-y-1 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-              bookmarked
-                ? "border-gv-warning/40 bg-gv-warning/15"
-                : "border-gv-line bg-gv-panel-soft/80 hover:border-gv-line-strong hover:bg-gv-panel",
-              "active:scale-95",
+            {/* Icon-only "Installed" / "Update available" indicator in the
+              lower-right corner so server games that are already installed
+              locally are recognizable at a glance. When a newer version exists
+              on the server it turns into an amber up-arrow. It is a passive
+              marker (no text, tooltip only) and fades out on hover so it never
+              clashes with the centered Play/Download action button. */}
+            {isInstalled && !hideInstalledBadge && (
+              <span
+                title={updateAvailable ? "Update available" : "Installed"}
+                aria-label={updateAvailable ? "Update available" : "Installed"}
+                className={clsx(
+                  "pointer-events-none absolute bottom-2 right-2 z-10 flex size-6 items-center justify-center rounded-full border backdrop-blur-sm transition-opacity duration-200 group-hover/card:opacity-0! group-focus-within/card:opacity-0!",
+                  updateAvailable
+                    ? "border-amber-400/50 bg-amber-500/25 text-amber-300"
+                    : "border-emerald-400/40 bg-emerald-500/20 text-emerald-300",
+                )}
+              >
+                {updateAvailable ? (
+                  <ArrowUpCircleIcon
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+              </span>
             )}
-          >
-            {bookmarked ? (
-              <StarSolid className="h-5 w-5 text-gv-warning" />
-            ) : (
-              <StarOutline className="h-5 w-5 text-gv-muted" />
-            )}
-          </button>
 
-          {/* Settings */}
-          <button
-            type="button"
-            onClick={handleOpenSettings}
-            aria-label="Settings"
-            className={clsx(
-              "absolute top-2 left-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border border-gv-line bg-gv-panel-soft/80 text-gv-muted backdrop-blur-xl transition-all duration-200",
-              "opacity-0 translate-y-1 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
-              "hover:border-gv-line-strong hover:bg-gv-panel hover:text-gv-text",
-              "active:scale-95",
-            )}
-            title="Settings"
-          >
-            <Cog8ToothIcon className="h-5 w-5" />
-          </button>
-
-          {/* Centered primary action: Download / Play */}
-          {isInstalled ? (
+            {/* Corner action buttons - hidden until hover */}
+            {/* Bookmark */}
             <button
               type="button"
-              aria-label="Play"
-              onClick={handlePlayGame}
+              onClick={toggleBookmark}
+              aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
+              aria-pressed={bookmarked}
+              disabled={!currentUserId || bookmarkBusy}
               className={clsx(
-                "absolute bottom-3 left-1/2 -translate-x-1/2 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-indigo-400/40 bg-indigo-500/90 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/30 backdrop-blur-sm transition-all duration-200",
-                "opacity-0 translate-y-2 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
-                "hover:bg-indigo-400 active:scale-[0.97]",
+                "absolute top-2 right-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border backdrop-blur-xl transition-all duration-200",
+                "opacity-0 translate-y-1 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
+                "disabled:cursor-not-allowed disabled:opacity-50",
+                bookmarked
+                  ? "border-gv-warning/40 bg-gv-warning/15"
+                  : "border-gv-line bg-gv-panel-soft/80 hover:border-gv-line-strong hover:bg-gv-panel",
+                "active:scale-95",
               )}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                className="h-4 w-4 fill-current"
-              >
-                <path d="M8 17.175V6.825q0-.425.3-.713t.7-.287q.125 0 .263.037t.262.113l8.15 5.175q.225.15.338.375t.112.475t-.112.475t-.338.375l-8.15 5.175q-.125.075-.262.113T9 18.175q-.4 0-.7-.288t-.3-.712" />
-              </svg>
-              Play
-            </button>
-          ) : (
-            <div
-              className={clsx(
-                "absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center transition-all duration-200",
-                "opacity-0 translate-y-2 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
-              )}
-            >
-              {isTauri ? (
-                <Button
-                  color="indigo"
-                  aria-label={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
-                  className="h-9 px-3 gap-2 flex items-center justify-center"
-                  title={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
-                  onClick={handleTauriDownload}
-                >
-                  <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
-                  {formattedSize ? (
-                    <span className="text-xs font-medium whitespace-nowrap">
-                      {formattedSize}
-                    </span>
-                  ) : (
-                    <span className="text-xs font-medium whitespace-nowrap">
-                      Download
-                    </span>
-                  )}
-                </Button>
+              {bookmarked ? (
+                <StarSolid className="h-5 w-5 text-gv-warning" />
               ) : (
-                <Dropdown>
-                  <DropdownButton
-                    as={Button}
+                <StarOutline className="h-5 w-5 text-gv-muted" />
+              )}
+            </button>
+
+            {/* Settings */}
+            <button
+              type="button"
+              onClick={handleOpenSettings}
+              aria-label="Settings"
+              className={clsx(
+                "absolute top-2 left-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border border-gv-line bg-gv-panel-soft/80 text-gv-muted backdrop-blur-xl transition-all duration-200",
+                "opacity-0 translate-y-1 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
+                "hover:border-gv-line-strong hover:bg-gv-panel hover:text-gv-text",
+                "active:scale-95",
+              )}
+              title="Settings"
+            >
+              <Cog8ToothIcon className="h-5 w-5" />
+            </button>
+
+            {/* Centered primary action: Download / Play */}
+            {isInstalled ? (
+              <button
+                type="button"
+                aria-label="Play"
+                onClick={handlePlayGame}
+                className={clsx(
+                  "absolute bottom-3 left-1/2 -translate-x-1/2 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-indigo-400/40 bg-indigo-500/90 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/30 backdrop-blur-sm transition-all duration-200",
+                  "opacity-0 translate-y-2 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
+                  "hover:bg-indigo-400 active:scale-[0.97]",
+                )}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4 fill-current"
+                >
+                  <path d="M8 17.175V6.825q0-.425.3-.713t.7-.287q.125 0 .263.037t.262.113l8.15 5.175q.225.15.338.375t.112.475t-.112.475t-.338.375l-8.15 5.175q-.125.075-.262.113T9 18.175q-.4 0-.7-.288t-.3-.712" />
+                </svg>
+                Play
+              </button>
+            ) : (
+              <div
+                className={clsx(
+                  "absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center transition-all duration-200",
+                  "opacity-0 translate-y-2 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
+                )}
+              >
+                {isTauri ? (
+                  <Button
                     color="indigo"
                     aria-label={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
                     className="h-9 px-3 gap-2 flex items-center justify-center"
-                    onClick={(e: React.MouseEvent) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
+                    title={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
+                    onClick={handleTauriDownload}
                   >
                     <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
                     {formattedSize ? (
@@ -582,48 +549,71 @@ const GameCard = memo(function GameCard({
                         Download
                       </span>
                     )}
-                  </DropdownButton>
-                  <DropdownMenu className="min-w-48" anchor="top end">
-                    <DropdownItem
+                  </Button>
+                ) : (
+                  <Dropdown>
+                    <DropdownButton
+                      as={Button}
+                      color="indigo"
+                      aria-label={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
+                      className="h-9 px-3 gap-2 flex items-center justify-center"
                       onClick={(e: React.MouseEvent) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        void handleDirectDownload();
                       }}
                     >
-                      <DropdownLabel>Direct Download</DropdownLabel>
-                    </DropdownItem>
-                    <DropdownItem
-                      onClick={(e: React.MouseEvent) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        void handleClientDownload();
-                      }}
-                    >
-                      <DropdownLabel>
-                        Download via GameVault Client
-                      </DropdownLabel>
-                    </DropdownItem>
-                  </DropdownMenu>
-                </Dropdown>
-              )}
-            </div>
-          )}
-        </div>
+                      <CloudArrowDownIcon className="w-5 h-5 shrink-0" />
+                      {formattedSize ? (
+                        <span className="text-xs font-medium whitespace-nowrap">
+                          {formattedSize}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-medium whitespace-nowrap">
+                          Download
+                        </span>
+                      )}
+                    </DropdownButton>
+                    <DropdownMenu className="min-w-48" anchor="top end">
+                      <DropdownItem
+                        onClick={(e: React.MouseEvent) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          void handleDirectDownload();
+                        }}
+                      >
+                        <DropdownLabel>Direct Download</DropdownLabel>
+                      </DropdownItem>
+                      <DropdownItem
+                        onClick={(e: React.MouseEvent) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          void handleClientDownload();
+                        }}
+                      >
+                        <DropdownLabel>
+                          Download via GameVault Client
+                        </DropdownLabel>
+                      </DropdownItem>
+                    </DropdownMenu>
+                  </Dropdown>
+                )}
+              </div>
+            )}
+          </div>
 
-        {/* Metadata footer */}
-        <div className="flex flex-col gap-0.5 px-3 pb-3 pt-2.5">
-          <h3
-            className="truncate text-sm font-semibold tracking-[-0.02em] text-gv-text"
-            title={localGame.metadata?.title || localGame.title}
-          >
-            {localGame.metadata?.title || localGame.title}
-          </h3>
-          {sortMetric && (
-            <p className="truncate text-xs text-gv-muted">{sortMetric}</p>
-          )}
-        </div>
-      </Link>
+          {/* Metadata footer */}
+          <div className="flex flex-col gap-0.5 px-3 pb-3 pt-2.5">
+            <h3
+              className="truncate text-sm font-semibold tracking-[-0.02em] text-gv-text"
+              title={localGame.metadata?.title || localGame.title}
+            >
+              {localGame.metadata?.title || localGame.title}
+            </h3>
+            {sortMetric && (
+              <p className="truncate text-xs text-gv-muted">{sortMetric}</p>
+            )}
+          </div>
+        </Link>
       </div>
       {settingsOpen && (
         <GameSettings

@@ -10,6 +10,8 @@ import {
   ComputerDesktopIcon,
   PencilSquareIcon,
 } from "@heroicons/react/24/outline";
+import { useEffect, useRef, useState } from "react";
+import { formatDecimal } from "@/utils/number";
 import {
   FORCE_INSTALL_TYPES,
   formatGameTypeLabel,
@@ -32,7 +34,7 @@ export function InstallFlow({
   onClose,
   onSetUndetectedMode,
   onForceInstall,
-}: InstallFlowProps) {
+}: Readonly<InstallFlowProps>) {
   const { copyInstallationFiles, launchInstallationExecutable } =
     useDownloads();
   const { showAlert } = useAlertDialog();
@@ -50,7 +52,7 @@ export function InstallFlow({
   const copyProgressText =
     download.installationProgress !== null &&
     download.installationProgress !== undefined
-      ? `${download.installationProgress.toFixed(1)}%`
+      ? `${formatDecimal(download.installationProgress, 1)}%`
       : "In progress";
 
   const handleCopyInstallPath = async (path?: string) => {
@@ -62,6 +64,30 @@ export function InstallFlow({
       await showAlert({ title: "Could not copy path", description: path });
     }
   };
+
+  // On Linux, Windows installers run under wine/umu where the install
+  // directory must be a Windows path (drive X: maps to $HOME). Resolve it so
+  // the user pastes a path the installer can actually use.
+  const isLinux =
+    typeof navigator !== "undefined" &&
+    navigator.userAgent.includes("Linux");
+  const [windowsInstallPath, setWindowsInstallPath] = useState("");
+  const windowsPathResolvedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isLinux || installState.mode !== "setup") return;
+    if (!download.installationDirectory || windowsPathResolvedRef.current)
+      return;
+    windowsPathResolvedRef.current = true;
+    import("@tauri-apps/api/core")
+      .then(({ invoke }) =>
+        invoke<string>("resolve_windows_install_path", {
+          installationPath: download.installationDirectory,
+        }),
+      )
+      .then(setWindowsInstallPath)
+      .catch(() => {});
+  }, [isLinux, installState.mode, download.installationDirectory]);
 
   return (
     <div className="space-y-4">
@@ -113,11 +139,6 @@ export function InstallFlow({
         <div className="space-y-4">
           <ol className="list-decimal space-y-1.5 pl-4 text-sm text-gv-muted marker:text-gv-muted">
             <li>Pick the correct installer from the dropdown menu below.</li>
-            <li>Hit the 'Install' button to launch the game's installer.</li>
-            <li>Go through the game's setup process.</li>
-            <li>
-              Make sure to select this folder as the installer's destination:
-            </li>
           </ol>
 
           <Listbox
@@ -140,29 +161,72 @@ export function InstallFlow({
             ))}
           </Listbox>
 
+          <ol
+            start={2}
+            className="list-decimal space-y-1.5 pl-4 text-sm text-gv-muted marker:text-gv-muted"
+          >
+            <li>Hit the 'Install' button to launch the game's installer.</li>
+            <li>Go through the game's setup process.</li>
+            <li>
+              If not already set, make sure to select this folder as the installer's destination:
+            </li>
+          </ol>
+
           <div className="surface-panel-soft rounded-xl p-3">
-            <div className="flex items-center justify-between gap-3">
-              <p
-                className="min-w-0 flex-1 truncate font-mono text-xs text-gv-muted"
-                title={download.installationDirectory}
-              >
-                {download.installationDirectory ||
-                  "No installation path available"}
-              </p>
-              <Button
-                color="zinc"
-                onClick={() =>
-                  void handleCopyInstallPath(download.installationDirectory)
-                }
-                disabled={!download.installationDirectory}
-              >
-                <ClipboardDocumentIcon
-                  className="h-4 w-4"
-                  aria-hidden="true"
-                />
-                Copy Path
-              </Button>
-            </div>
+            {windowsInstallPath ? (
+              <div className="space-y-2">
+                <p className="text-xs text-gv-muted">
+                  Enter this path in the installer:
+                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <p
+                    className="min-w-0 flex-1 truncate font-mono text-sm text-gv-text"
+                    title={windowsInstallPath}
+                  >
+                    {windowsInstallPath}
+                  </p>
+                  <Button
+                    color="indigo"
+                    onClick={() => void handleCopyInstallPath(windowsInstallPath)}
+                  >
+                    <ClipboardDocumentIcon
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    />
+                    Copy Path
+                  </Button>
+                </div>
+                <p
+                  className="truncate font-mono text-xs text-gv-muted"
+                  title={download.installationDirectory}
+                >
+                  On disk: {download.installationDirectory}
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <p
+                  className="min-w-0 flex-1 truncate font-mono text-xs text-gv-muted"
+                  title={download.installationDirectory}
+                >
+                  {download.installationDirectory ||
+                    "No installation path available"}
+                </p>
+                <Button
+                  color="zinc"
+                  onClick={() =>
+                    void handleCopyInstallPath(download.installationDirectory)
+                  }
+                  disabled={!download.installationDirectory}
+                >
+                  <ClipboardDocumentIcon
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                  />
+                  Copy Path
+                </Button>
+              </div>
+            )}
           </div>
 
           {installState.installerLoadError && (
@@ -182,9 +246,7 @@ export function InstallFlow({
 
           <Listbox
             value={installState.forcedType}
-            onChange={(value) =>
-              onUpdate({ forcedType: value as GameType })
-            }
+            onChange={(value) => onUpdate({ forcedType: value as GameType })}
             aria-label="Forced installation type"
           >
             {FORCE_INSTALL_TYPES.map((option) => (
@@ -209,9 +271,7 @@ export function InstallFlow({
 
         <div className="flex items-center gap-2">
           {download.installationStatus === "running" && (
-            <span className="text-xs font-medium text-gv-accent">
-              Running
-            </span>
+            <span className="text-xs font-medium text-gv-accent">Running</span>
           )}
 
           {installState.mode === "portable" && (

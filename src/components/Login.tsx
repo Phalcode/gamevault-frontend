@@ -19,6 +19,7 @@ import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { useNavigate } from "react-router";
 import { Status } from "../api";
 import { applyTheme, getStoredTheme } from "@/utils/theme";
+import { isTauriApp } from "@/utils/tauri";
 
 export function Login() {
   const { loginBasic, loginWithTokens, loading, error } = useAuth();
@@ -44,11 +45,13 @@ export function Login() {
   const [statusError, setStatusError] = useState(false);
   const [backendServed, setBackendServed] = useState(false);
 
-  // Force device theme on login page; restore stored preference on leave
+  // Force device theme on login page (visual only — never persisted, so a
+  // reload here can't wipe the user's saved theme); restore the stored
+  // preference on leave.
   useEffect(() => {
     const stored = getStoredTheme();
-    applyTheme("system");
-    return () => applyTheme(stored);
+    applyTheme("system", false);
+    return () => applyTheme(stored, false);
   }, []);
 
   const basicAuthAvailable =
@@ -90,8 +93,8 @@ export function Login() {
     // Prefill demo credentials when the demo server is selected.
     if (!confirmedServer) return;
     if (normalizeServerUrl(confirmedServer) === DEMO_SERVER_URL) {
-      setUsername((u) => (u ? u : DEMO_USERNAME));
-      setPassword((p) => (p ? p : DEMO_PASSWORD));
+      setUsername((u) => u || DEMO_USERNAME);
+      setPassword((p) => p || DEMO_PASSWORD);
     }
   }, [confirmedServer]);
 
@@ -175,15 +178,22 @@ export function Login() {
       const refresh = params.get("refresh_token") || undefined;
       if (!access) return;
 
-      const base = window.location.origin; // assume same origin the user entered for SSO
+      // In the desktop app the flow returns to the app's own origin
+      // (tauri.localhost), which is *not* the API server — the server URL was
+      // persisted when the flow started. On the web both are the same origin.
+      const base = isTauriApp()
+        ? normalizeServerUrl(localStorage.getItem(AUTH_SERVER_STORAGE_KEY) || "")
+        : window.location.origin;
+      if (!base) return;
       (async () => {
         try {
           await loginWithTokens(base, {
             access_token: access,
             refresh_token: refresh,
           });
-          // Scrub sensitive tokens from URL: go to /login (or /library directly after navigation) without query/hash.
-          const cleanUrl = base + "/login";
+          // Scrub sensitive tokens from the current URL. Stay on the app origin:
+          // a cross-origin replaceState (desktop) would throw.
+          const cleanUrl = window.location.origin + "/login";
           window.history.replaceState({}, document.title, cleanUrl);
           navigate("/library", { replace: true });
         } catch {
@@ -194,6 +204,40 @@ export function Login() {
       // swallow parsing errors silently
     }
   }, [loginWithTokens, navigate]);
+
+  // Receive the tokens handed back by the SSO popup (web flow). Only trust a
+  // message that originates from the configured server origin.
+  useEffect(() => {
+    const expectedOrigin = confirmedServer
+      ? normalizeServerUrl(confirmedServer)
+      : "";
+    if (!expectedOrigin) return;
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== expectedOrigin) return;
+      const data = event.data as
+        | { type?: string; access_token?: string; refresh_token?: string }
+        | undefined;
+      if (!data || data.type !== "gamevault:sso") return;
+      const accessToken = data.access_token;
+      if (!accessToken) return;
+      const refreshToken = data.refresh_token;
+      void (async () => {
+        try {
+          await loginWithTokens(expectedOrigin, {
+            access_token: accessToken,
+            refresh_token: refreshToken ?? undefined,
+          });
+          navigate("/library", { replace: true });
+        } catch {
+          // ignore - context will show error
+        }
+      })();
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [confirmedServer, loginWithTokens, navigate]);
 
   const handleContinue = (e: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
     e.preventDefault();
@@ -213,7 +257,27 @@ export function Login() {
     try {
       const normalized = normalizeServerUrl(confirmedServer || server);
       if (useSso) {
-        window.location.href = `${normalized}/api/auth/oauth2/login`;
+        // Remember which server this login belongs to: the identity provider
+        // redirects back to us and, in the desktop app, that lands on the app's
+        // own origin, where the server URL cannot be derived from window.location.
+        localStorage.setItem(AUTH_SERVER_STORAGE_KEY, normalized);
+        const loginUrl = `${normalized}/api/auth/oauth2/login?client_origin=${encodeURIComponent(
+          window.location.origin,
+        )}`;
+        // On the web, run the flow in a popup so the main window never
+        // navigates away; the backend hands the tokens back via postMessage
+        // instead of putting them in the URL. In the desktop app (and if the
+        // popup is blocked) fall back to a full redirect — the backend returns
+        // the window to our own origin, keeping the Tauri IPC / ACL intact.
+        if (!isTauriApp() && window.location.origin === normalized) {
+          const popup = window.open(
+            loginUrl,
+            "gamevault-sso",
+            "popup,width=520,height=680",
+          );
+          if (popup) return;
+        }
+        window.location.href = loginUrl;
         return;
       }
       await loginBasic({ server: normalized, username, password });

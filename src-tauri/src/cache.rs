@@ -1,7 +1,26 @@
+use base64::Engine as _;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use tauri::Manager;
+
+/// Decodes Base64 received from the webview.
+///
+/// Image bytes used to travel as `Vec<u8>`, which Tauri serialises as a JSON
+/// array of numbers: a several-MB cover became a multi-million-entry array on
+/// the renderer's main thread (the 140MB+ heap spikes in the field log) and a
+/// tens-of-MB IPC payload. Passing Base64 keeps the same data at ~4/3 the size
+/// with a single compact string instead.
+fn decode_base64(data: &str) -> Result<Vec<u8>, String> {
+    base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|e| format!("Invalid base64 image data: {e}"))
+}
+
+/// Encodes bytes as Base64 for the webview (see [`decode_base64`]).
+fn encode_base64(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
 
 fn cache_root(app: &tauri::AppHandle) -> PathBuf {
     app.path()
@@ -28,7 +47,7 @@ fn images_cache_dir(app: &tauri::AppHandle, server_namespace: &str) -> Result<Pa
 }
 
 #[tauri::command]
-pub(crate) fn cache_game_data(
+pub(crate) async fn cache_game_data(
     app: tauri::AppHandle,
     game_id: i64,
     json: String,
@@ -41,13 +60,14 @@ pub(crate) fn cache_game_data(
 }
 
 #[tauri::command]
-pub(crate) fn cache_game_image(
+pub(crate) async fn cache_game_image(
     app: tauri::AppHandle,
     server_namespace: String,
     media_id: i64,
-    bytes: Vec<u8>,
+    data_base64: String,
     content_type: String,
 ) -> Result<(), String> {
+    let bytes = decode_base64(&data_base64)?;
     let dir = images_cache_dir(&app, &server_namespace)?;
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create images cache dir: {e}"))?;
     let ext = content_type
@@ -65,7 +85,7 @@ pub(crate) fn cache_game_image(
 }
 
 #[tauri::command]
-pub(crate) fn load_cached_game(
+pub(crate) async fn load_cached_game(
     app: tauri::AppHandle,
     game_id: i64,
 ) -> Result<Option<String>, String> {
@@ -81,11 +101,11 @@ pub(crate) fn load_cached_game(
 }
 
 #[tauri::command]
-pub(crate) fn load_cached_image(
+pub(crate) async fn load_cached_image(
     app: tauri::AppHandle,
     server_namespace: String,
     media_id: i64,
-) -> Result<Option<Vec<u8>>, String> {
+) -> Result<Option<String>, String> {
     let images_dir = images_cache_dir(&app, &server_namespace)?;
     if !images_dir.exists() {
         return Ok(None);
@@ -99,14 +119,14 @@ pub(crate) fn load_cached_image(
             let path = entry.path();
             let bytes = fs::read(&path).map_err(|e| format!("Failed to read cached image: {e}"))?;
             let _ = fs::write(&path, &bytes);
-            return Ok(Some(bytes));
+            return Ok(Some(encode_base64(&bytes)));
         }
     }
     Ok(None)
 }
 
 #[tauri::command]
-pub(crate) fn cleanup_cached_images(
+pub(crate) async fn cleanup_cached_images(
     app: tauri::AppHandle,
     server_namespace: String,
     max_age_seconds: u64,
@@ -137,7 +157,7 @@ pub(crate) fn cleanup_cached_images(
 }
 
 #[tauri::command]
-pub(crate) fn list_cached_game_ids(app: tauri::AppHandle) -> Result<Vec<i64>, String> {
+pub(crate) async fn list_cached_game_ids(app: tauri::AppHandle) -> Result<Vec<i64>, String> {
     let dir = cache_root(&app).join("games");
     if !dir.exists() {
         return Ok(Vec::new());
@@ -158,7 +178,7 @@ pub(crate) fn list_cached_game_ids(app: tauri::AppHandle) -> Result<Vec<i64>, St
 }
 
 #[tauri::command]
-pub(crate) fn delete_cached_game(app: tauri::AppHandle, game_id: i64) -> Result<(), String> {
+pub(crate) async fn delete_cached_game(app: tauri::AppHandle, game_id: i64) -> Result<(), String> {
     let path = cache_root(&app)
         .join("games")
         .join(format!("{game_id}.json"));
@@ -169,7 +189,7 @@ pub(crate) fn delete_cached_game(app: tauri::AppHandle, game_id: i64) -> Result<
 }
 
 #[tauri::command]
-pub(crate) fn delete_cached_image(
+pub(crate) async fn delete_cached_image(
     app: tauri::AppHandle,
     server_namespace: String,
     media_id: i64,
@@ -190,6 +210,41 @@ pub(crate) fn delete_cached_image(
         }
     }
     Ok(())
+}
+
+/// Removes every cached image across all server namespaces from the native
+/// offline image cache. Returns the number of files deleted.
+#[tauri::command]
+pub(crate) async fn clear_all_cached_images(app: tauri::AppHandle) -> Result<u64, String> {
+    let images_root = cache_root(&app).join("images");
+    if !images_root.exists() {
+        return Ok(0);
+    }
+
+    let mut deleted = 0u64;
+    for namespace_entry in fs::read_dir(&images_root)
+        .map_err(|e| format!("Failed to read images cache dir: {e}"))?
+        .flatten()
+    {
+        let namespace_path = namespace_entry.path();
+        if !namespace_path.is_dir() {
+            continue;
+        }
+        for image_entry in fs::read_dir(&namespace_path)
+            .map_err(|e| format!("Failed to read namespace images dir: {e}"))?
+            .flatten()
+        {
+            let image_path = image_entry.path();
+            if image_path.is_file() {
+                fs::remove_file(&image_path)
+                    .map_err(|e| format!("Failed to delete cached image: {e}"))?;
+                deleted += 1;
+            }
+        }
+        // Remove the now-empty per-namespace directory.
+        let _ = fs::remove_dir(&namespace_path);
+    }
+    Ok(deleted)
 }
 
 #[cfg(test)]

@@ -81,13 +81,16 @@ function getGamepad(): Gamepad | null {
   return null;
 }
 
-function axisWithDeadzone(value: number | undefined, deadzone: number): number {
+export function axisWithDeadzone(
+  value: number | undefined,
+  deadzone: number,
+): number {
   const v = value ?? 0;
   if (Number.isNaN(v) || Math.abs(v) < deadzone) return 0;
   return ((Math.abs(v) - deadzone) / (1 - deadzone)) * Math.sign(v);
 }
 
-function resolveDirection(gamepad: Gamepad): GamepadDirection | null {
+export function resolveDirection(gamepad: Gamepad): GamepadDirection | null {
   // D-pad wins over the left stick.
   for (const [indexStr, direction] of Object.entries(
     DIRECTION_BY_DPAD_BUTTON,
@@ -101,7 +104,7 @@ function resolveDirection(gamepad: Gamepad): GamepadDirection | null {
   return y > 0 ? "down" : "up";
 }
 
-function resolvePressed(gamepad: Gamepad): Set<GamepadAction> {
+export function resolvePressed(gamepad: Gamepad): Set<GamepadAction> {
   const pressed = new Set<GamepadAction>();
   for (const [indexStr, action] of Object.entries(ACTION_BY_BUTTON)) {
     if (gamepad.buttons[Number(indexStr)]?.pressed) pressed.add(action);
@@ -109,7 +112,40 @@ function resolvePressed(gamepad: Gamepad): Set<GamepadAction> {
   return pressed;
 }
 
+/**
+ * Schedules the next poll frame, unless the loop is stopped or the document is
+ * hidden.
+ *
+ * The Gamepad API has no push events for button state, so the loop has to run
+ * to notice input — but there is no input to notice while the window is
+ * minimized or in the background, and keeping a 60 Hz main-thread loop alive
+ * there is pure overhead. `handleVisibility` restarts it on return.
+ */
+function scheduleTick(): void {
+  if (!running || rafId !== null) return;
+  if (typeof document !== "undefined" && document.hidden) return;
+  rafId = requestAnimationFrame(tick);
+}
+
+function handleVisibility(): void {
+  if (!running) return;
+  // A frame scheduled just before the document was hidden never fires, so any
+  // pending id is stale — clear it before deciding whether to re-arm.
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+  scheduleTick();
+}
+
 function tick() {
+  if (!running) {
+    rafId = null;
+    return;
+  }
+  // Re-arm before doing any work. While the document is hidden the browser
+  // stops calling rAF; handleVisibility cancels/reschedules around that so the
+  // loop never burns cycles in the background.
   rafId = requestAnimationFrame(tick);
 
   const gamepad = getGamepad();
@@ -183,8 +219,11 @@ export function startGamepadInput(): void {
   running = true;
   window.addEventListener("gamepadconnected", handleConnected);
   window.addEventListener("gamepaddisconnected", handleDisconnected);
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", handleVisibility);
+  }
   notifyConnection(getGamepad() !== null);
-  rafId = requestAnimationFrame(tick);
+  scheduleTick();
 }
 
 /** Stop polling and reset state. */
@@ -193,6 +232,9 @@ export function stopGamepadInput(): void {
   running = false;
   window.removeEventListener("gamepadconnected", handleConnected);
   window.removeEventListener("gamepaddisconnected", handleDisconnected);
+  if (typeof document !== "undefined") {
+    document.removeEventListener("visibilitychange", handleVisibility);
+  }
   if (rafId !== null) {
     cancelAnimationFrame(rafId);
     rafId = null;

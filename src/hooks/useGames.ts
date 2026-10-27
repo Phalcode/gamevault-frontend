@@ -6,6 +6,14 @@ import { ProgressStateEnum } from "@/api/models/Progress";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { isTauriApp } from "@/utils/tauri";
+import {
+  buildCacheKey,
+  buildGamesQueryParams,
+  BookmarkFilter,
+  EarlyAccessFilter,
+} from "@/utils/gamesQuery";
+export type { BookmarkFilter, EarlyAccessFilter } from "@/utils/gamesQuery";
+import { onGameDeleted } from "@/utils/gameUpdates";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface PaginatedData<T> {
@@ -13,9 +21,6 @@ interface PaginatedData<T> {
   meta: { totalItems: number };
   links: { next?: string | null };
 }
-
-export type EarlyAccessFilter = "all" | "true" | "false";
-export type BookmarkFilter = "all" | "mine" | "others";
 
 export interface UseGamesOptions {
   search: string;
@@ -56,30 +61,45 @@ interface CachedGamesState {
 // (e.g. Library → GameView → back).
 const gamesCache = new Map<string, CachedGamesState>();
 
-function buildCacheKey(
-  options: UseGamesOptions,
-  serverUrl: string,
-  userId: unknown,
-): string {
-  return JSON.stringify({
-    search: options.search,
-    sortBy: options.sortBy,
-    order: options.order,
-    limit: options.limit,
-    bookmarkFilter: options.bookmarkFilter,
-    gameTypes: options.gameTypes?.slice().sort(),
-    tags: options.tags?.slice().sort(),
-    genres: options.genres?.slice().sort(),
-    developers: options.developers?.slice().sort(),
-    publishers: options.publishers?.slice().sort(),
-    gameState: options.gameState,
-    releaseDateFrom: options.releaseDateFrom,
-    releaseDateTo: options.releaseDateTo,
-    earlyAccess: options.earlyAccess,
-    serverUrl,
-    userId: userId ?? null,
-  });
+// Upper bound for `gamesCache`. Each entry holds a full games array, and the
+// key includes the search text, so without a cap every search/filter the user
+// ever typed would stay in memory for the rest of the session.
+const MAX_GAMES_CACHE_ENTRIES = 12;
+
+function setGamesCache(key: string, state: CachedGamesState): void {
+  // Delete before re-adding so the key moves to the end of the Map's insertion
+  // order; the least recently written key is then the eviction victim.
+  gamesCache.delete(key);
+  gamesCache.set(key, state);
+  while (gamesCache.size > MAX_GAMES_CACHE_ENTRIES) {
+    const oldestKey = gamesCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    gamesCache.delete(oldestKey);
+  }
 }
+
+// Game IDs that have been fully removed from the library (e.g. by deleting a
+// game's last version file). Kept at module scope so the game stays out of the
+// list even when the Library remounts and re-fetches from the server.
+const removedGameIds = new Set<number>();
+
+// Keep the module-level cache in sync even when no Library instance is mounted
+// (e.g. a game is deleted while the user is on the game view).
+onGameDeleted((gameId) => {
+  removedGameIds.add(gameId);
+  // Snapshot before iterating: `setGamesCache` re-inserts the key, which would
+  // otherwise move it during iteration.
+  for (const [key, state] of [...gamesCache]) {
+    if (state.games.some((g) => g.id === gameId)) {
+      setGamesCache(key, {
+        count: Math.max(0, state.count - 1),
+        games: state.games.filter((g) => g.id !== gameId),
+        next: state.next,
+        loadedPages: state.loadedPages,
+      });
+    }
+  }
+});
 
 export function useGames({
   search,
@@ -133,6 +153,8 @@ export function useGames({
   const loadedPagesRef = useRef(cached?.loadedPages ?? 0);
   const cacheKeyRef = useRef(cacheKey);
   cacheKeyRef.current = cacheKey;
+  const gamesRef = useRef<GamevaultGame[]>(games);
+  gamesRef.current = games;
 
   // Serialize arrays to stable strings to use as dependencies (prevent re-fetching when array reference changes but contents are same)
   const gameTypesKey = useMemo(
@@ -181,89 +203,46 @@ export function useGames({
     setError(null);
     try {
       const base = serverUrl.replace(/\/+$/, "");
-      const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      if (sortBy) params.set("sortBy", `${sortBy}:${order}`);
-      if (limit) params.set("limit", String(limit));
-      // Bookmark filter
       const userId = (user as any)?.id ?? (user as any)?.ID;
-      if (bookmarkFilter === "mine" && userId != null) {
-        // My bookmarks: games bookmarked by me
-        params.set("filter.bookmarked_users.id", `$eq:${userId}`);
-      } else if (bookmarkFilter === "others" && userId != null) {
-        // Bookmarked by others: games that have bookmarks but NOT by me
-        // Use $not:$eq to exclude my bookmarks, combined with $not:$null to ensure it has some bookmarks
-        params.set("filter.bookmarked_users.id", `$not:$eq:${userId}`);
-      }
-      // Game type filter (use ref for current value)
-      const currentGameTypes = gameTypesRef.current;
-      if (currentGameTypes.length > 0) {
-        params.set("filter.type", `$in:${currentGameTypes.join(",")}`);
-      }
-      // Tag filter (use ref for current value)
-      const currentTags = tagsRef.current;
-      if (currentTags.length > 0) {
-        params.set("filter.metadata.tags.name", `$in:${currentTags.join(",")}`);
-      }
-      // Genre filter (use ref for current value)
-      const currentGenres = genresRef.current;
-      if (currentGenres.length > 0) {
-        params.set(
-          "filter.metadata.genres.name",
-          `$in:${currentGenres.join(",")}`,
-        );
-      }
-      // Developer filter (use ref for current value)
-      const currentDevelopers = developersRef.current;
-      if (currentDevelopers.length > 0) {
-        params.set(
-          "filter.metadata.developers.name",
-          `$in:${currentDevelopers.join(",")}`,
-        );
-      }
-      // Publisher filter (use ref for current value)
-      const currentPublishers = publishersRef.current;
-      if (currentPublishers.length > 0) {
-        params.set(
-          "filter.metadata.publishers.name",
-          `$in:${currentPublishers.join(",")}`,
-        );
-      }
-      // Game state filter
-      if (gameState && userId != null) {
-        params.set("filter.progresses.state", `$eq:${gameState}`);
-        params.set("filter.progresses.user.id", `$eq:${userId}`);
-      }
-      // Release date range filter
-      if (releaseDateFrom && releaseDateTo) {
-        params.set(
-          "filter.metadata.release_date",
-          `$btw:${releaseDateFrom},${releaseDateTo}`,
-        );
-      } else if (releaseDateFrom) {
-        params.set("filter.metadata.release_date", `$gte:${releaseDateFrom}`);
-      } else if (releaseDateTo) {
-        params.set("filter.metadata.release_date", `$lte:${releaseDateTo}`);
-      }
-      // Early access filter
-      if (earlyAccess === "true") {
-        params.set("filter.metadata.early_access", "$eq:true");
-      } else if (earlyAccess === "false") {
-        params.set("filter.metadata.early_access", "$eq:false");
-      }
+      const params = buildGamesQueryParams({
+        search,
+        sortBy,
+        order,
+        limit,
+        bookmarkFilter,
+        userId,
+        gameTypes: gameTypesRef.current,
+        tags: tagsRef.current,
+        genres: genresRef.current,
+        developers: developersRef.current,
+        publishers: publishersRef.current,
+        gameState,
+        releaseDateFrom,
+        releaseDateTo,
+        earlyAccess,
+      });
       const url = `${base}/api/games?${params.toString()}`;
       const res = await authFetch(url, { method: "GET", signal: ac.signal });
       if (!res.ok) throw new Error(`Games fetch failed (${res.status})`);
       const json: PaginatedData<GamevaultGame> = await res.json();
-      setCount(json.meta.totalItems);
-      setGames(json.data || []);
+      // Drop games that were removed from the library (e.g. their last version
+      // was deleted) so they don't reappear after a re-fetch.
+      const fetchedGames = (json.data || []).filter(
+        (g) => !removedGameIds.has(g.id),
+      );
+      const fetchedCount = Math.max(
+        0,
+        json.meta.totalItems - removedGameIds.size,
+      );
+      setCount(fetchedCount);
+      setGames(fetchedGames);
       setNext(json.links?.next || null);
       loadedPagesRef.current = 1;
       // Persist page 1 results to the module-level cache so that navigating
       // away and back (e.g. Library → GameView → back) restores instantly.
-      gamesCache.set(cacheKeyRef.current, {
-        count: json.meta.totalItems,
-        games: json.data || [],
+      setGamesCache(cacheKeyRef.current, {
+        count: fetchedCount,
+        games: fetchedGames,
         next: json.links?.next || null,
         loadedPages: 1,
       });
@@ -312,11 +291,13 @@ export function useGames({
       if (!res.ok) throw new Error(`Games fetch failed (${res.status})`);
       const json: PaginatedData<GamevaultGame> = await res.json();
       setGames((prev) => {
-        const merged = [...prev, ...(json.data || [])];
+        const merged = [...prev, ...(json.data || [])].filter(
+          (g) => !removedGameIds.has(g.id),
+        );
         loadedPagesRef.current += 1;
         // Persist all loaded pages so infinite-scroll position is preserved
         // when navigating back to the library.
-        gamesCache.set(cacheKeyRef.current, {
+        setGamesCache(cacheKeyRef.current, {
           count,
           games: merged,
           next: json.links?.next || null,
@@ -336,6 +317,16 @@ export function useGames({
     fetchGames();
     return () => abortRef.current?.abort();
   }, [fetchGames]);
+
+  // Drop a deleted game from the live list as soon as the event fires, so the
+  // Library updates without waiting for a refresh.
+  useEffect(() => {
+    return onGameDeleted((gameId) => {
+      if (!gamesRef.current.some((g) => g.id === gameId)) return;
+      setGames((prev) => prev.filter((g) => g.id !== gameId));
+      setCount((c) => Math.max(0, c - 1));
+    });
+  }, []);
 
   return {
     count,

@@ -89,3 +89,5 @@ The choice is persisted in `localStorage` (`gv_update_channel`).
 Generate the keys once with `cargo tauri signer generate -w ~/.tauri/gamevault-updater.key`. Keep the private key and password safe — losing them breaks updates for existing installs.
 
 **Local builds** – a normal `tauri build` produces no updater artifacts. To create them locally, build with the release config and signing env (`pnpm tauri build --config src-tauri/tauri.release.conf.json`). CI uses `src-tauri/tauri.release.generated.json` with the pubkey injected, since the Tauri bundler requires `plugins.updater.pubkey` in the parsed config.
+
+**Linux AppImage media support** – `bundle.linux.appimage.bundleMediaFramework` is enabled, which makes the bundler copy the GStreamer plugins installed on the _build machine_ into the AppImage (they end up in `usr/lib/gstreamer-1.0`). A local AppImage build therefore needs `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good` and `gstreamer1.0-plugins-bad` installed (the same packages CI installs); without them the AppImage ships without audio/video support and WebKitGTK logs `GStreamer element ... not found`.

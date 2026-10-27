@@ -58,6 +58,8 @@ pub(crate) struct InstalledGameInfo {
   pub version_name: String,
   pub installation_directory: String,
   pub version_directory: String,
+  /// Unix timestamp (millis) of when this version was installed, 0 if unknown.
+  pub installed_at: i64,
 }
 
 #[derive(Serialize, Clone)]
@@ -108,6 +110,19 @@ pub(crate) fn emit_extract_progress(
     _ => None,
   };
 
+  // Remember the state in-process as well: the webview that started the
+  // extraction may be reloaded (F5) while the task keeps running, and it needs
+  // to be able to re-attach to it afterwards.
+  crate::state::set_extraction_snapshot(crate::state::ExtractionSnapshot {
+    game_id,
+    status: status.to_string(),
+    processed,
+    total,
+    progress,
+    current_file: current_file.clone(),
+    error: error.clone(),
+  });
+
   let _ = app.emit(
     "extract-progress",
     ExtractProgressEvent {
@@ -136,6 +151,20 @@ pub(crate) fn emit_install_copy_progress(
     _ => None,
   };
 
+  // Also record it in-process: the install copy runs on a detached thread, so
+  // the UI must be able to re-attach to it after a webview reload (F5).
+  crate::state::set_installation_snapshot(crate::state::InstallationSnapshot {
+    game_id,
+    step: "copy".to_string(),
+    status: status.to_string(),
+    processed,
+    total,
+    progress,
+    current_file: current_file.clone(),
+    exit_code: None,
+    error: error.clone(),
+  });
+
   let _ = app.emit(
     "install-copy-progress",
     InstallCopyProgressEvent {
@@ -158,6 +187,20 @@ pub(crate) fn emit_installer_status(
   exit_code: Option<i32>,
   error: Option<String>,
 ) {
+  // Mirror the installer state in-process so a reloaded UI can re-attach to a
+  // running installer (which keeps running as a detached thread).
+  crate::state::set_installation_snapshot(crate::state::InstallationSnapshot {
+    game_id,
+    step: "installer".to_string(),
+    status: status.to_string(),
+    processed: 0,
+    total: None,
+    progress: None,
+    current_file: current_file.clone(),
+    exit_code,
+    error: error.clone(),
+  });
+
   let _ = app.emit(
     "installer-status",
     InstallerStatusEvent {
@@ -190,6 +233,69 @@ pub(crate) fn emit_game_launch_failed(
       game_title,
       exit_code,
       message,
+    },
+  );
+}
+
+/// Phases streamed while a Windows executable runs through umu-launcher:
+/// `installing` (umu-launcher itself is being installed), `installed`
+/// (that install just finished), `setup` (umu's first-run setup: downloading
+/// UMU-Proton / steamrt3), `running` (the game/installer process was detected),
+/// `error` and `exit`.
+#[cfg(target_os = "linux")]
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UmuStatusEvent {
+  pub game_title: Option<String>,
+  pub phase: String,
+  pub line: Option<String>,
+  pub message: Option<String>,
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn emit_umu_status(
+  app: &tauri::AppHandle,
+  game_title: Option<&str>,
+  phase: &str,
+  line: Option<String>,
+  message: Option<String>,
+) {
+  // Keep the phase in-process too: umu setup keeps running when the webview is
+  // reloaded, and the overlay must be able to re-attach to it.
+  crate::state::set_umu_snapshot(Some(crate::state::UmuSnapshot {
+    status: phase.to_string(),
+    message: message.clone().or_else(|| line.clone()),
+    game_title: game_title.map(String::from),
+  }));
+
+  let _ = app.emit(
+    "umu-status",
+    UmuStatusEvent {
+      game_title: game_title.map(String::from),
+      phase: phase.to_string(),
+      line,
+      message,
+    },
+  );
+}
+
+/// The exact program + arguments GameVault hands to an installer (used for
+/// debugging installer launches on Linux via umu-launcher).
+#[cfg(target_os = "linux")]
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InstallerCommandEvent {
+  pub program: String,
+  pub args: Vec<String>,
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn emit_installer_command(app: &tauri::AppHandle, program: &str, args: &[String]) {
+  let _ = app.emit(
+    "installer-command",
+    InstallerCommandEvent {
+      program: program.to_string(),
+      args: args.to_vec(),
     },
   );
 }

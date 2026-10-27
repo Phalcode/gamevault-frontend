@@ -81,7 +81,7 @@ export function SidebarLayout({
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-gv-bg text-gv-text">
       <WindowTitlebar />
-      <div className="relative isolate flex min-h-0 flex-1 w-full max-lg:flex-col">
+      <div className="relative isolate mx-auto flex min-h-0 flex-1 w-full max-w-[2560px] max-lg:flex-col">
         {/* Sidebar on desktop */}
         <div
           className={

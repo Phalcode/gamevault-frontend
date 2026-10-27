@@ -17,13 +17,21 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
   isTauriApp,
+  isTauriDesktop,
   isDebugTauriOverride,
   setDebugTauriOverride,
 } from "@/utils/tauri";
+import {
+  filterSearchableSettings,
+  searchResultCategories as searchResultCategoriesFn,
+  searchSettings,
+} from "@/utils/settingsSearch";
 import { Button } from "@/components/tailwind/button";
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
 import ThemeSelect from "@/components/ThemeSelect";
 import ZoomControl from "@/components/ZoomControl";
+import StreamerModeToggle from "@/components/StreamerModeToggle";
+import BackButton from "@/components/BackButton";
 import {
   Dialog,
   DialogBody,
@@ -31,6 +39,15 @@ import {
   DialogTitle,
 } from "@/components/tailwind/dialog";
 import { isAnalyticsEnabled, setAnalyticsEnabled } from "@/utils/analytics";
+import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
+import { clearImageCache } from "@/utils/mediaCache";
+import {
+  formatCpuMemoryLabel,
+  formatDisplayLabel,
+  formatMonitorsLabel,
+  getRenderingDiagnostics,
+  type RenderingDiagnostics,
+} from "@/utils/rendering";
 import { playSound } from "@/utils/audio";
 import { VolumeControl } from "@/components/VolumeControl";
 import {
@@ -41,10 +58,10 @@ import {
   updateRootPath,
   updateRootPathLabel,
 } from "@/utils/rootPaths";
+import { openLaunchLogWindow } from "@/utils/launchLog";
 import {
   FolderArrowDownIcon,
   ComputerDesktopIcon,
-  QueueListIcon,
   ShieldCheckIcon,
   SwatchIcon,
   ArrowPathIcon,
@@ -53,7 +70,6 @@ import {
   WrenchIcon,
   EyeSlashIcon,
   InformationCircleIcon,
-  ChevronLeftIcon,
   ChevronRightIcon,
   ClipboardDocumentIcon,
   PlusIcon,
@@ -61,11 +77,13 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
   FolderIcon,
+  FolderOpenIcon,
+  TrashIcon,
   SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
 
-const RETAIN_KEY = "app_retain_library_prefs";
 const AUTOSTART_MINIMIZED_KEY = "tauri_start_minimized";
+const MINIMIZE_ON_GAME_LAUNCH_KEY = "tauri_minimize_on_game_launch";
 const AUTO_EXTRACT_KEY = "tauri_auto_extract";
 const AUTO_INSTALL_KEY = "tauri_auto_install";
 const AUTO_DELETE_SOURCE_KEY = "tauri_auto_delete_source";
@@ -101,14 +119,13 @@ interface LicensesData {
 
 type SettingsCategory =
   | "downloads"
-  | "library"
-  | "privacy"
   | "appearance"
   | "sound"
-  | "desktop"
-  | "ignore"
-  | "developer"
-  | "about";
+  | "startup"
+  | "games"
+  | "privacy"
+  | "about"
+  | "developer";
 
 const CATEGORY_META: Record<
   SettingsCategory,
@@ -120,50 +137,379 @@ const CATEGORY_META: Record<
 > = {
   downloads: {
     label: "Downloads",
-    description: "Everything about storing and downloading your games.",
+    description: "Where and how games are downloaded.",
     icon: FolderArrowDownIcon,
-  },
-  library: {
-    label: "Library",
-    description: "Settings that shape your game library.",
-    icon: QueueListIcon,
-  },
-  privacy: {
-    label: "Privacy & Analytics",
-    description: "Decide what information GameVault shares.",
-    icon: ShieldCheckIcon,
   },
   appearance: {
     label: "Appearance",
-    description: "Customize how GameVault looks on your device.",
+    description: "How the app looks.",
     icon: SwatchIcon,
   },
   sound: {
     label: "Sound",
-    description: "Control volume and sound effects in GameVault.",
+    description: "Sound effects and volume.",
     icon: SpeakerWaveIcon,
   },
-  desktop: {
+  startup: {
     label: "Startup",
-    description: "How GameVault starts and behaves at launch.",
+    description: "How the app starts with your computer.",
     icon: ComputerDesktopIcon,
   },
-  ignore: {
-    label: "Ignore List",
-    description: "Files GameVault should skip completely",
-    icon: EyeSlashIcon,
+  games: {
+    label: "Games",
+    description: "How the app behaves when you play games.",
+    icon: GamepadIcon,
+  },
+  privacy: {
+    label: "Privacy",
+    description: "What information the app shares.",
+    icon: ShieldCheckIcon,
+  },
+  about: {
+    label: "About",
+    description: "Version, licenses and system info.",
+    icon: InformationCircleIcon,
   },
   developer: {
     label: "Developer Tools",
     description: "Tools for development.",
     icon: WrenchIcon,
   },
-  about: {
-    label: "About",
-    description: "Version, licenses and legal information.",
-    icon: InformationCircleIcon,
-  },
 };
+
+interface SearchableSetting {
+  /** Stable identifier, also used as the scroll/highlight target. */
+  id: string;
+  title: string;
+  description?: string;
+  category: SettingsCategory;
+  keywords: string[];
+  /** Only shown in the desktop (Tauri) app. Hidden from search on the web build. */
+  desktopOnly?: boolean;
+  /** Only shown on the web build. Hidden from search in the real desktop app. */
+  webOnly?: boolean;
+  /** Only shown on Linux (Tauri). Hidden from search elsewhere. */
+  linuxOnly?: boolean;
+}
+
+/**
+ * Flat index of every individual setting, used by the settings search bar to
+ * surface results that map back to their owning category.
+ */
+const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
+  // Downloads
+  {
+    id: "downloads-locations",
+    title: "Download locations",
+    description: "Folders where games are stored",
+    category: "downloads",
+    keywords: ["location", "folder", "directory", "path", "storage"],
+    desktopOnly: true,
+  },
+  {
+    id: "downloads-speed-limit",
+    title: "Download speed limit",
+    description: "Limit download bandwidth. 0 means no limit.",
+    category: "downloads",
+    keywords: ["speed", "limit", "bandwidth", "throttle", "kb"],
+  },
+  {
+    id: "downloads-auto-extract",
+    title: "Auto-Extract Downloads",
+    description: "Unpack archives right after downloading",
+    category: "downloads",
+    keywords: ["extract", "unpack", "archive", "zip", "rar"],
+    desktopOnly: true,
+  },
+  {
+    id: "downloads-auto-install",
+    title: "Auto-Install Games",
+    description:
+      "Start installers or copy game files automatically after extraction, and make any files that need it executable",
+    category: "downloads",
+    keywords: ["install", "installer", "setup", "portable", "executable"],
+    desktopOnly: true,
+  },
+  {
+    id: "downloads-auto-delete-source",
+    title: "Auto-Delete Source Files",
+    description:
+      "Clean up downloaded and extracted files after installation to free space",
+    category: "downloads",
+    keywords: ["delete", "cleanup", "space", "source", "files"],
+    desktopOnly: true,
+  },
+  {
+    id: "downloads-clear-image-cache",
+    title: "Clear image cache",
+    description: "Remove cached covers and background images",
+    category: "downloads",
+    keywords: ["cache", "images", "covers", "backgrounds", "clear"],
+  },
+  // Appearance
+  {
+    id: "appearance-theme",
+    title: "Theme",
+    description: "Choose light, dark, or follow your device",
+    category: "appearance",
+    keywords: ["theme", "dark", "light", "mode", "color"],
+  },
+  {
+    id: "appearance-zoom",
+    title: "Zoom",
+    description: "Zoom the interface in or out",
+    category: "appearance",
+    keywords: ["zoom", "scale", "size", "font", "ui"],
+  },
+  {
+    id: "appearance-streamer-mode",
+    title: "Streamer / OPSEC Mode",
+    description: "Mask user names, emails and the server URL with placeholders",
+    category: "appearance",
+    keywords: [
+      "streamer",
+      "opsec",
+      "privacy",
+      "mask",
+      "anon",
+      "placeholder",
+      "hotkey",
+    ],
+  },
+  // Sound
+  {
+    id: "sound-volume",
+    title: "Volume",
+    description: "Master volume for GameVault sounds",
+    category: "sound",
+    keywords: ["volume", "sound", "audio", "mute", "effects"],
+  },
+  {
+    id: "sound-test",
+    title: "Test sound",
+    description: "Play a preview at the current volume",
+    category: "sound",
+    keywords: ["sound", "test", "preview", "audio"],
+  },
+  // Startup
+  {
+    id: "startup-autostart",
+    title: "Launch GameVault on Computer Startup",
+    description: "Automatically start GameVault when you log in",
+    category: "startup",
+    keywords: ["autostart", "startup", "boot", "launch", "login"],
+    desktopOnly: true,
+  },
+  {
+    id: "startup-start-minimized",
+    title: "Minimize to System Tray on Startup",
+    description: "Start silently in the tray instead of opening the window",
+    category: "startup",
+    keywords: ["startup", "minimize", "tray", "background", "hidden"],
+    desktopOnly: true,
+  },
+  // Games
+  {
+    id: "games-minimize-on-launch",
+    title: "Minimize when launching a game",
+    description: "Hide GameVault while a game runs and restore it on quit",
+    category: "games",
+    keywords: ["minimize", "launch", "game", "tray", "playing", "restore"],
+    desktopOnly: true,
+  },
+  {
+    id: "games-ignore-list",
+    title: "Ignore List",
+    description: "Files GameVault should skip completely",
+    category: "games",
+    keywords: ["ignore", "hidden", "executables", "skip", "setup"],
+    desktopOnly: true,
+  },
+  {
+    id: "games-launch-logs",
+    title: "Launch logs",
+    description: "Open the log window automatically and browse launch logs",
+    category: "games",
+    keywords: ["log", "logs", "debug", "crash", "proton", "wine", "umu"],
+    desktopOnly: true,
+  },
+  {
+    id: "games-wine-prefix",
+    title: "Wine/Proton Prefix Directory",
+    description: "Base folder for isolated per-game Wine/Proton prefixes",
+    category: "games",
+    keywords: [
+      "wine",
+      "proton",
+      "prefix",
+      "umu",
+      "linux",
+      "directory",
+      "folder",
+    ],
+    desktopOnly: true,
+    linuxOnly: true,
+  },
+  // Privacy
+  {
+    id: "privacy-analytics",
+    title: "Usage analytics",
+    description: "Help make GameVault better",
+    category: "privacy",
+    keywords: ["analytics", "privacy", "telemetry", "usage", "anonymous"],
+  },
+  // About
+  {
+    id: "about-version",
+    title: "Application Version",
+    description: "The installed GameVault version",
+    category: "about",
+    keywords: ["version", "build", "app"],
+  },
+  {
+    id: "about-license",
+    title: "License",
+    description: "GameVault is licensed under CC BY-NC-SA 4.0",
+    category: "about",
+    keywords: ["license", "legal", "cc"],
+  },
+  {
+    id: "about-open-source-licenses",
+    title: "Open Source Licenses",
+    description: "Third-party libraries used by GameVault",
+    category: "about",
+    keywords: ["open source", "licenses", "third-party", "libraries"],
+  },
+  {
+    id: "about-updates",
+    title: "Updates",
+    description: "Update channel and auto-update status",
+    category: "about",
+    keywords: ["update", "updater", "channel", "version", "stable"],
+    desktopOnly: true,
+  },
+  {
+    id: "about-system",
+    title: "System information",
+    description: "Operating system, hardware, GPU and display details",
+    category: "about",
+    keywords: [
+      "system",
+      "info",
+      "os",
+      "platform",
+      "hardware",
+      "cpu",
+      "memory",
+      "gpu",
+      "webgl",
+      "webgpu",
+      "display",
+      "monitors",
+      "user agent",
+    ],
+  },
+  // Developer
+  {
+    id: "developer-open-devtools",
+    title: "Open Browser DevTools",
+    description: "Open the WebView devtools for the desktop build",
+    category: "developer",
+    keywords: ["devtools", "developer", "inspect", "console", "window"],
+  },
+  {
+    id: "developer-simulate-desktop",
+    title: "Simulate Desktop App",
+    description: "Preview GameVault as a native desktop application",
+    category: "developer",
+    keywords: ["simulate", "desktop", "tauri", "debug"],
+    webOnly: true,
+  },
+  {
+    id: "developer-simulate-outage",
+    title: "Simulate Network Outage",
+    description: "Force an offline state to test error banners",
+    category: "developer",
+    keywords: ["network", "offline", "outage", "simulate", "error"],
+  },
+  {
+    id: "developer-toasts",
+    title: "Toast Notifications",
+    description: "Preview each toast tone",
+    category: "developer",
+    keywords: ["toast", "notification", "snackbar", "preview"],
+  },
+  {
+    id: "developer-simulate-download",
+    title: "Simulate Download Status",
+    description: "Preview each download state without a real download",
+    category: "developer",
+    keywords: ["download", "simulate", "status", "test"],
+  },
+  {
+    id: "developer-build-info",
+    title: "Build Info",
+    description: "Version, channel and environment",
+    category: "developer",
+    keywords: ["build", "version", "channel", "environment"],
+  },
+  {
+    id: "developer-settings-dump",
+    title: "Copy Settings Dump",
+    description: "Export all preferences as JSON for bug reports",
+    category: "developer",
+    keywords: ["settings", "dump", "export", "copy", "json", "diagnostics"],
+  },
+  {
+    id: "developer-verbose-logging",
+    title: "Verbose diagnostics logging",
+    description: "Log interface snapshots and activity breadcrumbs",
+    category: "developer",
+    keywords: ["log", "logging", "diagnostics", "debug", "freeze", "watchdog"],
+  },
+  {
+    id: "rendering-smooth-scroll",
+    title: "Smooth Scrolling",
+    description: "Toggle WebKitGTK smooth-scroll animation",
+    category: "appearance",
+    keywords: ["scroll", "webkit", "smooth", "animation", "rendering"],
+    desktopOnly: true,
+  },
+  {
+    id: "rendering-hw-accel",
+    title: "Hardware Acceleration",
+    description:
+      "WebKitGTK hardware acceleration policy. Only takes effect after restarting the app.",
+    category: "appearance",
+    keywords: ["gpu", "acceleration", "webkit", "hardware", "rendering"],
+    desktopOnly: true,
+  },
+];
+
+/**
+ * Gamepad icon in the Heroicons outline style (24x24, 1.5 stroke). Heroicons
+ * has no native controller glyph, so this keeps the "Games" category on-theme.
+ */
+function GamepadIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M6.5 7h11a4.5 4.5 0 0 1 4.3 5.7l-.9 3A3.5 3.5 0 0 1 13.5 17l-.7-1h-1.6l-.7 1a3.5 3.5 0 0 1-7.4-1.3l-.9-3A4.5 4.5 0 0 1 6.5 7Z" />
+      <path d="M8.5 10.5v3" />
+      <path d="M7 12h3" />
+      <circle cx="15.5" cy="11" r="1" />
+      <circle cx="17.5" cy="13" r="1" />
+    </svg>
+  );
+}
 
 /**
  * Grouped settings list, iOS Settings style: a rounded container with
@@ -174,14 +520,16 @@ function SettingsGroup({
   description,
   children,
   className,
+  id,
 }: {
   caption?: string;
   description?: string;
   children: React.ReactNode;
   className?: string;
+  id?: string;
 }) {
   return (
-    <div className={clsx(className)}>
+    <div className={clsx(className)} id={id}>
       {caption && (
         <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-gv-muted">
           {caption}
@@ -203,12 +551,15 @@ function SettingsGroup({
 function SettingsRow({
   children,
   className,
+  id,
 }: {
   children: React.ReactNode;
   className?: string;
+  id?: string;
 }) {
   return (
     <div
+      id={id}
       className={clsx(
         "flex min-h-12 items-center justify-between gap-x-4 px-4 py-2.5",
         className,
@@ -299,8 +650,6 @@ interface SystemInfo {
   os: string;
   architecture: string;
   language: string;
-  cores: string;
-  memory: string;
   screen: string;
   userAgent: string;
 }
@@ -322,13 +671,6 @@ function collectSystemInfo(isTauri: boolean): SystemInfo {
     os,
     architecture,
     language: nav?.language || "Unknown",
-    cores: nav?.hardwareConcurrency
-      ? String(nav.hardwareConcurrency)
-      : "Unknown",
-    memory:
-      (nav as any)?.deviceMemory != null
-        ? `${(nav as any).deviceMemory} GB`
-        : "Unknown",
     screen,
     userAgent: nav?.userAgent || "Unknown",
   };
@@ -343,13 +685,6 @@ export default function Settings() {
     simulateDownload,
   } = useDownloads() as any;
   const kbValue = speedLimitKB;
-  const [retainLibraryPrefs, setRetainLibraryPrefs] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(RETAIN_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
   const [analyticsConsent, setAnalyticsConsent] = useState<boolean>(() => {
     return isAnalyticsEnabled();
   });
@@ -366,6 +701,19 @@ export default function Settings() {
       return false;
     }
   });
+  const [minimizeOnGameLaunch, setMinimizeOnGameLaunch] = useState<boolean>(
+    () => {
+      try {
+        return localStorage.getItem(MINIMIZE_ON_GAME_LAUNCH_KEY) === "1";
+      } catch {
+        return false;
+      }
+    },
+  );
+  const [alwaysShowLaunchLogs, setAlwaysShowLaunchLogs] =
+    useState<boolean>(false);
+  const [verboseDiagnostics, setVerboseDiagnostics] =
+    useState<boolean>(false);
   const [autoExtract, setAutoExtract] = useState<boolean>(() => {
     try {
       return localStorage.getItem(AUTO_EXTRACT_KEY) === "1";
@@ -388,8 +736,14 @@ export default function Settings() {
     }
   });
   const isTauri = isTauriApp();
+  const isDesktopApp = isTauriDesktop();
+  const isLinux =
+    isTauri &&
+    typeof navigator !== "undefined" &&
+    navigator.userAgent.includes("Linux");
   const systemInfo = collectSystemInfo(isTauri);
   const { ignoreList, setIgnoreList } = useIgnoreList();
+  const [winePrefixBase, setWinePrefixBase] = useState<string | null>(null);
   const { forceOffline, setForceOffline } = useOnlineStatus();
   const { showAlert } = useAlertDialog();
   const {
@@ -413,9 +767,84 @@ export default function Settings() {
     null,
   );
   useEffect(() => {
-    const section = searchParams.get("section") as SettingsCategory | null;
+    const raw = searchParams.get("section");
+    // Map legacy section names to the reorganized categories so old
+    // deep links (e.g. `?section=desktop`) keep working.
+    const legacy: Record<string, SettingsCategory> = {
+      desktop: "startup",
+      general: "startup",
+      library: "downloads",
+      ignore: "games",
+    };
+    const section = (raw && legacy[raw]) || (raw as SettingsCategory | null);
     setActiveCategory(section && section in CATEGORY_META ? section : null);
   }, [searchParams]);
+  // Settings search: free-text query, the matched settings, and the target we
+  // scroll/highlight to when a result is chosen.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [scrollToSetting, setScrollToSetting] = useState<string | null>(null);
+  const [highlightedSetting, setHighlightedSetting] = useState<string | null>(
+    null,
+  );
+
+  const trimmedQuery = searchQuery.trim().toLowerCase();
+  const platformFlags = { isTauri, isDesktopApp, isLinux };
+  // On the web build, desktop-only settings don't exist, so never suggest them.
+  const searchableSettings = filterSearchableSettings(
+    SETTINGS_SEARCH_INDEX,
+    platformFlags,
+  );
+  const searchResults = searchSettings(
+    SETTINGS_SEARCH_INDEX,
+    searchQuery,
+    platformFlags,
+  );
+
+  // Categories that contain at least one matching setting, shown while
+  // searching so the user can still jump straight to a whole area.
+  const searchResultCategories = searchResultCategoriesFn(searchResults);
+
+  const isSearching = trimmedQuery.length > 0;
+
+  const openSearchResult = (result: SearchableSetting) => {
+    setActiveCategory(result.category);
+    setScrollToSetting(result.id);
+    setHighlightedSetting(result.id);
+    setSearchQuery("");
+  };
+
+  /** Subtle flash used when a search result scrolls a setting into view. */
+  const rowHighlight = (searchableId: string) =>
+    highlightedSetting === searchableId ? "bg-gv-accent/10" : "";
+
+  // When a search result opens a category, wait for it to render, then scroll
+  // the target setting into view and flash a highlight ring around it.
+  useEffect(() => {
+    if (!activeCategory || !scrollToSetting) return;
+    const id = `setting-${scrollToSetting}`;
+    const timer = window.setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      window.setTimeout(() => setHighlightedSetting(null), 1600);
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [activeCategory, scrollToSetting]);
+
+  // ESC exits a drilled-in settings category back to the all-settings view.
+  // Open Headless UI overlays and editable inputs handle their own Escape
+  // first, so those take precedence over leaving the category.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (hasOpenOverlay() || isEditableTarget(event)) return;
+      setActiveCategory((current) => (current !== null ? null : current));
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const [licensesOpen, setLicensesOpen] = useState(false);
   const [licenseData, setLicenseData] = useState<LicensesData | null>(null);
   const [expandedLicense, setExpandedLicense] = useState<string | null>(null);
@@ -433,13 +862,35 @@ export default function Settings() {
   const [editingRootId, setEditingRootId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState("");
 
+  // ── Rendering / GPU / display diagnostics + WebKitGTK settings ────────
+  const [renderingDiagnostics, setRenderingDiagnostics] =
+    useState<RenderingDiagnostics | null>(null);
+  const [webkitSmoothScroll, setWebkitSmoothScroll] = useState(true);
+  const [webkitHwAccel, setWebkitHwAccel] = useState("OnDemand");
+  const [webkitSupported, setWebkitSupported] = useState(false);
+
+  // Load rendering diagnostics when the About category is open (it shows the
+  // system diagnostics), and also when Appearance is open (it shows the
+  // WebKitGTK rendering toggles).
+  const renderingCategoryActive =
+    activeCategory === "about" || activeCategory === "appearance";
   useEffect(() => {
-    try {
-      localStorage.setItem(RETAIN_KEY, retainLibraryPrefs ? "1" : "0");
-    } catch {
-      console.warn("Failed to persist retain library prefs");
-    }
-  }, [retainLibraryPrefs]);
+    if (!renderingCategoryActive) return;
+    let cancelled = false;
+    (async () => {
+      const diag = await getRenderingDiagnostics();
+      if (cancelled) return;
+      setRenderingDiagnostics(diag);
+      if (diag.webkit) {
+        setWebkitSupported(true);
+        setWebkitSmoothScroll(diag.webkit.smooth_scroll);
+        setWebkitHwAccel(diag.webkit.hardware_acceleration_policy);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [renderingCategoryActive]);
 
   // Initialize autostart state from the Tauri plugin
   useEffect(() => {
@@ -453,6 +904,24 @@ export default function Settings() {
       } catch (e) {
         console.error("Failed to check autostart status:", e);
         if (!cancelled) setAutostartEnabled(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTauri]);
+
+  // Load the Wine/Proton prefix base directory from the Rust backend config.
+  useEffect(() => {
+    if (!isTauri || !isLinux) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const value = await invoke<string | null>("get_default_wine_prefix");
+        if (!cancelled) setWinePrefixBase(value ?? null);
+      } catch (e) {
+        console.error("Failed to load default Wine prefix:", e);
       }
     })();
     return () => {
@@ -481,6 +950,99 @@ export default function Settings() {
       console.warn("Failed to persist start minimized preference");
     }
   }, [startMinimized]);
+
+  // Sync minimizeOnGameLaunch to the Rust backend config file
+  useEffect(() => {
+    if (!isTauri) return;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("set_minimize_on_game_launch", {
+          minimizeOnLaunch: minimizeOnGameLaunch,
+        });
+      } catch (e) {
+        console.error("Failed to sync minimize on game launch preference:", e);
+      }
+    })();
+  }, [minimizeOnGameLaunch, isTauri]);
+
+  // Persist minimizeOnGameLaunch to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        MINIMIZE_ON_GAME_LAUNCH_KEY,
+        minimizeOnGameLaunch ? "1" : "0",
+      );
+    } catch {
+      console.warn("Failed to persist minimize on game launch preference");
+    }
+  }, [minimizeOnGameLaunch]);
+
+  // Load and persist the "always show launch logs" setting (desktop only).
+  useEffect(() => {
+    if (!isTauri) return;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        setAlwaysShowLaunchLogs(
+          await invoke<boolean>("get_always_show_launch_logs"),
+        );
+      } catch (e) {
+        console.error("Failed to load launch log preference:", e);
+      }
+    })();
+  }, [isTauri]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("set_always_show_launch_logs", {
+          enabled: alwaysShowLaunchLogs,
+        });
+      } catch (e) {
+        console.error("Failed to sync launch log preference:", e);
+      }
+    })();
+  }, [alwaysShowLaunchLogs, isTauri]);
+
+  // Load and persist the verbose diagnostics logging setting (desktop only).
+  // The stored value must be read before the sync effect may write, otherwise
+  // the initial `false` state would overwrite it.
+  const diagnosticsLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!isTauri) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const stored = await invoke<boolean>("get_diagnostics_verbose");
+        if (!cancelled) setVerboseDiagnostics(stored);
+      } catch (e) {
+        console.error("Failed to load diagnostics logging preference:", e);
+      } finally {
+        diagnosticsLoadedRef.current = true;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTauri]);
+
+  useEffect(() => {
+    if (!isTauri || !diagnosticsLoadedRef.current) return;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("set_diagnostics_verbose", {
+          enabled: verboseDiagnostics,
+        });
+      } catch (e) {
+        console.error("Failed to sync diagnostics logging preference:", e);
+      }
+    })();
+  }, [verboseDiagnostics, isTauri]);
 
   // Persist auto-flow settings to localStorage
   useEffect(() => {
@@ -579,6 +1141,16 @@ export default function Settings() {
     setRootPaths(updated);
   };
 
+  const handleOpenRootPath = async (root: RootPathEntry) => {
+    if (!isTauri) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_in_file_explorer", { path: root.path });
+    } catch (error) {
+      console.error("Failed to open download folder:", error);
+    }
+  };
+
   const handleLabelChange = (id: string, label: string) => {
     const updated = updateRootPathLabel(id, label);
     setRootPaths(updated);
@@ -619,6 +1191,69 @@ export default function Settings() {
     await setIgnoreList(ignoreList.filter((existing) => existing !== name));
   };
 
+  const persistWinePrefix = async (value: string | null) => {
+    if (!isTauri) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_default_wine_prefix", { prefix: value });
+    } catch (e) {
+      console.error("Failed to save default Wine prefix:", e);
+    }
+  };
+
+  const handleSelectWinePrefix = async () => {
+    if (!isTauri) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Wine/Proton Prefix Directory",
+      });
+      if (selected && typeof selected === "string") {
+        setWinePrefixBase(selected);
+        await persistWinePrefix(selected);
+      }
+    } catch (error) {
+      console.error("Error selecting Wine prefix directory:", error);
+    }
+  };
+
+  const handleClearWinePrefix = async () => {
+    setWinePrefixBase(null);
+    await persistWinePrefix(null);
+  };
+
+  const handleClearImageCache = async () => {
+    const confirmed = await showAlert({
+      title: "Clear image cache?",
+      description:
+        "This removes all cached game covers and background images. They will be re-downloaded from your server the next time they're shown.",
+      affirmativeText: "Clear cache",
+      negativeText: "Cancel",
+      tone: "warning",
+    });
+    if (!confirmed) return;
+
+    try {
+      const removed = await clearImageCache();
+      await showAlert({
+        title: "Image cache cleared",
+        description:
+          removed > 0
+            ? `Removed ${removed} cached image${removed === 1 ? "" : "s"}.`
+            : "No cached images were found.",
+        tone: "success",
+      });
+    } catch {
+      await showAlert({
+        title: "Failed to clear cache",
+        description: "Something went wrong while clearing the image cache.",
+        tone: "danger",
+      });
+    }
+  };
+
   const handleCopySettingsDump = async () => {
     const settings: Record<string, string | null> = {};
     try {
@@ -632,12 +1267,23 @@ export default function Settings() {
     } catch {
       // localStorage unavailable
     }
+    let logPath: string | null = null;
+    if (isTauri) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        logPath = await invoke<string | null>("get_diagnostics_log_path");
+      } catch {
+        // Older builds may not expose the log path.
+      }
+    }
     const dump = JSON.stringify(
       {
         generatedAt: new Date().toISOString(),
         platform: isTauri ? "desktop" : "web",
         version: __APP_VERSION__,
         system: systemInfo,
+        rendering: await getRenderingDiagnostics().catch(() => null),
+        appLogPath: logPath,
         settings,
       },
       null,
@@ -674,6 +1320,94 @@ export default function Settings() {
       }
     }
   };
+
+  const handleOpenDevTools = async () => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_devtools");
+    } catch (e) {
+      console.error("Failed to open DevTools", e);
+      await showAlert({
+        title: "Couldn't open DevTools",
+        description: "DevTools are only available in desktop builds.",
+        tone: "warning",
+      });
+    }
+  };
+
+  const handleSetWebkitSmoothScroll = async (value: boolean) => {
+    if (!webkitSupported) return;
+    const previous = webkitSmoothScroll;
+    setWebkitSmoothScroll(value);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_webkit_smooth_scrolling", { enabled: value });
+      setRenderingDiagnostics((d) =>
+        d?.webkit ? { ...d, webkit: { ...d.webkit, smooth_scroll: value } } : d,
+      );
+    } catch (error) {
+      console.error("Failed to set WebKit smooth scrolling", error);
+      setWebkitSmoothScroll(previous);
+    }
+  };
+
+  const handleSetWebkitHwAccel = async (value: string) => {
+    if (!webkitSupported) return;
+    const previous = webkitHwAccel;
+    setWebkitHwAccel(value);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_webkit_hardware_acceleration_policy", {
+        policy: value,
+      });
+      setRenderingDiagnostics((d) =>
+        d?.webkit
+          ? {
+              ...d,
+              webkit: { ...d.webkit, hardware_acceleration_policy: value },
+            }
+          : d,
+      );
+    } catch (error) {
+      console.error("Failed to set WebKit hardware acceleration policy", error);
+      setWebkitHwAccel(previous);
+    }
+  };
+
+  const osLabel = (() => {
+    const os = renderingDiagnostics?.os;
+    if (!os) return "Loading…";
+    const base =
+      os.long_os_version || `${os.name} ${os.os_version}`.trim() || os.name;
+    return `${base} (${os.arch})`;
+  })();
+  const displayLabel = renderingDiagnostics
+    ? formatDisplayLabel(renderingDiagnostics.display)
+    : "Loading…";
+  const monitorsLabel = renderingDiagnostics
+    ? formatMonitorsLabel(renderingDiagnostics.monitors ?? [])
+    : "Loading…";
+  const gpuLabel = (() => {
+    const gl = renderingDiagnostics?.webgl;
+    if (gl == null) return "Loading…";
+    if (!gl.supported) return "Unavailable";
+    return `${gl.renderer ?? "Unknown"}${gl.webgl2 ? " · WebGL2" : " · WebGL1"}`;
+  })();
+  const webgpuLabel = (() => {
+    const wgpu = renderingDiagnostics?.webgpu;
+    if (wgpu == null) return "Loading…";
+    if (!wgpu.supported) return "Unavailable";
+    const parts = [
+      wgpu.vendor,
+      wgpu.architecture,
+      wgpu.description,
+      wgpu.device,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" · ") : "Available";
+  })();
+  const cpuMemoryLabel = renderingDiagnostics
+    ? formatCpuMemoryLabel(renderingDiagnostics.system)
+    : "Loading…";
 
   const ignoreQuery = ignoreSearch.trim().toLowerCase();
   const filteredIgnoreList = ignoreQuery
@@ -748,18 +1482,25 @@ export default function Settings() {
   }, []);
 
   // Flat category list (no group captions); desktop-only entries stay hidden for web users.
+  // Category nav order; desktop-only General leads, Developer sits at the end.
+  // Ordered most → least used by a typical user. Desktop-only categories are
+  // interleaved; on web the desktop ones simply drop out.
   const navCategories: SettingsCategory[] = [
-    "downloads",
-    "library",
-    "privacy",
     "appearance",
     "sound",
-    ...(isTauri ? (["desktop", "ignore"] as SettingsCategory[]) : []),
+    "downloads",
+    ...(isTauri ? (["games", "startup"] as SettingsCategory[]) : []),
+    "privacy",
+    "about",
     ...(import.meta.env.DEV || devToolsUnlocked
       ? (["developer"] as SettingsCategory[])
       : []),
-    "about",
   ];
+
+  // During search, present categories in the same order as the nav list.
+  const orderedSearchCategories = navCategories.filter((c) =>
+    searchResultCategories.includes(c),
+  );
 
   const renderCategoryRow = (id: SettingsCategory, index: number) => {
     const meta = CATEGORY_META[id];
@@ -815,11 +1556,12 @@ export default function Settings() {
   return (
     <MotionConfig reducedMotion="user">
       <div className="flex min-h-full flex-col gap-6">
+        {activeCategory !== null && (
+          <BackButton onClick={() => setActiveCategory(null)} />
+        )}
         <div className="space-y-2">
           <Heading>Settings</Heading>
-          <Text className="max-w-2xl">
-            Everything you need to customize GameVault, all in one place.
-          </Text>
+          <Text className="max-w-2xl">Tune GameVault to your liking.</Text>
         </div>
         <Divider className="border-gv-line/80" />
 
@@ -835,8 +1577,104 @@ export default function Settings() {
                 className="space-y-6"
               >
                 <SettingsGroup>
-                  {navCategories.map(renderCategoryRow)}
+                  <SettingsRow>
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <InputGroup>
+                          <MagnifyingGlassIcon data-slot="icon" />
+                          <Input
+                            type="search"
+                            value={searchQuery}
+                            onChange={(e: any) =>
+                              setSearchQuery(e.target.value)
+                            }
+                            onKeyDown={(e: any) => {
+                              if (e.key === "Escape") {
+                                setSearchQuery("");
+                              }
+                            }}
+                            placeholder="Search settings…"
+                            aria-label="Search settings"
+                          />
+                        </InputGroup>
+                      </div>
+                      {isSearching && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery("")}
+                          className="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-gv-panel-soft hover:text-gv-text"
+                          aria-label="Clear settings search"
+                        >
+                          <XMarkIcon className="size-4" />
+                        </button>
+                      )}
+                    </div>
+                  </SettingsRow>
                 </SettingsGroup>
+
+                {isSearching ? (
+                  <>
+                    <SettingsGroup
+                      caption="Results"
+                      description={
+                        searchResults.length > 0
+                          ? `${searchResults.length} setting${searchResults.length === 1 ? "" : "s"} matching “${searchQuery.trim()}”.`
+                          : undefined
+                      }
+                    >
+                      {searchResults.length === 0 ? (
+                        <SettingsRow>
+                          <div className="flex items-center gap-2 text-sm text-gv-muted">
+                            <MagnifyingGlassIcon className="size-4 shrink-0" />
+                            No settings match “{searchQuery.trim()}”. Try a
+                            different keyword.
+                          </div>
+                        </SettingsRow>
+                      ) : (
+                        searchResults.map((result, i) => (
+                          <motion.button
+                            key={result.id}
+                            type="button"
+                            onClick={() => openSearchResult(result)}
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{
+                              delay: 0.02 + i * 0.02,
+                              duration: 0.16,
+                              ease: [0.23, 1, 0.32, 1],
+                            }}
+                            className="group flex min-h-12 w-full cursor-pointer items-center justify-between gap-x-4 px-4 py-2.5 text-left transition-colors hover:bg-gv-panel-soft"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-gv-text">
+                                {result.title}
+                              </p>
+                              {result.description && (
+                                <p className="mt-0.5 text-xs leading-5 text-gv-muted">
+                                  {result.description}
+                                </p>
+                              )}
+                              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-gv-accent">
+                                {CATEGORY_META[result.category].label}
+                              </p>
+                            </div>
+                            <ChevronRightIcon className="size-4 shrink-0 text-gv-muted transition-transform group-hover:translate-x-0.5" />
+                          </motion.button>
+                        ))
+                      )}
+                    </SettingsGroup>
+
+                    {searchResultCategories.length > 0 && (
+                      <SettingsGroup caption="Areas">
+                        {orderedSearchCategories.map(renderCategoryRow)}
+                      </SettingsGroup>
+                    )}
+                  </>
+                ) : (
+                  <SettingsGroup>
+                    {navCategories.map(renderCategoryRow)}
+                  </SettingsGroup>
+                )}
               </motion.div>
             ) : (
               <motion.div
@@ -847,15 +1685,6 @@ export default function Settings() {
                 transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
                 className="space-y-6"
               >
-                {/* Back to the settings overview (iOS drill-down) */}
-                <button
-                  type="button"
-                  onClick={() => setActiveCategory(null)}
-                  className="inline-flex cursor-pointer items-center gap-1 rounded-lg py-1 pr-2 text-sm font-medium text-gv-accent transition-colors hover:text-gv-accent-strong"
-                >
-                  <ChevronLeftIcon className="size-4" />
-                  Settings
-                </button>
                 {activeCategory === "downloads" && (
                   <>
                     <SettingsSectionHeader
@@ -866,6 +1695,8 @@ export default function Settings() {
 
                     {isTauri && (
                       <SettingsGroup
+                        id="setting-downloads-locations"
+                        className={rowHighlight("downloads-locations")}
                         caption="Download locations"
                         description="A GameVault subfolder is created inside each location automatically."
                       >
@@ -935,6 +1766,16 @@ export default function Settings() {
                                   type="button"
                                   color="zinc"
                                   className="text-xs"
+                                  onClick={() => void handleOpenRootPath(root)}
+                                  title="Open this folder"
+                                >
+                                  <FolderOpenIcon className="size-3.5" />
+                                  Open
+                                </Button>
+                                <Button
+                                  type="button"
+                                  color="zinc"
+                                  className="text-xs"
                                   onClick={() => handleBrowseRootPath(root.id)}
                                 >
                                   <FolderArrowDownIcon className="size-3.5" />
@@ -964,7 +1805,11 @@ export default function Settings() {
                       </SettingsGroup>
                     )}
 
-                    <SettingsGroup caption="Download speed">
+                    <SettingsGroup
+                      id="setting-downloads-speed-limit"
+                      className={rowHighlight("downloads-speed-limit")}
+                      caption="Download speed"
+                    >
                       <SettingsRow>
                         <SettingsLabel
                           title="Download speed limit"
@@ -976,7 +1821,10 @@ export default function Settings() {
 
                     {isTauri && (
                       <SettingsGroup caption="After downloading">
-                        <SettingsRow>
+                        <SettingsRow
+                          id="setting-downloads-auto-extract"
+                          className={rowHighlight("downloads-auto-extract")}
+                        >
                           <SettingsLabel
                             title="Auto-Extract Downloads"
                             description="Unpack archives right after downloading."
@@ -989,10 +1837,13 @@ export default function Settings() {
                             onChange={(v: boolean) => setAutoExtract(v)}
                           />
                         </SettingsRow>
-                        <SettingsRow>
+                        <SettingsRow
+                          id="setting-downloads-auto-install"
+                          className={rowHighlight("downloads-auto-install")}
+                        >
                           <SettingsLabel
                             title="Auto-Install Games"
-                            description="Start installers or copy portable files automatically."
+                            description="Start installers or copy game files automatically after extraction, and make any files that need it executable."
                           />
                           <Switch
                             name="autoInstall"
@@ -1002,150 +1853,61 @@ export default function Settings() {
                             onChange={(v: boolean) => setAutoInstall(v)}
                           />
                         </SettingsRow>
-                        <SettingsRow>
+                        <SettingsRow
+                          id="setting-downloads-auto-delete-source"
+                          className={rowHighlight(
+                            "downloads-auto-delete-source",
+                          )}
+                        >
                           <SettingsLabel
                             title="Auto-Delete Source Files"
-                            description="Clean up downloads after installation to free up space."
+                            description="Clean up downloaded and extracted files after installation to free up space."
                           />
                           <Switch
                             name="autoDeleteSource"
                             color="indigo"
-                            aria-label="Delete downloaded and extracted files after portable game install"
+                            aria-label="Delete downloaded and extracted files after game installation"
                             checked={autoDeleteSource}
                             onChange={(v: boolean) => setAutoDeleteSource(v)}
                           />
                         </SettingsRow>
                       </SettingsGroup>
                     )}
-                  </>
-                )}
 
-                {activeCategory === "library" && (
-                  <>
-                    <SettingsSectionHeader
-                      icon={QueueListIcon}
-                      title="Library"
-                      description="Settings that shape your game library."
-                    />
-                    <SettingsGroup>
+                    <SettingsGroup
+                      id="setting-downloads-clear-image-cache"
+                      className={rowHighlight("downloads-clear-image-cache")}
+                      caption="Storage"
+                    >
                       <SettingsRow>
                         <SettingsLabel
-                          title="Retain sorting and filter preferences"
-                          description="Keep your sort order and filters across sessions and restarts."
-                        />
-                        <Switch
-                          name="retainLibraryPrefs"
-                          color="indigo"
-                          aria-label="Retain Library sorting and filter preferences"
-                          checked={retainLibraryPrefs}
-                          onChange={(v: boolean) => setRetainLibraryPrefs(v)}
-                        />
-                      </SettingsRow>
-                    </SettingsGroup>
-                  </>
-                )}
-
-                {activeCategory === "privacy" && (
-                  <>
-                    <SettingsSectionHeader
-                      icon={ShieldCheckIcon}
-                      title="Privacy & Analytics"
-                      description="Decide what information GameVault shares."
-                    />
-                    <SettingsGroup>
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Send anonymous usage analytics"
-                          description={`We collect anonymous data about how you use GameVault, like which features you use and whether errors occur. This helps us understand what to improve. No personal information is ever collected. Changes take effect after ${isTauri ? "restarting the app" : "reloading"}.`}
-                        />
-                        <Switch
-                          name="analyticsConsent"
-                          color="indigo"
-                          aria-label="Enable anonymous usage analytics"
-                          checked={analyticsConsent}
-                          onChange={(v: boolean) => {
-                            setAnalyticsEnabled(v);
-                            setAnalyticsConsent(v);
-                          }}
-                        />
-                      </SettingsRow>
-                    </SettingsGroup>
-                  </>
-                )}
-
-                {activeCategory === "appearance" && (
-                  <>
-                    <SettingsSectionHeader
-                      icon={SwatchIcon}
-                      title="Appearance"
-                      description="Customize how GameVault looks on your device."
-                    />
-                    <SettingsGroup>
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Theme"
-                          description="Choose between light, dark, or follow your device settings."
-                        />
-                        <div className="w-40 shrink-0">
-                          <ThemeSelect />
-                        </div>
-                      </SettingsRow>
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Zoom"
-                          description="Zoom the interface in or out."
-                        />
-                        <div className="w-44 shrink-0">
-                          <ZoomControl />
-                        </div>
-                      </SettingsRow>
-                    </SettingsGroup>
-                  </>
-                )}
-
-                {activeCategory === "sound" && (
-                  <>
-                    <SettingsSectionHeader
-                      icon={SpeakerWaveIcon}
-                      title="Sound"
-                      description="Control volume for GameVault sound effects."
-                    />
-                    <SettingsGroup>
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Volume"
-                          description="Adjust the master volume of GameVault sounds. Click the speaker to mute."
-                        />
-                        <div className="w-44 shrink-0">
-                          <VolumeControl />
-                        </div>
-                      </SettingsRow>
-                      <SettingsRow>
-                        <SettingsLabel
-                          title="Test sound"
-                          description="Play a preview at the current volume."
+                          title="Clear image cache"
+                          description="Remove all cached game covers and background images so they're re-downloaded from your server."
                         />
                         <Button
-                          color="zinc"
-                          onClick={() => void playSound("pop")}
-                          className="shrink-0"
+                          outline
+                          onClick={() => void handleClearImageCache()}
                         >
-                          <SpeakerWaveIcon className="h-4 w-4" aria-hidden="true" />
-                          Play
+                          <TrashIcon className="size-4" />
+                          Clear cache
                         </Button>
                       </SettingsRow>
                     </SettingsGroup>
                   </>
                 )}
 
-                {activeCategory === "desktop" && isTauri && (
+                {activeCategory === "startup" && isTauri && (
                   <>
                     <SettingsSectionHeader
                       icon={ComputerDesktopIcon}
                       title="Startup"
-                      description="How GameVault starts and behaves at launch."
+                      description="How GameVault starts with your computer."
                     />
-                    <SettingsGroup caption="On startup">
+                    <SettingsGroup
+                      id="setting-startup-autostart"
+                      className={rowHighlight("startup-autostart")}
+                      caption="On login"
+                    >
                       <SettingsRow>
                         <SettingsLabel
                           title="Launch GameVault on Computer Startup"
@@ -1176,6 +1938,13 @@ export default function Settings() {
                           }}
                         />
                       </SettingsRow>
+                    </SettingsGroup>
+
+                    <SettingsGroup
+                      id="setting-startup-start-minimized"
+                      className={rowHighlight("startup-start-minimized")}
+                      caption="Window"
+                    >
                       <SettingsRow>
                         <SettingsLabel
                           title="Minimize GameVault to System Tray on Startup"
@@ -1194,19 +1963,44 @@ export default function Settings() {
                   </>
                 )}
 
-                {activeCategory === "ignore" && isTauri && (
+                {activeCategory === "games" && isTauri && (
                   <>
                     <SettingsSectionHeader
-                      icon={EyeSlashIcon}
-                      title="Ignore List"
-                      description="Manage the list of files GameVault ignores."
+                      icon={GamepadIcon}
+                      title="Games"
+                      description="How GameVault behaves when you play games."
                     />
-                    <SettingsGroup caption="Hidden executables">
+                    <SettingsGroup
+                      id="setting-games-minimize-on-launch"
+                      className={rowHighlight("games-minimize-on-launch")}
+                      caption="While playing"
+                    >
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Minimize GameVault when launching a game"
+                          description="Hide GameVault to the system tray while a game is running and bring it back when the game quits."
+                        />
+                        <Switch
+                          name="minimizeOnGameLaunch"
+                          color="indigo"
+                          aria-label="Minimize GameVault when launching a game"
+                          checked={minimizeOnGameLaunch}
+                          onChange={(v: boolean) => setMinimizeOnGameLaunch(v)}
+                        />
+                      </SettingsRow>
+                    </SettingsGroup>
+
+                    <SettingsGroup
+                      id="setting-games-ignore-list"
+                      className={rowHighlight("games-ignore-list")}
+                      caption="Ignored executables"
+                      description="Names of installers or helper tools (e.g. setup) to skip, so they're not offered as a launch option and not counted as playtime. Enter the name without its file extension."
+                    >
                       {ignoreList.length === 0 && (
                         <SettingsRow>
                           <div className="flex items-center gap-2 text-sm text-gv-muted">
                             <EyeSlashIcon className="size-4 shrink-0" />
-                            No files hidden yet. Add one below.
+                            No executables ignored yet. Add one below.
                           </div>
                         </SettingsRow>
                       )}
@@ -1275,7 +2069,7 @@ export default function Settings() {
                             }}
                             placeholder="e.g. setup"
                             className="min-w-0 flex-1"
-                            aria-label="Executable name to ignore"
+                            aria-label="Executable name to ignore (without file extension)"
                           />
                           <Button
                             type="button"
@@ -1289,6 +2083,267 @@ export default function Settings() {
                         </div>
                       </SettingsRow>
                     </SettingsGroup>
+
+                    <SettingsGroup
+                      id="setting-games-launch-logs"
+                      className={rowHighlight("games-launch-logs")}
+                      caption="Launch logs"
+                    >
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Always show launch logs"
+                          description="Open a log window automatically when a game starts, showing the full output (Proton/Wine/umu included). Logs are always recorded — a failed launch opens them regardless of this setting."
+                        />
+                        <Switch
+                          name="alwaysShowLaunchLogs"
+                          color="indigo"
+                          aria-label="Always show launch logs"
+                          checked={alwaysShowLaunchLogs}
+                          onChange={(v: boolean) => setAlwaysShowLaunchLogs(v)}
+                        />
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Launch logs"
+                          description="Open the log window for the current (or last) launch, or browse earlier logs."
+                        />
+                        <Button
+                          type="button"
+                          color="indigo"
+                          className="shrink-0 px-3"
+                          onClick={async () => {
+                            try {
+                              await openLaunchLogWindow();
+                            } catch (e) {
+                              console.error("Failed to open launch log", e);
+                            }
+                          }}
+                        >
+                          Open
+                        </Button>
+                      </SettingsRow>
+                    </SettingsGroup>
+
+                    {isLinux && (
+                      <SettingsGroup
+                        id="setting-games-wine-prefix"
+                        className={rowHighlight("games-wine-prefix")}
+                        caption="Wine / Proton"
+                        description="Where umu-launcher stores Wine/Proton prefixes for Windows games. Each game gets its own isolated subfolder, so the OS root drive stays clean."
+                      >
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Prefix Base Directory"
+                            description="GameVault creates a separate prefix subfolder per game inside this folder, named like the game's install folder. Leave empty for GameVault's default location (~/.local/share/GameVault/prefixes)."
+                          />
+                          <Button
+                            outline
+                            onClick={() => void handleSelectWinePrefix()}
+                          >
+                            <FolderOpenIcon className="size-4" />
+                            Choose folder
+                          </Button>
+                        </SettingsRow>
+                        {winePrefixBase && (
+                          <SettingsRow>
+                            <div className="flex min-w-0 flex-1 items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate text-sm text-gv-muted">
+                                {winePrefixBase}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void handleClearWinePrefix()}
+                                className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                                aria-label="Clear Wine/Proton prefix directory"
+                              >
+                                <XMarkIcon className="size-4" />
+                              </button>
+                            </div>
+                          </SettingsRow>
+                        )}
+                      </SettingsGroup>
+                    )}
+                  </>
+                )}
+
+                {activeCategory === "privacy" && (
+                  <>
+                    <SettingsSectionHeader
+                      icon={ShieldCheckIcon}
+                      title="Privacy"
+                      description="Your data stays yours. Here's what GameVault sends."
+                    />
+                    <SettingsGroup>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Help improve GameVault"
+                          description={`We'd like to send a few anonymous usage stats — which features you use and whether something goes wrong — so we know what to fix. Nothing personal, no game names, no IP-tracked browsing. It just helps us improve the app. You can turn it off anytime. Changes take effect after ${isTauri ? "restarting the app" : "reloading"}.`}
+                        />
+                        <Switch
+                          name="analyticsConsent"
+                          color="indigo"
+                          aria-label="Help improve GameVault with anonymous usage analytics"
+                          checked={analyticsConsent}
+                          onChange={(v: boolean) => {
+                            setAnalyticsEnabled(v);
+                            setAnalyticsConsent(v);
+                          }}
+                        />
+                      </SettingsRow>
+                    </SettingsGroup>
+                  </>
+                )}
+
+                {activeCategory === "appearance" && (
+                  <>
+                    <SettingsSectionHeader
+                      icon={SwatchIcon}
+                      title="Appearance"
+                      description="How GameVault looks."
+                    />
+                    <SettingsGroup
+                      id="setting-appearance-theme"
+                      className={rowHighlight("appearance-theme")}
+                    >
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Theme"
+                          description="Choose between light, dark, or follow your device settings."
+                        />
+                        <div className="w-40 shrink-0">
+                          <ThemeSelect />
+                        </div>
+                      </SettingsRow>
+                    </SettingsGroup>
+
+                    <SettingsGroup
+                      id="setting-appearance-zoom"
+                      className={rowHighlight("appearance-zoom")}
+                    >
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Zoom"
+                          description="Zoom the interface in or out."
+                        />
+                        <div className="w-44 shrink-0">
+                          <ZoomControl />
+                        </div>
+                      </SettingsRow>
+                    </SettingsGroup>
+
+                    <SettingsGroup
+                      id="setting-appearance-streamer-mode"
+                      className={rowHighlight("appearance-streamer-mode")}
+                    >
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Streamer / OPSEC Mode"
+                          description="Replaces user names, emails and the server URL with funny placeholder text so your stream capture never leaks real identities or your server address. Tip: press Ctrl/Cmd+Shift+O to toggle it from anywhere."
+                        />
+                        <div className="shrink-0">
+                          <StreamerModeToggle />
+                        </div>
+                      </SettingsRow>
+                    </SettingsGroup>
+
+                    {webkitSupported && renderingDiagnostics?.webkit && (
+                      <SettingsGroup
+                        id="setting-rendering-smooth-scroll"
+                        className={clsx(
+                          rowHighlight("rendering-smooth-scroll"),
+                          rowHighlight("rendering-hw-accel"),
+                        )}
+                        caption="Rendering"
+                      >
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Smooth Scrolling"
+                            description="WebKitGTK smooth-scroll animation. Disable if scrolling feels delayed or queued."
+                          />
+                          <Switch
+                            name="webkitSmoothScroll"
+                            color="indigo"
+                            aria-label="WebKitGTK smooth scrolling"
+                            checked={webkitSmoothScroll}
+                            onChange={(v: boolean) =>
+                              void handleSetWebkitSmoothScroll(v)
+                            }
+                          />
+                        </SettingsRow>
+                        <SettingsRow id="setting-rendering-hw-accel">
+                          <SettingsLabel
+                            title="Hardware Acceleration"
+                            description="WebKitGTK hardware acceleration policy. Only takes effect after restarting the app."
+                          />
+                          <div className="w-36 shrink-0">
+                            <Listbox
+                              name="webkitHwAccel"
+                              value={webkitHwAccel}
+                              onChange={(v) =>
+                                void handleSetWebkitHwAccel(String(v))
+                              }
+                            >
+                              <ListboxOption value="Never">
+                                <ListboxLabel>Never</ListboxLabel>
+                              </ListboxOption>
+                              <ListboxOption value="OnDemand">
+                                <ListboxLabel>On-demand</ListboxLabel>
+                              </ListboxOption>
+                              <ListboxOption value="Always">
+                                <ListboxLabel>Always</ListboxLabel>
+                              </ListboxOption>
+                            </Listbox>
+                          </div>
+                        </SettingsRow>
+                      </SettingsGroup>
+                    )}
+                  </>
+                )}
+
+                {activeCategory === "sound" && (
+                  <>
+                    <SettingsSectionHeader
+                      icon={SpeakerWaveIcon}
+                      title="Sound"
+                      description="GameVault sound effects and volume."
+                    />
+                    <SettingsGroup
+                      id="setting-sound-volume"
+                      className={rowHighlight("sound-volume")}
+                    >
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Volume"
+                          description="Adjust the master volume of GameVault sounds. Click the speaker to mute."
+                        />
+                        <div className="w-44 shrink-0">
+                          <VolumeControl />
+                        </div>
+                      </SettingsRow>
+                    </SettingsGroup>
+
+                    <SettingsGroup
+                      id="setting-sound-test"
+                      className={rowHighlight("sound-test")}
+                    >
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Test sound"
+                          description="Play a preview at the current volume."
+                        />
+                        <Button
+                          color="zinc"
+                          onClick={() => void playSound("pop")}
+                          className="shrink-0"
+                        >
+                          <SpeakerWaveIcon
+                            className="h-4 w-4"
+                            aria-hidden="true"
+                          />
+                          Play
+                        </Button>
+                      </SettingsRow>
+                    </SettingsGroup>
                   </>
                 )}
 
@@ -1300,26 +2355,56 @@ export default function Settings() {
                         title="Developer Tools"
                         description="Tools for development."
                       />
-                      <SettingsGroup>
+                      <SettingsGroup
+                        id="setting-developer-open-devtools"
+                        className={rowHighlight("developer-open-devtools")}
+                        caption="Window"
+                      >
                         <SettingsRow>
                           <SettingsLabel
-                            title="Simulate Desktop App"
-                            description="Preview how GameVault looks and behaves as a native desktop application."
+                            title="Open Browser DevTools"
+                            description="Opens the WebView devtools for the desktop build."
                           />
-                          <Switch
-                            name="simulateDesktop"
+                          <Button
+                            type="button"
                             color="indigo"
-                            aria-label="Simulate Tauri desktop app mode"
-                            checked={isDebugTauriOverride()}
-                            onChange={(v: boolean) => {
-                              setDebugTauriOverride(v);
-                              window.location.reload();
-                            }}
-                          />
+                            className="shrink-0"
+                            onClick={() => void handleOpenDevTools()}
+                          >
+                            Open DevTools
+                          </Button>
                         </SettingsRow>
                       </SettingsGroup>
 
-                      <SettingsGroup caption="Network">
+                      {!isDesktopApp && (
+                        <SettingsGroup
+                          id="setting-developer-simulate-desktop"
+                          className={rowHighlight("developer-simulate-desktop")}
+                        >
+                          <SettingsRow>
+                            <SettingsLabel
+                              title="Simulate Desktop App"
+                              description="Preview how GameVault looks and behaves as a native desktop application."
+                            />
+                            <Switch
+                              name="simulateDesktop"
+                              color="indigo"
+                              aria-label="Simulate Tauri desktop app mode"
+                              checked={isDebugTauriOverride()}
+                              onChange={(v: boolean) => {
+                                setDebugTauriOverride(v);
+                                window.location.reload();
+                              }}
+                            />
+                          </SettingsRow>
+                        </SettingsGroup>
+                      )}
+
+                      <SettingsGroup
+                        id="setting-developer-simulate-outage"
+                        className={rowHighlight("developer-simulate-outage")}
+                        caption="Network"
+                      >
                         <SettingsRow>
                           <SettingsLabel
                             title="Simulate Network Outage"
@@ -1335,7 +2420,11 @@ export default function Settings() {
                         </SettingsRow>
                       </SettingsGroup>
 
-                      <SettingsGroup caption="Toasts">
+                      <SettingsGroup
+                        id="setting-developer-toasts"
+                        className={rowHighlight("developer-toasts")}
+                        caption="Toasts"
+                      >
                         <SettingsRow>
                           <SettingsLabel
                             title="Toast Notifications"
@@ -1392,7 +2481,11 @@ export default function Settings() {
                         </SettingsRow>
                       </SettingsGroup>
 
-                      <SettingsGroup caption="Downloads">
+                      <SettingsGroup
+                        id="setting-developer-simulate-download"
+                        className={rowHighlight("developer-simulate-download")}
+                        caption="Downloads"
+                      >
                         <SettingsRow>
                           <SettingsLabel
                             title="Simulate Download Status"
@@ -1416,7 +2509,11 @@ export default function Settings() {
                         </SettingsRow>
                       </SettingsGroup>
 
-                      <SettingsGroup caption="Build Info">
+                      <SettingsGroup
+                        id="setting-developer-build-info"
+                        className={rowHighlight("developer-build-info")}
+                        caption="Build Info"
+                      >
                         <SettingsRow>
                           <SettingsLabel title="Version" />
                           <span className="shrink-0 font-mono text-xs text-gv-text">
@@ -1432,12 +2529,17 @@ export default function Settings() {
                         <SettingsRow>
                           <SettingsLabel title="Environment" />
                           <span className="shrink-0 font-mono text-xs text-gv-muted">
-                            {import.meta.env.MODE} · {isTauri ? "desktop" : "web"}
+                            {import.meta.env.MODE} ·{" "}
+                            {isTauri ? "desktop" : "web"}
                           </span>
                         </SettingsRow>
                       </SettingsGroup>
 
-                      <SettingsGroup caption="Diagnostics">
+                      <SettingsGroup
+                        id="setting-developer-settings-dump"
+                        className={rowHighlight("developer-settings-dump")}
+                        caption="Diagnostics"
+                      >
                         <SettingsRow>
                           <SettingsLabel
                             title="Copy Settings Dump"
@@ -1453,6 +2555,21 @@ export default function Settings() {
                             Copy
                           </Button>
                         </SettingsRow>
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Verbose diagnostics logging"
+                            description="Writes a periodic snapshot of the interface (page, memory, DOM size) and detailed activity breadcrumbs to the app log to help diagnose freezes. Enable it when a maintainer asks for it — GameVault keeps detecting and automatically recovering from an unresponsive interface either way."
+                          />
+                          <Switch
+                            name="verboseDiagnostics"
+                            color="indigo"
+                            aria-label="Verbose diagnostics logging"
+                            checked={verboseDiagnostics}
+                            onChange={(v: boolean) =>
+                              setVerboseDiagnostics(v)
+                            }
+                          />
+                        </SettingsRow>
                       </SettingsGroup>
                     </>
                   )}
@@ -1462,9 +2579,12 @@ export default function Settings() {
                     <SettingsSectionHeader
                       icon={InformationCircleIcon}
                       title="About"
-                      description="Version, licenses and legal information."
+                      description="Version, licenses and system information."
                     />
-                    <SettingsGroup>
+                    <SettingsGroup
+                      id="setting-about-version"
+                      className={rowHighlight("about-version")}
+                    >
                       <SettingsRow>
                         <SettingsLabel title="Application Version" />
                         <button
@@ -1481,7 +2601,10 @@ export default function Settings() {
                         value="Phalcode"
                         href="https://phalco.de"
                       />
-                      <div>
+                      <div
+                        id="setting-about-license"
+                        className={rowHighlight("about-license")}
+                      >
                         <button
                           type="button"
                           onClick={() => void toggleGameVaultLicense()}
@@ -1525,71 +2648,124 @@ export default function Settings() {
                         value="IGDB"
                         href="https://www.igdb.com"
                       />
-                      <button
-                        type="button"
-                        onClick={() => void openLicenses()}
-                        className="group flex min-h-12 w-full cursor-pointer items-center justify-between gap-x-4 px-4 py-2.5 text-left transition-colors hover:bg-gv-panel-soft"
+                      <div
+                        id="setting-about-open-source-licenses"
+                        className={rowHighlight("about-open-source-licenses")}
                       >
-                        <SettingsLabel title="Open Source Licenses" />
-                        <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-sm font-medium text-gv-accent">
-                          <span className="truncate">
-                            {licenseData
-                              ? `${licenseData.packages.length} libraries`
-                              : "View"}
+                        <button
+                          type="button"
+                          onClick={() => void openLicenses()}
+                          className="group flex min-h-12 w-full cursor-pointer items-center justify-between gap-x-4 px-4 py-2.5 text-left transition-colors hover:bg-gv-panel-soft"
+                        >
+                          <SettingsLabel title="Open Source Licenses" />
+                          <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-sm font-medium text-gv-accent">
+                            <span className="truncate">
+                              {licenseData
+                                ? `${licenseData.packages.length} libraries`
+                                : "View"}
+                            </span>
+                            <ChevronRightIcon className="size-3.5 shrink-0 text-gv-muted" />
                           </span>
-                          <ChevronRightIcon className="size-3.5 shrink-0 text-gv-muted" />
-                        </span>
-                      </button>
+                        </button>
+                      </div>
                     </SettingsGroup>
 
-                    <SettingsGroup caption="System">
+                    <SettingsGroup
+                      id="setting-about-system"
+                      className={rowHighlight("about-system")}
+                      caption="System"
+                    >
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Operating System"
+                          description="OS, version and architecture"
+                        />
+                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                          {osLabel}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Display"
+                          description="Screen the window is on: panel resolution, scale factor and colour depth"
+                        />
+                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word">
+                          {displayLabel}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="Monitors"
+                          description="Physical resolution and scale factor of every connected monitor"
+                        />
+                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                          {monitorsLabel}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="GPU (WebGL)"
+                          description="GPU renderer reported by the WebGL context"
+                        />
+                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                          {gpuLabel}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel title="WebGPU" />
+                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                          {webgpuLabel}
+                        </span>
+                      </SettingsRow>
+                      <SettingsRow>
+                        <SettingsLabel
+                          title="CPU / Memory"
+                          description="Processor and installed memory reported by the operating system"
+                        />
+                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word">
+                          {cpuMemoryLabel}
+                        </span>
+                      </SettingsRow>
                       <SettingsRow>
                         <SettingsLabel title="Platform" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
+                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
                           {systemInfo.platform}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
-                        <SettingsLabel title="Operating System" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
-                          {systemInfo.os}
-                        </span>
-                      </SettingsRow>
-                      <SettingsRow>
-                        <SettingsLabel title="Architecture" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
-                          {systemInfo.architecture || "—"}
-                        </span>
-                      </SettingsRow>
-                      <SettingsRow>
                         <SettingsLabel title="Language" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
+                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
                           {systemInfo.language}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
-                        <SettingsLabel title="Screen" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
-                          {systemInfo.screen}
+                        <SettingsLabel title="User Agent" />
+                        <span className="min-w-0 max-w-[55%] break-all text-right font-mono text-xs text-gv-muted">
+                          {systemInfo.userAgent}
                         </span>
                       </SettingsRow>
-                      <SettingsRow>
-                        <SettingsLabel title="CPU Cores" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
-                          {systemInfo.cores}
-                        </span>
-                      </SettingsRow>
-                      <SettingsRow>
-                        <SettingsLabel title="Memory" />
-                        <span className="shrink-0 font-mono text-xs text-gv-muted">
-                          {systemInfo.memory}
-                        </span>
-                      </SettingsRow>
+                      {webkitSupported && renderingDiagnostics?.webkit && (
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="WebGL (WebKit)"
+                            description="Whether WebKitGTK reports WebGL as enabled"
+                          />
+                          <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                            {renderingDiagnostics.webkit.webgl_enabled
+                              ? "Enabled"
+                              : "Disabled"}
+                          </span>
+                        </SettingsRow>
+                      )}
                     </SettingsGroup>
 
                     {isTauri && (
                       <>
-                        <SettingsGroup caption="Updates">
+                        <SettingsGroup
+                          id="setting-about-updates"
+                          className={rowHighlight("about-updates")}
+                          caption="Updates"
+                        >
                           {availableVersion && !isInstallingUpdate && (
                             <SettingsRow>
                               <SettingsLabel
@@ -1660,29 +2836,43 @@ export default function Settings() {
                           </SettingsRow>
                         </SettingsGroup>
 
-                        <Button
-                          type="button"
-                          color="indigo"
-                          disabled={
-                            !updaterReady ||
-                            isCheckingUpdates ||
-                            isInstallingUpdate
-                          }
-                          onClick={() => void checkForUpdates({ manual: true })}
+                        <SettingsGroup
+                          id="setting-about-check-updates"
+                          className={rowHighlight("about-updates")}
                         >
-                          <ArrowPathIcon
-                            className={
-                              isCheckingUpdates
-                                ? "size-4 animate-spin motion-reduce:animate-none"
-                                : "size-4"
-                            }
-                          />
-                          {isCheckingUpdates
-                            ? "Checking..."
-                            : isInstallingUpdate
-                              ? "Updating..."
-                              : "Check for updates"}
-                        </Button>
+                          <SettingsRow>
+                            <SettingsLabel
+                              title="Check for updates"
+                              description="Look for a newer version now."
+                            />
+                            <Button
+                              type="button"
+                              color="indigo"
+                              className="shrink-0"
+                              disabled={
+                                !updaterReady ||
+                                isCheckingUpdates ||
+                                isInstallingUpdate
+                              }
+                              onClick={() =>
+                                void checkForUpdates({ manual: true })
+                              }
+                            >
+                              <ArrowPathIcon
+                                className={
+                                  isCheckingUpdates
+                                    ? "size-4 animate-spin motion-reduce:animate-none"
+                                    : "size-4"
+                                }
+                              />
+                              {isCheckingUpdates
+                                ? "Checking..."
+                                : isInstallingUpdate
+                                  ? "Updating..."
+                                  : "Check"}
+                            </Button>
+                          </SettingsRow>
+                        </SettingsGroup>
                       </>
                     )}
                   </>

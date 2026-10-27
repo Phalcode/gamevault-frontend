@@ -11,15 +11,21 @@ import {
   GamevaultGame,
   GamevaultGameTypeEnum,
 } from "@/api/models/GamevaultGame";
+import { GameVersion } from "@/api/models/GameVersion";
+import { GamevaultUserRoleEnum } from "@/api/models/GamevaultUser";
 import { UpdateGameDto } from "@/api/models/UpdateGameDto";
 import { MetadataProviderDto } from "@/api/models/MetadataProviderDto";
 import { GameMetadata } from "@/api/models/GameMetadata";
 import { MapGameDto } from "@/api/models/MapGameDto";
+import { formatBytes } from "@/utils/downloadFormat";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
+import { useUmu, type UmuStatusInfo } from "@/context/UmuContext";
+import { isWindowsExecutablePath } from "@/components/downloads/install-utils";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { isTauriApp } from "@/utils/tauri";
+import { formatDate, formatYear } from "@/utils/date";
 import {
   applyDroppedSources,
   isProbablyImageUrl,
@@ -27,11 +33,8 @@ import {
   pickBestImageUrl,
 } from "@/utils/droppedImage";
 import { useOnlineStatus } from "@/context/OfflineContext";
-import { emitGameUpdated } from "@/utils/gameUpdates";
-import {
-  GameMediaSlot,
-  resolveApiMediaBlob,
-} from "@/utils/mediaCache";
+import { emitGameDeleted, emitGameUpdated } from "@/utils/gameUpdates";
+import { GameMediaSlot, resolveApiMediaBlob } from "@/utils/mediaCache";
 import {
   PhotoIcon,
   CircleStackIcon,
@@ -43,10 +46,11 @@ import {
   FolderOpenIcon,
   LinkSlashIcon,
   TrashIcon,
+  DocumentTextIcon,
+  ChevronDownIcon,
 } from "@heroicons/react/24/outline";
 import { PaintBrushIcon } from "@heroicons/react/16/solid";
-import { Switch, SwitchField } from "../tailwind/switch";
-import { Label } from "../tailwind/fieldset";
+import { Switch } from "../tailwind/switch";
 
 interface Props {
   game: GamevaultGame;
@@ -57,27 +61,31 @@ interface Props {
 
 // No cool object binding in react, so we manually pick fields for custom metadata. But at least this is type save
 type CustomMetadataForm = {
-  [K in keyof Pick<
-    GameMetadata,
-    | "title"
-    | "description"
-    | "notes"
-    | "average_playtime"
-    | "age_rating"
-    | "release_date"
-    | "rating"
-    | "early_access"
-    | "launch_executable"
-    | "launch_parameters"
-    | "installer_executable"
-    | "installer_parameters"
-    | "uninstaller_executable"
-    | "uninstaller_parameters"
-    | "url_websites"
-    | "url_trailers"
-    | "url_gameplays"
-    | "url_screenshots"
-  >]: string;
+  [
+    K in
+      | keyof Pick<
+          GameMetadata,
+          | "title"
+          | "description"
+          | "notes"
+          | "average_playtime"
+          | "age_rating"
+          | "release_date"
+          | "rating"
+          | "early_access"
+          | "launch_executable"
+          | "launch_parameters"
+          | "installer_executable"
+          | "installer_parameters"
+          | "uninstaller_executable"
+          | "uninstaller_parameters"
+          | "url_websites"
+          | "url_trailers"
+          | "url_gameplays"
+          | "url_screenshots"
+        >
+      | UmuMetadataFields
+  ]: string;
 } & {
   sort_title: string;
   genres: string;
@@ -85,6 +93,18 @@ type CustomMetadataForm = {
   publishers: string;
   developers: string;
 };
+
+/**
+ * umu-launcher defaults for Linux clients (GAMEID/STORE/PROTONPATH).
+ *
+ * Declared locally so the form keeps compiling with API clients generated
+ * from a server that does not ship these metadata fields yet; the values are
+ * sent through the untyped `updateDto` in `saveCustomMetadata`.
+ */
+type UmuMetadataFields = "umu_game_id" | "umu_store" | "umu_proton_path";
+
+type GameMetadataWithUmu = GameMetadata &
+  Partial<Record<UmuMetadataFields, string | undefined>>;
 
 type InstalledGameInfo = {
   gameId: number;
@@ -97,6 +117,15 @@ type InstalledGameInfo = {
 };
 
 import { getRootPaths } from "@/utils/rootPaths";
+import { getErrorMessage } from "@/utils/apiError";
+import { useDiskUsage } from "@/hooks/useDiskUsage";
+import DiskUsageChart from "@/components/DiskUsageChart";
+import { UmuLaunchFields, type UmuLaunchField } from "./UmuLaunchFields";
+import type { ProtonBuild } from "@/models/proton";
+import {
+  SettingsRow,
+  SettingsRowGroup,
+} from "@/components/tailwind/settings-row";
 
 function isSetupInstallType(gameType?: string) {
   return gameType === GamevaultGameTypeEnum.windows_setup;
@@ -109,6 +138,34 @@ function isPortableInstallType(gameType?: string) {
     gameType === GamevaultGameTypeEnum.windows_software ||
     gameType === GamevaultGameTypeEnum.linux_software
   );
+}
+
+/**
+ * Removes now-empty per-version and per-game folders after an uninstall,
+ * walking up from the version directory to the configured root location.
+ */
+async function pruneEmptyVersionFolders(versionDirectory: string) {
+  if (!versionDirectory) return;
+  for (const root of getRootPaths()) {
+    const rootPath = root.path;
+    if (
+      rootPath &&
+      (versionDirectory === rootPath ||
+        versionDirectory.startsWith(`${rootPath}/`) ||
+        versionDirectory.startsWith(`${rootPath}\\`))
+    ) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("remove_empty_directories", {
+          path: versionDirectory,
+          stopAt: rootPath,
+        });
+      } catch {
+        // Best-effort cleanup; never block the uninstall.
+      }
+      return;
+    }
+  }
 }
 
 interface ImageState {
@@ -125,13 +182,23 @@ type TabKey =
   | "metadata"
   | "custom-metadata"
   | "installation"
-  | "launch-options";
+  | "launch-options"
+  | "game-files";
 
-export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Props) {
-  const { serverUrl, authFetch } = useAuth() as any;
+export function GameSettings({
+  game,
+  onClose,
+  onGameUpdated,
+  onUninstalled,
+}: Props) {
+  const { serverUrl, authFetch, user } = useAuth() as any;
   const { showAlert } = useAlertDialog();
+  const isAdmin = Number(user?.role) >= Number(GamevaultUserRoleEnum._3);
   const [activeTab, setActiveTab] = useState<TabKey>("images");
   const [saving, setSaving] = useState(false);
+  const [deletingVersionId, setDeletingVersionId] = useState<number | null>(
+    null,
+  );
   const [fullGame, setFullGame] = useState<GamevaultGame | null>(null);
   const [loadingFullGame, setLoadingFullGame] = useState(true);
   const [installedGame, setInstalledGame] = useState<InstalledGameInfo | null>(
@@ -183,6 +250,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     installer_parameters: "",
     uninstaller_executable: "",
     uninstaller_parameters: "",
+    umu_game_id: "",
+    umu_store: "",
+    umu_proton_path: "",
     url_websites: "",
     genres: "",
     tags: "",
@@ -218,13 +288,37 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
   // Launch options state
   const [launchExecutables, setLaunchExecutables] = useState<string[]>([]);
+  const [launchScanTruncated, setLaunchScanTruncated] = useState(false);
   const [selectedLaunchExe, setSelectedLaunchExe] = useState<string>("");
-  const [nonExecutableScripts, setNonExecutableScripts] = useState<string[]>([]);
+  const [nonExecutableScripts, setNonExecutableScripts] = useState<string[]>(
+    [],
+  );
   const [makingExecutable, setMakingExecutable] = useState(false);
   const [launchParams, setLaunchParams] = useState<string>("");
   const [launchAsAdmin, setLaunchAsAdmin] = useState<boolean>(false);
+  const [umuGameId, setUmuGameId] = useState<string>("");
+  const [umuStore, setUmuStore] = useState<string>("");
+  const [umuProtonPath, setUmuProtonPath] = useState<string>("");
+  const [umuWinePrefix, setUmuWinePrefix] = useState<string>("");
+  const [forceUmu, setForceUmu] = useState<boolean>(false);
+  const [protonBuilds, setProtonBuilds] = useState<ProtonBuild[]>([]);
+  const [umuSectionOpen, setUmuSectionOpen] = useState(false);
+  const [resolvedPrefixPath, setResolvedPrefixPath] = useState<string | null>(
+    null,
+  );
   const [loadingLaunchOptions, setLoadingLaunchOptions] = useState(false);
   const launchOptionsLoadedRef = useRef(false);
+
+  // umu-launcher (Wine/Proton) status for Windows executables on Linux.
+  const [umuStatus, setUmuStatus] = useState<UmuStatusInfo | null>(null);
+  const [installingUmu, setInstallingUmu] = useState(false);
+  const { checkUmuStatus, installUmu } = useUmu();
+  const isLinux =
+    isTauri &&
+    typeof navigator !== "undefined" &&
+    navigator.userAgent.includes("Linux");
+  const isWindowsLaunchExe =
+    isLinux && isWindowsExecutablePath(selectedLaunchExe);
 
   // Fetch full game object on mount
   useEffect(() => {
@@ -255,6 +349,28 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   const workingGame = fullGame || game;
   const installationTabsVisible = isTauri && !!installedGame;
 
+  // Resolve the download location (root path) that contains this installed
+  // game, so the disk-usage donut can show how much of that volume it uses.
+  const diskUsageRoot = useMemo(() => {
+    if (!installedGame?.versionDirectory) return null;
+    for (const root of getRootPaths()) {
+      const rootPath = root.path;
+      if (
+        rootPath &&
+        (installedGame.versionDirectory === rootPath ||
+          installedGame.versionDirectory.startsWith(`${rootPath}/`) ||
+          installedGame.versionDirectory.startsWith(`${rootPath}\\`))
+      ) {
+        return root;
+      }
+    }
+    return null;
+  }, [installedGame]);
+  const { data: diskUsageData, loading: diskUsageLoading } = useDiskUsage(
+    diskUsageRoot?.path,
+    installedGame?.versionDirectory,
+  );
+
   const openImageSearch = useCallback(
     async (searchTerms: string) => {
       const gameTitle =
@@ -283,71 +399,81 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     [isTauri, showAlert, workingGame.metadata?.title, workingGame.title],
   );
 
-  const findInstalledGame = useCallback(async (): Promise<InstalledGameInfo | null> => {
-    if (!isTauri) return null;
-    const rootPaths = getRootPaths();
-    if (!rootPaths.length) return null;
+  const findInstalledGame =
+    useCallback(async (): Promise<InstalledGameInfo | null> => {
+      if (!isTauri) return null;
+      const rootPaths = getRootPaths();
+      if (!rootPaths.length) return null;
 
-    const { invoke } = await import("@tauri-apps/api/core");
+      const { invoke } = await import("@tauri-apps/api/core");
 
-    const allResults: any[] = [];
-    const seen = new Set<string>();
+      const allResults: any[] = [];
+      const seen = new Set<string>();
 
-    for (const root of rootPaths) {
-      const rawResults = await invoke<any[]>("list_installed_games", {
-        selectedRoot: root.path,
-      }).catch(() => [] as any[]);
+      for (const root of rootPaths) {
+        const rawResults = await invoke<any[]>("list_installed_games", {
+          selectedRoot: root.path,
+        }).catch(() => [] as any[]);
 
-      for (const r of rawResults) {
-        const id = r.gameId ?? r.game_id ?? 0;
-        const vd = r.versionDirectory ?? r.version_directory ?? "";
-        const key = `${id}:${vd}`;
-        if (id > 0 && !seen.has(key)) {
-          seen.add(key);
-          allResults.push(r);
+        for (const r of rawResults) {
+          const id = r.gameId ?? r.game_id ?? 0;
+          const vd = r.versionDirectory ?? r.version_directory ?? "";
+          const key = `${id}:${vd}`;
+          if (id > 0 && !seen.has(key)) {
+            seen.add(key);
+            allResults.push(r);
+          }
         }
       }
-    }
 
-    const match = allResults
-      .filter(
-        (r) =>
-          Number(r.gameId ?? r.game_id ?? 0) === workingGame.id &&
-          typeof (r.installationDirectory ?? r.installation_directory) === "string" &&
-          (r.installationDirectory ?? r.installation_directory ?? "").trim().length > 0 &&
-          typeof (r.versionDirectory ?? r.version_directory) === "string" &&
-          (r.versionDirectory ?? r.version_directory ?? "").trim().length > 0,
-      )
-      .sort(
-        (a, b) =>
-          Number(b.versionId ?? b.version_id ?? 0) -
-          Number(a.versionId ?? a.version_id ?? 0),
-      )[0];
+      const match = allResults
+        .filter(
+          (r) =>
+            Number(r.gameId ?? r.game_id ?? 0) === workingGame.id &&
+            typeof (r.installationDirectory ?? r.installation_directory) ===
+              "string" &&
+            (r.installationDirectory ?? r.installation_directory ?? "").trim()
+              .length > 0 &&
+            typeof (r.versionDirectory ?? r.version_directory) === "string" &&
+            (r.versionDirectory ?? r.version_directory ?? "").trim().length > 0,
+        )
+        .sort(
+          (a, b) =>
+            Number(b.versionId ?? b.version_id ?? 0) -
+            Number(a.versionId ?? a.version_id ?? 0),
+        )[0];
 
-    if (!match) return null;
+      if (!match) return null;
 
-    return {
-      gameId: Number(match.gameId ?? match.game_id ?? workingGame.id),
-      gameTitle:
-        String(match.gameTitle ?? match.game_title ?? "").trim() ||
-        workingGame.metadata?.title ||
-        workingGame.title ||
-        "Game",
-      gameType:
-        typeof (match.gameType ?? match.game_type) === "string" &&
-        (match.gameType ?? match.game_type ?? "").trim().length > 0
-          ? (match.gameType ?? match.game_type)
-          : undefined,
-      versionId: Number(match.versionId ?? match.version_id ?? 0),
-      versionName: String(match.versionName ?? match.version_name ?? "").trim(),
-      installationDirectory: String(
-        match.installationDirectory ?? match.installation_directory ?? "",
-      ),
-      versionDirectory: String(
-        match.versionDirectory ?? match.version_directory ?? "",
-      ),
-    };
-  }, [isTauri, workingGame.id, workingGame.metadata?.title, workingGame.title]);
+      return {
+        gameId: Number(match.gameId ?? match.game_id ?? workingGame.id),
+        gameTitle:
+          String(match.gameTitle ?? match.game_title ?? "").trim() ||
+          workingGame.metadata?.title ||
+          workingGame.title ||
+          "Game",
+        gameType:
+          typeof (match.gameType ?? match.game_type) === "string" &&
+          (match.gameType ?? match.game_type ?? "").trim().length > 0
+            ? (match.gameType ?? match.game_type)
+            : undefined,
+        versionId: Number(match.versionId ?? match.version_id ?? 0),
+        versionName: String(
+          match.versionName ?? match.version_name ?? "",
+        ).trim(),
+        installationDirectory: String(
+          match.installationDirectory ?? match.installation_directory ?? "",
+        ),
+        versionDirectory: String(
+          match.versionDirectory ?? match.version_directory ?? "",
+        ),
+      };
+    }, [
+      isTauri,
+      workingGame.id,
+      workingGame.metadata?.title,
+      workingGame.title,
+    ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -382,7 +508,12 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
   // If offline, redirect away from server-dependent tabs
   useEffect(() => {
-    const serverTabs: TabKey[] = ["images", "metadata", "custom-metadata"];
+    const serverTabs: TabKey[] = [
+      "images",
+      "metadata",
+      "custom-metadata",
+      "game-files",
+    ];
     if (isTauri && !isOnline && serverTabs.includes(activeTab)) {
       if (installationTabsVisible) {
         setActiveTab("installation");
@@ -403,16 +534,21 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         const { invoke } = await import("@tauri-apps/api/core");
         const { join } = await import("@tauri-apps/api/path");
 
+        const status = await checkUmuStatus();
+        if (!cancelled) setUmuStatus(status);
+
         // List executables from installation directory
         const result = await invoke<{
           executables: string[];
           nonExecutableScripts: string[];
+          truncated: boolean;
         }>("list_launch_executables", {
           installationPath: installedGame.installationDirectory,
         });
         if (!cancelled) {
           setLaunchExecutables(result.executables);
           setNonExecutableScripts(result.nonExecutableScripts);
+          setLaunchScanTruncated(!!result.truncated);
         }
 
         // Read saved launch config
@@ -422,13 +558,20 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         );
         if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
           try {
-            const raw = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath }));
+            const raw = JSON.parse(
+              await invoke<string>("fs_read_text_file", { path: configPath }),
+            );
             if (!cancelled) {
               setSelectedLaunchExe(raw.launchexecutable || "");
               setLaunchParams(raw.launchparameters || "");
               setLaunchAsAdmin(!!raw.launchasadmin);
+              setUmuGameId(raw.umugameid || "");
+              setUmuStore(raw.umustore || "");
+              setUmuProtonPath(raw.umuprotonpath || "");
+              setUmuWinePrefix(raw.umuwineprefix || "");
+              setForceUmu(!!raw.forceumu);
             }
-          } catch { }
+          } catch {}
         }
         if (!cancelled) launchOptionsLoadedRef.current = true;
       } catch (err) {
@@ -441,7 +584,68 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     return () => {
       cancelled = true;
     };
-  }, [activeTab, installedGame]);
+  }, [activeTab, installedGame, checkUmuStatus]);
+
+  // List the Proton builds the user already has installed (compatibilitytools.d),
+  // so PROTONPATH does not have to be typed from memory.
+  useEffect(() => {
+    if (!isTauriApp()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const builds = await invoke<ProtonBuild[]>("list_proton_builds");
+        if (!cancelled) setProtonBuilds(builds);
+      } catch {
+        if (!cancelled) setProtonBuilds([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Show where this game's Wine/Proton prefix actually lives (Linux/umu), so
+  // the per-game override field does not have to guess a path.
+  useEffect(() => {
+    if (!isTauriApp() || !installedGame?.versionDirectory) {
+      setResolvedPrefixPath(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const info = await invoke<{ path: string | null }>(
+          "resolve_game_wine_prefix",
+          {
+            versionDirectory: installedGame.versionDirectory,
+            gameId: installedGame.gameId,
+            umuGameId: umuGameId || null,
+            perGamePrefix: umuWinePrefix || null,
+          },
+        );
+        if (!cancelled) setResolvedPrefixPath(info?.path ?? null);
+      } catch {
+        if (!cancelled) setResolvedPrefixPath(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    installedGame?.versionDirectory,
+    installedGame?.gameId,
+    umuGameId,
+    umuWinePrefix,
+  ]);
+
+  // A Windows executable always runs through umu-launcher, and a game the user
+  // pinned to umu should show its overrides too. Never close the section here —
+  // the user's own choice wins.
+  useEffect(() => {
+    if (isWindowsLaunchExe || forceUmu) setUmuSectionOpen(true);
+  }, [isWindowsLaunchExe, forceUmu]);
 
   const handleMakeExecutable = useCallback(async () => {
     if (!installedGame) return;
@@ -456,11 +660,13 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       const result = await invoke<{
         executables: string[];
         nonExecutableScripts: string[];
+        truncated: boolean;
       }>("list_launch_executables", {
         installationPath: installedGame.installationDirectory,
       });
       setLaunchExecutables(result.executables);
       setNonExecutableScripts(result.nonExecutableScripts);
+      setLaunchScanTruncated(!!result.truncated);
     } catch (err: any) {
       console.error("Failed to make scripts executable:", err);
     } finally {
@@ -468,80 +674,182 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     }
   }, [installedGame, nonExecutableScripts]);
 
-  const persistLaunchOptions = useCallback(async (
-    exe: string,
-    params: string,
-    runAsAdmin: boolean,
-  ) => {
-    if (!installedGame) return;
+  const handleInstallUmu = useCallback(async () => {
+    setInstallingUmu(true);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const { join } = await import("@tauri-apps/api/path");
-
-      const configPath = await join(
-        installedGame.versionDirectory,
-        ".gamevault.game.config.json",
+      const ok = await installUmu(
+        workingGame.metadata?.title || workingGame.title || "Game",
       );
-
-      let current: Record<string, any> = {};
-      if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
-        try {
-          current = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath }));
-        } catch {
-          current = {};
-        }
+      if (ok) {
+        setUmuStatus(await checkUmuStatus());
+      } else {
+        await showAlert({
+          title: "Failed to install umu-launcher",
+          description:
+            "umu-launcher could not be installed. Check your connection and try again.",
+          affirmativeText: "OK",
+        });
       }
-
-      current.launchexecutable = exe || undefined;
-      current.launchparameters = params.trim() || undefined;
-      current.launchasadmin = runAsAdmin || undefined;
-
-      await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(current, null, 2) });
-    } catch (err: any) {
-      console.error("Failed to save launch options:", err);
+    } finally {
+      setInstallingUmu(false);
     }
-  }, [installedGame]);
+  }, [
+    installUmu,
+    checkUmuStatus,
+    showAlert,
+    workingGame.metadata?.title,
+    workingGame.title,
+  ]);
+
+  const handleUmuFieldChange = useCallback(
+    (field: UmuLaunchField, value: string) => {
+      switch (field) {
+        case "umuGameId":
+          setUmuGameId(value);
+          break;
+        case "umuStore":
+          setUmuStore(value);
+          break;
+        case "umuProtonPath":
+          setUmuProtonPath(value);
+          break;
+        case "umuWinePrefix":
+          setUmuWinePrefix(value);
+          break;
+      }
+    },
+    [],
+  );
+
+  const handleOpenPrefixFolder = useCallback(
+    async (path: string) => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("open_in_file_explorer", { path });
+      } catch (error: any) {
+        await showAlert({
+          title: "Could not open the prefix folder",
+          description: error?.message || String(error),
+          affirmativeText: "OK",
+        });
+      }
+    },
+    [showAlert],
+  );
+
+  const persistLaunchOptions = useCallback(
+    async (
+      exe: string,
+      params: string,
+      runAsAdmin: boolean,
+      umuGameId: string,
+      umuStore: string,
+      umuProtonPath: string,
+      umuWinePrefix: string,
+      forceUmu: boolean,
+    ) => {
+      if (!installedGame) return;
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const { join } = await import("@tauri-apps/api/path");
+
+        const configPath = await join(
+          installedGame.versionDirectory,
+          ".gamevault.game.config.json",
+        );
+
+        let current: Record<string, any> = {};
+        if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
+          try {
+            current = JSON.parse(
+              await invoke<string>("fs_read_text_file", { path: configPath }),
+            );
+          } catch {
+            current = {};
+          }
+        }
+
+        current.launchexecutable = exe || undefined;
+        current.launchparameters = params.trim() || undefined;
+        current.launchasadmin = runAsAdmin || undefined;
+        current.umugameid = umuGameId.trim() || undefined;
+        current.umustore = umuStore.trim() || undefined;
+        current.umuprotonpath = umuProtonPath.trim() || undefined;
+        current.umuwineprefix = umuWinePrefix.trim() || undefined;
+        current.forceumu = forceUmu || undefined;
+
+        await invoke("fs_write_text_file", {
+          path: configPath,
+          content: JSON.stringify(current, null, 2),
+        });
+      } catch (err: any) {
+        console.error("Failed to save launch options:", err);
+      }
+    },
+    [installedGame],
+  );
 
   // Auto-save launch options on change (debounced)
   useEffect(() => {
     if (!launchOptionsLoadedRef.current) return;
     const timeout = setTimeout(() => {
-      persistLaunchOptions(selectedLaunchExe, launchParams, launchAsAdmin);
+      persistLaunchOptions(
+        selectedLaunchExe,
+        launchParams,
+        launchAsAdmin,
+        umuGameId,
+        umuStore,
+        umuProtonPath,
+        umuWinePrefix,
+        forceUmu,
+      );
     }, 500);
     return () => clearTimeout(timeout);
-  }, [selectedLaunchExe, launchParams, launchAsAdmin, persistLaunchOptions]);
+  }, [
+    selectedLaunchExe,
+    launchParams,
+    launchAsAdmin,
+    umuGameId,
+    umuStore,
+    umuProtonPath,
+    umuWinePrefix,
+    forceUmu,
+    persistLaunchOptions,
+  ]);
 
   const updateInstallationFinishedFlag = useCallback(
     async (versionDirectory: string, installationFinished: boolean) => {
       const { invoke } = await import("@tauri-apps/api/core");
       const { join } = await import("@tauri-apps/api/path");
 
-      const configPath = await join(versionDirectory, ".gamevault.game.config.json");
-      if (!(await invoke<boolean>("fs_path_exists", { path: configPath }))) return;
+      const configPath = await join(
+        versionDirectory,
+        ".gamevault.game.config.json",
+      );
+      if (!(await invoke<boolean>("fs_path_exists", { path: configPath })))
+        return;
 
       let current: Partial<GameVaultConfig> = {};
       try {
-        current = JSON.parse(await invoke<string>("fs_read_text_file", { path: configPath })) as Partial<GameVaultConfig>;
+        current = JSON.parse(
+          await invoke<string>("fs_read_text_file", { path: configPath }),
+        ) as Partial<GameVaultConfig>;
       } catch {
         current = {};
       }
 
-      const next: GameVaultConfig = {
-        gameid: current.gameid,
-        versionid: current.versionid,
-        gametype: current.gametype,
-        downloadfinished: Boolean(current.downloadfinished),
-        extractionfinished: Boolean(current.extractionfinished),
+      // Spread the existing config so unrelated settings (launch-as-admin, umu
+      // overrides) survive the uninstall; rebuilding it from a whitelist used
+      // to drop them silently.
+      const next = {
+        ...current,
         installationfinished: installationFinished,
-        downloadprogress:
-          typeof current.downloadprogress === "string"
-            ? current.downloadprogress
-            : "",
-        launchexecutable: current.launchexecutable,
-        launchparameters: current.launchparameters,
-      };
+      } as GameVaultConfig;
 
-      await invoke("fs_write_text_file", { path: configPath, content: JSON.stringify(next, null, 2) });
+      await invoke("fs_write_text_file", {
+        path: configPath,
+        content: JSON.stringify(next, null, 2),
+      });
     },
     [],
   );
@@ -563,11 +871,130 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     }
   }, [installedGame, showAlert]);
 
+  /**
+   * After an uninstall, detect any files/folders the uninstaller left behind
+   * and offer to delete them so the version folder (and the game card) are
+   * fully cleaned up.
+   */
+  const cleanupLeftoverFiles = useCallback(
+    async (versionDirectory: string) => {
+      if (!versionDirectory) return;
+      const { invoke } = await import("@tauri-apps/api/core");
+      const hasLeftovers = await invoke<boolean>("fs_has_leftover_content", {
+        path: versionDirectory,
+      });
+      if (!hasLeftovers) return;
+
+      const confirmed = await showAlert({
+        title: "Delete leftover files?",
+        description:
+          "Some files from the uninstall could not be removed automatically. " +
+          "Do you want to permanently delete the remaining files?",
+        affirmativeText: "Delete",
+        negativeText: "Keep",
+      });
+      if (!confirmed) return;
+
+      await invoke("fs_remove", {
+        path: versionDirectory,
+        recursive: true,
+      });
+      // Walk up from the version folder's parent so now-empty game/version
+      // containers are cleaned up too.
+      const parentDir = versionDirectory.replace(/[\\/][^\\/]+$/, "");
+      await pruneEmptyVersionFolders(parentDir);
+    },
+    [showAlert],
+  );
+
+  /** Reads the local launch/umu overrides of an installed version. */
+  const readLocalUmuConfig = useCallback(async (versionDirectory: string) => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { join } = await import("@tauri-apps/api/path");
+    const configPath = await join(
+      versionDirectory,
+      ".gamevault.game.config.json",
+    );
+    if (!(await invoke<boolean>("fs_path_exists", { path: configPath }))) {
+      return {};
+    }
+    try {
+      const raw = JSON.parse(
+        await invoke<string>("fs_read_text_file", { path: configPath }),
+      );
+      const readString = (value: unknown) =>
+        typeof value === "string" && value.trim() ? value : undefined;
+      return {
+        umuGameId: readString(raw.umugameid),
+        umuStore: readString(raw.umustore),
+        umuProtonPath: readString(raw.umuprotonpath),
+        umuWinePrefix: readString(raw.umuwineprefix),
+      };
+    } catch {
+      return {};
+    }
+  }, []);
+
+  /**
+   * Offers to delete the game's Wine/Proton prefix (Linux, umu/Proton).
+   *
+   * Opt-in and deliberate: prefixes can contain local save games and game
+   * settings, so "keep" is the pre-focused answer, and only prefixes inside
+   * GameVault's prefix directory are offered at all.
+   */
+  const offerPrefixCleanup = useCallback(
+    async (versionDirectory: string, gameId: number) => {
+      if (!isTauriApp()) return;
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const local = await readLocalUmuConfig(versionDirectory);
+        const info = await invoke<{
+          path: string | null;
+          exists: boolean;
+          isPrefix: boolean;
+          managed: boolean;
+          sizeBytes: number | null;
+        }>("resolve_game_wine_prefix", {
+          versionDirectory,
+          gameId,
+          umuGameId: local.umuGameId ?? null,
+          perGamePrefix: local.umuWinePrefix ?? null,
+        });
+        if (!info?.path || !info.exists || !info.isPrefix || !info.managed) {
+          return;
+        }
+
+        const size = info.sizeBytes ? ` (${formatBytes(info.sizeBytes)})` : "";
+        const keepPrefix = await showAlert({
+          title: "Delete the Wine/Proton prefix too?",
+          description:
+            `This game was installed into its own Wine/Proton prefix:\n${info.path}${size}\n\n` +
+            "Local save games, game settings and installed runtime files can live inside it. " +
+            "Keep it unless you want the disk space back.",
+          affirmativeText: "Keep prefix",
+          negativeText: "Delete prefix",
+          tone: "warning",
+        });
+        if (keepPrefix) return;
+
+        await invoke("delete_game_wine_prefix", {
+          path: info.path,
+          perGamePrefix: local.umuWinePrefix ?? null,
+        });
+      } catch (error) {
+        console.warn("Wine/Proton prefix cleanup skipped:", error);
+      }
+    },
+    [readLocalUmuConfig, showAlert],
+  );
+
   const handleUninstallGame = useCallback(async () => {
     if (!installedGame) return;
 
     const resolvedTitle =
-      workingGame.metadata?.title || workingGame.title || installedGame.gameTitle;
+      workingGame.metadata?.title ||
+      workingGame.title ||
+      installedGame.gameTitle;
 
     if (isPortableInstallType(installedGame.gameType)) {
       const confirmed = await showAlert({
@@ -581,12 +1008,28 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       setUninstalling(true);
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        if (await invoke<boolean>("fs_path_exists", { path: installedGame.installationDirectory })) {
-          await invoke("fs_remove", { path: installedGame.installationDirectory, recursive: true });
+        if (
+          await invoke<boolean>("fs_path_exists", {
+            path: installedGame.installationDirectory,
+          })
+        ) {
+          await invoke("fs_remove", {
+            path: installedGame.installationDirectory,
+            recursive: true,
+          });
         }
         await updateInstallationFinishedFlag(
           installedGame.versionDirectory,
           false,
+        );
+        // Clean up the empty per-version / per-game folders left behind.
+        await pruneEmptyVersionFolders(installedGame.versionDirectory);
+        // Offer to delete any leftover files the uninstaller left behind.
+        await cleanupLeftoverFiles(installedGame.versionDirectory);
+        // ... and the (optional) Wine/Proton prefix of the game.
+        await offerPrefixCleanup(
+          installedGame.versionDirectory,
+          installedGame.gameId,
         );
         setInstalledGame(await findInstalledGame());
         onUninstalled?.();
@@ -594,6 +1037,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
           title: "Game uninstalled",
           affirmativeText: "OK",
         });
+        onClose();
       } catch (error: any) {
         await showAlert({
           title: "Error",
@@ -632,14 +1076,31 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         setUninstalling(true);
         try {
           const { invoke } = await import("@tauri-apps/api/core");
+          const local = await readLocalUmuConfig(
+            installedGame.versionDirectory,
+          );
           await invoke("launch_uninstall_executable", {
+            versionDirectory: installedGame.versionDirectory,
             executablePath,
             workingDirectory: installedGame.installationDirectory,
             argumentList: workingGame.metadata?.uninstaller_parameters || null,
+            umuGameId: local.umuGameId ?? null,
+            umuStore: local.umuStore ?? null,
+            umuProtonPath: local.umuProtonPath ?? null,
+            umuWinePrefix: local.umuWinePrefix ?? null,
           });
           await updateInstallationFinishedFlag(
             installedGame.versionDirectory,
             false,
+          );
+          // Clean up the empty per-version / per-game folders left behind. The
+          // uninstaller only removes the game files, so without this the empty
+          // "<Game>/Versions/<version>" chain stays on disk.
+          await pruneEmptyVersionFolders(installedGame.versionDirectory);
+          await cleanupLeftoverFiles(installedGame.versionDirectory);
+          await offerPrefixCleanup(
+            installedGame.versionDirectory,
+            installedGame.gameId,
           );
           setInstalledGame(await findInstalledGame());
           onUninstalled?.();
@@ -647,11 +1108,11 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
             title: "Game uninstalled",
             affirmativeText: "OK",
           });
+          onClose();
         } catch (error: any) {
           await showAlert({
             title: "Error",
-            description:
-              error?.message || "Failed to run uninstall executable",
+            description: error?.message || "Failed to run uninstall executable",
             affirmativeText: "OK",
           });
         } finally {
@@ -704,12 +1165,15 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
 
     await showAlert({
       title: "Unsupported game type",
-      description: "Only portable and setup games can be uninstalled right now.",
+      description:
+        "Only portable and setup games can be uninstalled right now.",
       affirmativeText: "OK",
     });
   }, [
+    cleanupLeftoverFiles,
     findInstalledGame,
     installedGame,
+    onClose,
     onUninstalled,
     showAlert,
     updateInstallationFinishedFlag,
@@ -718,6 +1182,107 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
     workingGame.metadata?.uninstaller_parameters,
     workingGame.title,
   ]);
+
+  /** Re-fetches the full game so the version list reflects server state. */
+  const refetchGame = useCallback(async (): Promise<GamevaultGame | null> => {
+    if (!serverUrl) return null;
+    const base = serverUrl.replace(/\/+$/, "");
+    const res = await authFetch(`${base}/api/games/${workingGame.id}`, {
+      method: "GET",
+    });
+    if (!res.ok) throw new Error(`Failed to reload game (${res.status})`);
+    return (await res.json()) as GamevaultGame;
+  }, [authFetch, serverUrl, workingGame.id]);
+
+  const handleDeleteGameVersion = useCallback(
+    async (version: GameVersion) => {
+      const versionLabel = version.version || `Version ${version.id}`;
+
+      const confirmed = await showAlert({
+        title: `Delete game file "${versionLabel}"?`,
+        description:
+          `This will permanently delete "${version.file_path}" from the server. ` +
+          `The game's metadata is kept, but this file can no longer be downloaded.`,
+        affirmativeText: "Delete",
+        negativeText: "Cancel",
+      });
+      if (!confirmed) return;
+
+      setDeletingVersionId(version.id);
+      try {
+        // Deleting the only version removes the game from the library.
+        const wasLastVersion = (workingGame.versions?.length ?? 0) <= 1;
+
+        const base = serverUrl?.replace(/\/+$/, "");
+        if (!base) throw new Error("Missing server URL");
+        const res = await authFetch(
+          `${base}/api/game/${workingGame.id}/versions/${version.id}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok) {
+          const message = await getErrorMessage(
+            res,
+            "The server could not delete this game file.",
+          );
+          throw new Error(message);
+        }
+
+        let updatedGame: GamevaultGame | null = null;
+        try {
+          updatedGame = await refetchGame();
+        } catch {
+          updatedGame = null;
+        }
+
+        const hasRemainingVersions =
+          !!updatedGame &&
+          Array.isArray(updatedGame.versions) &&
+          updatedGame.versions.length > 0;
+
+        // The game is fully removed once its last version file is gone: close
+        // the settings modal and let the library/game view react.
+        if (wasLastVersion || !hasRemainingVersions) {
+          emitGameDeleted(workingGame.id);
+          onClose();
+          return;
+        }
+
+        if (updatedGame) {
+          setFullGame(updatedGame);
+          onGameUpdated?.(updatedGame);
+          emitGameUpdated(updatedGame);
+        }
+
+        await showAlert({
+          title: "Game file deleted",
+          description: `"${versionLabel}" was removed from the server.`,
+          affirmativeText: "OK",
+        });
+      } catch (e: any) {
+        await showAlert({
+          title: "Unable to delete game file",
+          description:
+            e?.message || "The server could not delete this game file.",
+          affirmativeText: "OK",
+        });
+      } finally {
+        setDeletingVersionId(null);
+      }
+    },
+    [
+      authFetch,
+      emitGameDeleted,
+      emitGameUpdated,
+      onGameUpdated,
+      refetchGame,
+      serverUrl,
+      showAlert,
+      workingGame.id,
+      workingGame.metadata?.title,
+      workingGame.title,
+      workingGame.versions,
+    ],
+  );
 
   // Computed: Current shown mapped game
   const currentShownMappedGame = useMemo<GameMetadata | null>(() => {
@@ -1013,7 +1578,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       revokeRef.current.forEach((u) => {
         try {
           URL.revokeObjectURL(u);
-        } catch { }
+        } catch {}
       });
     },
     [],
@@ -1023,10 +1588,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   const backgroundMediaId = workingGame.metadata?.background?.id;
 
   const fetchMediaBlobUrl = useCallback(
-    async (
-      id: number,
-      slot?: GameMediaSlot,
-    ): Promise<string | null> => {
+    async (id: number, slot?: GameMediaSlot): Promise<string | null> => {
       if (!serverUrl || !id) return null;
       try {
         const blob = await resolveApiMediaBlob({
@@ -1262,10 +1824,11 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       try {
         if (isTauri) {
           const { invoke } = await import("@tauri-apps/api/core");
+          const { base64ToBytes } = await import("@/utils/binary");
           const res = (await invoke("fetch_url_bytes", {
             url: state.preview,
-          })) as { bytes: number[]; content_type: string };
-          const bytes = new Uint8Array(res.bytes);
+          })) as { bytesBase64: string; content_type: string };
+          const bytes = base64ToBytes(res.bytesBase64);
           const mime = res.content_type || "image/png";
           const ext = (mime.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
           return new File([bytes], `${fallbackName}.${ext}`, { type: mime });
@@ -1398,7 +1961,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   };
 
   const applyWatermark = (field: keyof CustomMetadataForm) => {
-    const metadata = workingGame.metadata;
+    const metadata = workingGame.metadata as GameMetadataWithUmu | undefined;
     let value: any = "";
 
     switch (field) {
@@ -1458,6 +2021,15 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       case "uninstaller_parameters":
         value = metadata?.uninstaller_parameters || "";
         break;
+      case "umu_game_id":
+        value = metadata?.umu_game_id || "";
+        break;
+      case "umu_store":
+        value = metadata?.umu_store || "";
+        break;
+      case "umu_proton_path":
+        value = metadata?.umu_proton_path || "";
+        break;
       case "url_websites":
         value = Array.isArray(metadata?.url_websites)
           ? metadata.url_websites.join(", ")
@@ -1504,7 +2076,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
   };
 
   const getWatermark = (field: keyof CustomMetadataForm): string => {
-    const metadata = workingGame.metadata;
+    const metadata = workingGame.metadata as GameMetadataWithUmu | undefined;
 
     switch (field) {
       case "title":
@@ -1552,6 +2124,12 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         return metadata?.uninstaller_executable || "";
       case "uninstaller_parameters":
         return metadata?.uninstaller_parameters || "";
+      case "umu_game_id":
+        return metadata?.umu_game_id || "";
+      case "umu_store":
+        return metadata?.umu_store || "";
+      case "umu_proton_path":
+        return metadata?.umu_proton_path || "";
       case "url_websites":
         return Array.isArray(metadata?.url_websites)
           ? metadata.url_websites.join(", ")
@@ -1628,6 +2206,12 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       if (customMetadata.uninstaller_parameters)
         updateDto.uninstaller_parameters =
           customMetadata.uninstaller_parameters;
+      if (customMetadata.umu_game_id)
+        updateDto.umu_game_id = customMetadata.umu_game_id;
+      if (customMetadata.umu_store)
+        updateDto.umu_store = customMetadata.umu_store;
+      if (customMetadata.umu_proton_path)
+        updateDto.umu_proton_path = customMetadata.umu_proton_path;
 
       if (customMetadata.url_websites)
         updateDto.url_websites = customMetadata.url_websites
@@ -1684,10 +2268,11 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       });
 
       if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(
-          `Failed to save custom metadata (${res.status}): ${txt || res.statusText}`,
+        const message = await getErrorMessage(
+          res,
+          "The server could not save your custom metadata.",
         );
+        throw new Error(message);
       }
 
       const updatedGame = await res.json();
@@ -1705,8 +2290,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       setCustomMetadata(getEmptyCustomMetadata());
     } catch (e: any) {
       await showAlert({
-        title: "Error",
-        description: e?.message || "Failed to save custom metadata",
+        title: "Unable to save custom metadata",
+        description:
+          e?.message || "The server could not save your custom metadata.",
         affirmativeText: "OK",
       });
     } finally {
@@ -1749,10 +2335,11 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         });
 
         if (!res.ok) {
-          const txt = await res.text();
-          throw new Error(
-            `Failed to wipe custom metadata (${res.status}): ${txt || res.statusText}`,
+          const message = await getErrorMessage(
+            res,
+            "The server could not wipe your custom metadata.",
           );
+          throw new Error(message);
         }
 
         const updatedGame = await res.json();
@@ -1767,8 +2354,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
         });
       } catch (e: any) {
         await showAlert({
-          title: "Error",
-          description: e?.message || "Failed to wipe custom metadata",
+          title: "Unable to wipe custom metadata",
+          description:
+            e?.message || "The server could not wipe your custom metadata.",
           affirmativeText: "OK",
         });
       } finally {
@@ -1782,7 +2370,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
       open
       onClose={onClose}
       size="7xl"
-      className="!max-w-[min(95vw,1200px)] sm:!max-w-[min(65vw,1200px)] !h-[min(90vh,900px)] !w-full flex flex-col"
+      className="!max-w-[min(95vw,1200px)] sm:!max-w-[min(85vw,1200px)] !h-[min(90vh,900px)] !w-full flex flex-col"
     >
       <DialogTitle className="flex items-center justify-between gap-2 sm:gap-4 pb-1 flex-shrink-0">
         <span>Game Settings</span>
@@ -1793,7 +2381,13 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
           aria-label="Close"
           disabled={saving}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            fill="none"
+          >
             <path strokeWidth="2" strokeLinecap="round" d="M6 6 18 18" />
             <path strokeWidth="2" strokeLinecap="round" d="M18 6 6 18" />
           </svg>
@@ -1812,44 +2406,58 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
             <div className="w-full sm:w-52 border-b sm:border-b-0 sm:border-r border-gv-line py-2 sm:py-4">
               <nav className="flex flex-row sm:flex-col gap-1 px-2 sm:px-3 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 {(!isTauri || isOnline) && (
-                <>
-                <button
-                  onClick={() => setActiveTab("images")}
-                  className={
-                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
-                    (activeTab === "images"
-                      ? "bg-gv-accent text-white"
-                      : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
-                  }
-                >
-                  <PhotoIcon className="w-5 h-5 flex-shrink-0" />
-                  <span>Edit Images</span>
-                </button>
-                <button
-                  onClick={() => setActiveTab("metadata")}
-                  className={
-                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
-                    (activeTab === "metadata"
-                      ? "bg-gv-accent text-white"
-                      : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
-                  }
-                >
-                  <CircleStackIcon className="w-5 h-5 flex-shrink-0" />
-                  <span>Metadata</span>
-                </button>
-                <button
-                  onClick={() => setActiveTab("custom-metadata")}
-                  className={
-                    "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
-                    (activeTab === "custom-metadata"
-                      ? "bg-gv-accent text-white"
-                      : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
-                  }
-                >
-                  <PencilIcon className="w-5 h-5 flex-shrink-0" />
-                  <span className="whitespace-nowrap">Custom Metadata</span>
-                </button>
-                </>
+                  <>
+                    <button
+                      onClick={() => setActiveTab("images")}
+                      className={
+                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                        (activeTab === "images"
+                          ? "bg-gv-accent text-white"
+                          : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
+                      }
+                    >
+                      <PhotoIcon className="w-5 h-5 flex-shrink-0" />
+                      <span>Edit Images</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("metadata")}
+                      className={
+                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                        (activeTab === "metadata"
+                          ? "bg-gv-accent text-white"
+                          : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
+                      }
+                    >
+                      <CircleStackIcon className="w-5 h-5 flex-shrink-0" />
+                      <span>Metadata</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("custom-metadata")}
+                      className={
+                        "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                        (activeTab === "custom-metadata"
+                          ? "bg-gv-accent text-white"
+                          : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
+                      }
+                    >
+                      <PencilIcon className="w-5 h-5 flex-shrink-0" />
+                      <span className="whitespace-nowrap">Custom Metadata</span>
+                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => setActiveTab("game-files")}
+                        className={
+                          "flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl text-xs sm:text-sm font-medium transition-colors text-left whitespace-nowrap " +
+                          (activeTab === "game-files"
+                            ? "bg-gv-accent text-white"
+                            : "text-gv-muted hover:bg-gv-panel-soft hover:text-gv-text")
+                        }
+                      >
+                        <DocumentTextIcon className="w-5 h-5 flex-shrink-0" />
+                        <span>Game Files</span>
+                      </button>
+                    )}
+                  </>
                 )}
                 {installationTabsVisible && (
                   <>
@@ -1886,7 +2494,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
             <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
               <DialogBody className="flex-1 px-6 py-4 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gv-panel-strong [&::-webkit-scrollbar-thumb]:rounded-full">
                 {activeTab === "images" && (
-                  <div className="grid gap-8 md:grid-cols-2">
+                  <div className="grid gap-6 md:gap-8 md:grid-cols-2">
                     {/* Cover zone */}
                     <div className="flex flex-col gap-4">
                       <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-gv-muted">
@@ -2206,9 +2814,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                       </div>
                                       <div className="text-gv-text">
                                         {workingGame.release_date
-                                          ? new Date(
-                                              workingGame.release_date,
-                                            ).toLocaleDateString()
+                                          ? formatDate(workingGame.release_date)
                                           : "N/A"}
                                       </div>
                                     </div>
@@ -2217,9 +2823,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         Added:
                                       </div>
                                       <div className="text-gv-text">
-                                        {new Date(
-                                          workingGame.created_at,
-                                        ).toLocaleDateString()}
+                                        {formatDate(workingGame.created_at)}
                                       </div>
                                     </div>
                                   </div>
@@ -2270,9 +2874,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         </div>
                                         <div className="text-gv-text">
                                           {currentShownMappedGame.release_date
-                                            ? new Date(
-                                              currentShownMappedGame.release_date,
-                                            ).toLocaleDateString()
+                                            ? formatDate(
+                                                currentShownMappedGame.release_date,
+                                              )
                                             : "N/A"}
                                         </div>
                                       </div>
@@ -2282,9 +2886,9 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                         </div>
                                         <div className="text-gv-text">
                                           {currentShownMappedGame.updated_at
-                                            ? new Date(
-                                              currentShownMappedGame.updated_at,
-                                            ).toLocaleDateString()
+                                            ? formatDate(
+                                                currentShownMappedGame.updated_at,
+                                              )
                                             : "N/A"}
                                         </div>
                                       </div>
@@ -2432,9 +3036,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                       </div>
                                       {result.release_date && (
                                         <div className="text-xs text-gv-muted">
-                                          {new Date(
-                                            result.release_date,
-                                          ).getFullYear()}
+                                          {formatYear(result.release_date)}
                                         </div>
                                       )}
                                       {result.description && (
@@ -2717,9 +3319,7 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                               !customMetadata.release_date && (
                                 <p className="mt-1 text-xs text-gv-muted">
                                   Current:{" "}
-                                  {new Date(
-                                    getWatermark("release_date"),
-                                  ).toLocaleDateString()}
+                                  {formatDate(getWatermark("release_date"))}
                                 </p>
                               )}
                           </div>
@@ -2841,6 +3441,108 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                                 type="button"
                                 onClick={() =>
                                   applyWatermark("launch_parameters")
+                                }
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
+                                title="Apply current value"
+                              >
+                                <ArrowUturnLeftIcon className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Linux (umu-launcher) defaults, same shape as the fields above */}
+                        <div>
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
+                            Game ID (Linux umu)
+                          </label>
+                          <div className="relative">
+                            <Input
+                              type="text"
+                              value={customMetadata.umu_game_id}
+                              onChange={(e) =>
+                                setCustomMetadata({
+                                  ...customMetadata,
+                                  umu_game_id: e.target.value,
+                                })
+                              }
+                              placeholder={
+                                getWatermark("umu_game_id") ||
+                                "umu-database ID, e.g. 1811260"
+                              }
+                              className="pr-10"
+                            />
+                            {getWatermark("umu_game_id") && (
+                              <button
+                                type="button"
+                                onClick={() => applyWatermark("umu_game_id")}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
+                                title="Apply current value"
+                              >
+                                <ArrowUturnLeftIcon className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
+                            Store (Linux umu)
+                          </label>
+                          <div className="relative">
+                            <Input
+                              type="text"
+                              value={customMetadata.umu_store}
+                              onChange={(e) =>
+                                setCustomMetadata({
+                                  ...customMetadata,
+                                  umu_store: e.target.value,
+                                })
+                              }
+                              placeholder={
+                                getWatermark("umu_store") ||
+                                "steam, gog, epic, …"
+                              }
+                              className="pr-10"
+                            />
+                            {getWatermark("umu_store") && (
+                              <button
+                                type="button"
+                                onClick={() => applyWatermark("umu_store")}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
+                                title="Apply current value"
+                              >
+                                <ArrowUturnLeftIcon className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gv-muted mb-1">
+                            Proton Version (Linux umu)
+                          </label>
+                          <div className="relative">
+                            <Input
+                              type="text"
+                              value={customMetadata.umu_proton_path}
+                              onChange={(e) =>
+                                setCustomMetadata({
+                                  ...customMetadata,
+                                  umu_proton_path: e.target.value,
+                                })
+                              }
+                              placeholder={
+                                getWatermark("umu_proton_path") ||
+                                "e.g. GE-Proton11-6"
+                              }
+                              className="pr-10"
+                            />
+                            {getWatermark("umu_proton_path") && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  applyWatermark("umu_proton_path")
                                 }
                                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gv-muted hover:text-gv-text"
                                 title="Apply current value"
@@ -3321,6 +4023,17 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                         {uninstalling ? "Uninstalling..." : "Uninstall Game"}
                       </Button>
                     </div>
+
+                    <DiskUsageChart
+                      data={diskUsageData}
+                      loading={diskUsageLoading}
+                      gameTitle={
+                        workingGame.metadata?.title ||
+                        workingGame.title ||
+                        installedGame.gameTitle
+                      }
+                      rootPath={diskUsageRoot?.path}
+                    />
                   </div>
                 )}
 
@@ -3342,97 +4055,314 @@ export function GameSettings({ game, onClose, onGameUpdated, onUninstalled }: Pr
                       </div>
                     ) : (
                       <>
-                        {/* Launch Executable Picker */}
-                        <div>
-                          <label className="block text-sm font-medium text-gv-muted mb-1">
-                            Launch Executable
-                          </label>
-                          {launchExecutables.length === 0 ? (
-                            <div className="space-y-3">
-                              <p className="text-sm text-gv-muted">
-                                No executables found in the installation folder.
+                        <SettingsRowGroup>
+                          <SettingsRow
+                            label="Launch Executable"
+                            description="The file GameVault starts when you press play."
+                          >
+                            {launchExecutables.length === 0 ? (
+                              <div className="space-y-3">
+                                <p className="text-sm text-gv-muted">
+                                  No executables found in the installation
+                                  folder.
+                                </p>
+                                {nonExecutableScripts.length > 0 && (
+                                  <div className="rounded-xl border border-gv-warning/30 bg-gv-warning/10 px-3 py-2.5">
+                                    <p className="text-xs text-gv-warning">
+                                      Found {nonExecutableScripts.length}{" "}
+                                      {nonExecutableScripts.length === 1
+                                        ? "shell script"
+                                        : "shell scripts"}{" "}
+                                      that is missing the executable (
+                                      <code className="font-mono">+x</code>)
+                                      permission.
+                                    </p>
+                                    <Button
+                                      color="amber"
+                                      onClick={handleMakeExecutable}
+                                      disabled={makingExecutable}
+                                      className="mt-2"
+                                    >
+                                      {makingExecutable
+                                        ? "Making executable…"
+                                        : "Make executable"}
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <Listbox
+                                name="launchExe"
+                                value={selectedLaunchExe}
+                                onChange={(v: any) =>
+                                  setSelectedLaunchExe(String(v))
+                                }
+                              >
+                                <ListboxOption value="">
+                                  <ListboxLabel>
+                                    -- Select executable --
+                                  </ListboxLabel>
+                                </ListboxOption>
+                                {launchExecutables.map((exe) => (
+                                  <ListboxOption key={exe} value={exe}>
+                                    <ListboxLabel>{exe}</ListboxLabel>
+                                  </ListboxOption>
+                                ))}
+                              </Listbox>
+                            )}
+                            {launchScanTruncated && (
+                              <p className="mt-1.5 text-xs text-gv-warning">
+                                This installation folder is very large — the
+                                scan stopped early, so some executables may be
+                                missing.
                               </p>
-                              {nonExecutableScripts.length > 0 && (
-                                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-                                  <p className="text-sm text-amber-700 dark:text-amber-300">
-                                    Found {nonExecutableScripts.length}{" "}
-                                    {nonExecutableScripts.length === 1
-                                      ? "shell script"
-                                      : "shell scripts"}{" "}
-                                    that is missing the executable (
-                                    <code className="font-mono">+x</code>)
-                                    permission.
-                                  </p>
-                                  <Button
-                                    color="amber"
-                                    onClick={handleMakeExecutable}
-                                    disabled={makingExecutable}
-                                    className="mt-3"
+                            )}
+                          </SettingsRow>
+
+                          <SettingsRow
+                            label="Launch Parameters"
+                            description="Optional command-line arguments passed to the executable."
+                          >
+                            <Input
+                              name="launchParams"
+                              value={launchParams}
+                              onChange={(e: any) =>
+                                setLaunchParams(e.target.value)
+                              }
+                              placeholder="e.g. -fullscreen -width 1920"
+                            />
+                          </SettingsRow>
+
+                          <SettingsRow
+                            label="Run as Administrator"
+                            description="Launch the game with elevated privileges (UAC on Windows, root prompt on Linux)."
+                          >
+                            <div className="flex sm:justify-end">
+                              <Switch
+                                name="launchAsAdmin"
+                                color="indigo"
+                                aria-label="Run as Administrator"
+                                checked={launchAsAdmin}
+                                onChange={(v: boolean) => setLaunchAsAdmin(v)}
+                              />
+                            </div>
+                          </SettingsRow>
+                        </SettingsRowGroup>
+
+                        {/* umu-launcher (Linux) — collapsed until it is needed */}
+                        {isLinux && (
+                          <section className="overflow-hidden rounded-2xl border border-gv-line bg-gv-panel">
+                            <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setUmuSectionOpen((open) => !open)
+                                }
+                                aria-expanded={umuSectionOpen}
+                                className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gv-accent-cool"
+                              >
+                                <ChevronDownIcon
+                                  className={`h-4 w-4 shrink-0 text-gv-muted transition-transform ${
+                                    umuSectionOpen ? "rotate-180" : ""
+                                  }`}
+                                />
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-medium text-gv-text">
+                                    Linux · Wine/Proton
+                                  </span>
+                                  <span className="mt-0.5 block text-xs leading-5 text-gv-muted">
+                                    {isWindowsLaunchExe
+                                      ? "This is a Windows executable — it runs through umu-launcher (Wine/Proton)."
+                                      : forceUmu
+                                        ? "This game is always started through umu-launcher (Wine/Proton)."
+                                        : "Options for starting this game through umu-launcher (Wine/Proton)."}
+                                  </span>
+                                </span>
+                              </button>
+                              <div className="flex shrink-0 items-center gap-3">
+                                {umuStatus?.installed && (
+                                  <span className="rounded-full bg-gv-panel-soft px-2.5 py-1 text-xs text-gv-muted">
+                                    umu-launcher
+                                    {umuStatus.version
+                                      ? ` ${umuStatus.version}`
+                                      : ""}
+                                  </span>
+                                )}
+                                {!umuStatus?.installed && (
+                                  <>
+                                    {umuStatus && (
+                                      <span className="rounded-full bg-gv-warning/10 px-2.5 py-1 text-xs text-gv-warning">
+                                        Not installed
+                                      </span>
+                                    )}
+                                    <Button
+                                      color="indigo"
+                                      onClick={() => void handleInstallUmu()}
+                                      disabled={installingUmu}
+                                    >
+                                      {installingUmu
+                                        ? "Installing umu-launcher…"
+                                        : "Install umu-launcher"}
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            {umuSectionOpen && (
+                              <div className="divide-y divide-gv-line border-t border-gv-line">
+                                {/* A Windows exe always runs through umu, so the
+                                    switch would only be misleading there. */}
+                                {!isWindowsLaunchExe && (
+                                  <SettingsRow
+                                    label="Launch through umu-launcher"
+                                    description="Also starts a native Linux executable through Proton/Wine — useful when a game's start.sh or AppImage ends up running a Windows build."
                                   >
-                                    {makingExecutable
-                                      ? "Making executable…"
-                                      : "Make executable"}
+                                    <div className="flex sm:justify-end">
+                                      <Switch
+                                        name="forceUmu"
+                                        color="indigo"
+                                        aria-label="Launch through umu-launcher"
+                                        checked={forceUmu}
+                                        onChange={(v: boolean) =>
+                                          setForceUmu(v)
+                                        }
+                                      />
+                                    </div>
+                                  </SettingsRow>
+                                )}
+                                <UmuLaunchFields
+                                  desktop={isTauri}
+                                  values={{
+                                    umuGameId,
+                                    umuStore,
+                                    umuProtonPath,
+                                    umuWinePrefix,
+                                  }}
+                                  onChange={handleUmuFieldChange}
+                                  protonBuilds={protonBuilds}
+                                  resolvedPrefixPath={resolvedPrefixPath}
+                                  onOpenPrefixFolder={handleOpenPrefixFolder}
+                                />
+                              </div>
+                            )}
+                          </section>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === "game-files" && isAdmin && (
+                  <div className="max-w-3xl space-y-6">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gv-text">
+                        Game Files
+                      </h3>
+                      <p className="mt-1 text-sm text-gv-muted">
+                        View the files that make up this game on the server.
+                        Only admins can delete a file; the game's metadata is
+                        kept after deletion.
+                      </p>
+                    </div>
+
+                    {!workingGame.versions ||
+                    workingGame.versions.length === 0 ? (
+                      <div className="rounded-xl border border-gv-line bg-gv-panel-soft p-6 text-center text-sm text-gv-muted">
+                        No indexed game files found for this game.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {[...workingGame.versions]
+                          .sort(
+                            (a, b) =>
+                              new Date(b.indexed_at).getTime() -
+                              new Date(a.indexed_at).getTime(),
+                          )
+                          .map((version) => {
+                            const versionLabel =
+                              version.version || "Unspecified";
+                            const isDeleting = deletingVersionId === version.id;
+                            const bytes = Number(version.size);
+                            const fileSize = Number.isFinite(bytes)
+                              ? formatBytes(bytes)
+                              : "Unknown";
+                            const filePath = version.file_path || "";
+                            const gameType = version.type
+                              ? version.type
+                                  .replace(/_/g, " ")
+                                  .toLowerCase()
+                                  .replace(/\b\w/g, (c) => c.toUpperCase())
+                              : "Undetectable";
+                            const indexedAt = (() => {
+                              const d = new Date(version.indexed_at);
+                              return Number.isNaN(d.getTime())
+                                ? "-"
+                                : d.toLocaleString();
+                            })();
+
+                            return (
+                              <div
+                                key={version.id}
+                                className="rounded-xl border border-gv-line bg-gv-panel-soft p-4"
+                              >
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="font-medium text-gv-text">
+                                        {versionLabel}
+                                      </span>
+                                      {version.early_access && (
+                                        <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-300">
+                                          Early Access
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div
+                                      className="mt-1 break-all font-mono text-xs text-gv-muted"
+                                      title={filePath}
+                                    >
+                                      {filePath}
+                                    </div>
+                                  </div>
+                                  <Button
+                                    color="rose"
+                                    onClick={() =>
+                                      void handleDeleteGameVersion(version)
+                                    }
+                                    disabled={
+                                      isDeleting || deletingVersionId !== null
+                                    }
+                                    aria-label={`Delete ${versionLabel}`}
+                                  >
+                                    <TrashIcon className="w-4 h-4" />
+                                    {isDeleting ? "Deleting..." : "Delete"}
                                   </Button>
                                 </div>
-                              )}
-                            </div>
-                          ) : (
-                            <Listbox
-                              name="launchExe"
-                              value={selectedLaunchExe}
-                              onChange={(v: any) =>
-                                setSelectedLaunchExe(String(v))
-                              }
-                            >
-                              <ListboxOption value="">
-                                <ListboxLabel>-- Select executable --</ListboxLabel>
-                              </ListboxOption>
-                              {launchExecutables.map((exe) => (
-                                <ListboxOption key={exe} value={exe}>
-                                  <ListboxLabel>{exe}</ListboxLabel>
-                                </ListboxOption>
-                              ))}
-                            </Listbox>
-                          )}
-                        </div>
 
-                        {/* Launch Parameters */}
-                        <div>
-                          <label className="block text-sm font-medium text-gv-muted mb-1">
-                            Launch Parameters
-                          </label>
-                          <Input
-                            name="launchParams"
-                            value={launchParams}
-                            onChange={(e: any) =>
-                              setLaunchParams(e.target.value)
-                            }
-                            placeholder="e.g. -fullscreen -width 1920"
-                          />
-                          <p className="mt-1 text-xs text-gv-muted">
-                            Optional command-line arguments passed to the
-                            executable.
-                          </p>
-                        </div>
-
-                        {/* Run as Admin */}
-                        <div>                         
-                          <SwitchField>
-                            <Switch
-                              name="launchAsAdmin"
-                              color="indigo"
-                              aria-label="Run as Administrator"
-                              checked={launchAsAdmin}
-                              onChange={(v: boolean) => setLaunchAsAdmin(v)}
-                            />
-                            <Label>Run as Administrator</Label>
-                          </SwitchField>
-                          <p className="mt-1 ml-0 text-xs text-gv-muted">
-                            Launch the game with elevated privileges (UAC on
-                            Windows, root prompt on Linux).
-                          </p>
-                        </div>
-                      </>
+                                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-gv-line pt-3 text-xs sm:grid-cols-3">
+                                  <div>
+                                    <dt className="text-gv-muted">Size</dt>
+                                    <dd className="mt-0.5 text-gv-text">
+                                      {fileSize}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt className="text-gv-muted">Type</dt>
+                                    <dd className="mt-0.5 text-gv-text">
+                                      {gameType}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt className="text-gv-muted">Added</dt>
+                                    <dd className="mt-0.5 text-gv-text">
+                                      {indexedAt}
+                                    </dd>
+                                  </div>
+                                </dl>
+                              </div>
+                            );
+                          })}
+                      </div>
                     )}
                   </div>
                 )}

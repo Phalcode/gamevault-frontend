@@ -1,4 +1,5 @@
 use crate::events::{emit_install_copy_progress, emit_installer_status};
+use crate::executables::{self, ScanLimits};
 use crate::util::read_saved_installer_preferences;
 #[cfg(windows)]
 use crate::util::run_elevated_installer_and_wait;
@@ -7,42 +8,35 @@ use std::fs::File as StdFile;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(target_os = "linux")]
+use std::process::Stdio;
+#[cfg(target_os = "linux")]
+use std::sync::atomic::Ordering;
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-pub(crate) fn collect_install_candidates(root: &Path, current: &Path, results: &mut Vec<String>) -> Result<(), String> {
-  let entries = fs::read_dir(current)
-    .map_err(|e| format!("Failed to read extraction folder: {e}"))?;
+/// Files an installer can be shipped as.
+const INSTALLER_EXTENSIONS: [&str; 8] = [
+  "exe", "msi", "bat", "cmd", "com", "sh", "run", "appimage",
+];
 
-  for entry in entries {
-    let entry = entry.map_err(|e| format!("Failed to read extraction folder entry: {e}"))?;
-    let path = entry.path();
-
-    if path.is_dir() {
-      collect_install_candidates(root, &path, results)?;
-      continue;
+/// Finds candidate installers inside an extracted game folder.
+///
+/// Uses the shared breadth-first walk, so a huge repack cannot hide a
+/// top-level installer, and Windows junctions can no longer turn the walk into
+/// an endless loop the way the old plain recursion could.
+pub(crate) fn collect_install_candidates(root: &Path, results: &mut Vec<String>) {
+  executables::walk_files(root, ScanLimits::THOROUGH, |path, _mode| {
+    if !INSTALLER_EXTENSIONS.contains(&executables::extension_lower(path).as_str()) {
+      return;
     }
-
-    let ext = path
-      .extension()
-      .and_then(|v| v.to_str())
-      .map(|v| v.to_ascii_lowercase())
-      .unwrap_or_default();
-
-    if !matches!(
-      ext.as_str(),
-      "exe" | "msi" | "bat" | "cmd" | "com" | "sh" | "run" | "appimage"
-    ) {
-      continue;
+    if let Some(relative) = executables::relative_path(root, path) {
+      results.push(relative);
     }
-
-    if let Ok(relative) = path.strip_prefix(root) {
-      results.push(relative.to_string_lossy().replace('\\', "/"));
-    }
-  }
-
-  Ok(())
+  });
 }
 
 fn compute_directory_size(path: &Path) -> Result<u64, String> {
@@ -62,6 +56,49 @@ fn compute_directory_size(path: &Path) -> Result<u64, String> {
     total = total.saturating_add(compute_directory_size(&entry.path())?);
   }
   Ok(total)
+}
+
+// Recursively applies `chmod +x` to `.sh` shell scripts in the installation
+// directory. Copying files does not preserve the original executable bit, so
+// on Linux we restore it automatically for extracted shell scripts.
+#[cfg(unix)]
+fn make_sh_scripts_executable(root: &Path) -> Result<(), String> {
+  use std::os::unix::fs::PermissionsExt;
+
+  let entries = fs::read_dir(root).map_err(|e| format!("Failed to read installation folder: {e}"))?;
+
+  for entry in entries {
+    let entry = entry.map_err(|e| format!("Failed to read installation folder entry: {e}"))?;
+    let path = entry.path();
+
+    if path.is_dir() {
+      make_sh_scripts_executable(&path)?;
+      continue;
+    }
+
+    let ext = path
+      .extension()
+      .and_then(|v| v.to_str())
+      .map(|v| v.to_ascii_lowercase())
+      .unwrap_or_default();
+    if !matches!(ext.as_str(), "sh" | "bash" | "zsh" | "run" | "command") {
+      continue;
+    }
+
+    let mut permissions = fs::metadata(&path)
+      .map_err(|e| format!("Failed to read permissions: {e}"))?
+      .permissions();
+    permissions.set_mode(permissions.mode() | 0o111);
+    fs::set_permissions(&path, permissions)
+      .map_err(|e| format!("Failed to make script executable: {e}"))?;
+  }
+
+  Ok(())
+}
+
+#[cfg(not(unix))]
+fn make_sh_scripts_executable(_root: &Path) -> Result<(), String> {
+  Ok(())
 }
 
 fn copy_path_with_progress(
@@ -137,18 +174,48 @@ fn copy_path_with_progress(
 }
 
 #[tauri::command]
-pub(crate) fn list_install_executables(extraction_path: String) -> Result<Vec<String>, String> {
+pub(crate) async fn list_install_executables(extraction_path: String) -> Result<Vec<String>, String> {
+  // Recursively scans the extraction folder for installers: off the UI thread.
+  tauri::async_runtime::spawn_blocking(move || list_install_executables_blocking(extraction_path))
+    .await
+    .map_err(|error| format!("Listing install executables failed: {error}"))?
+}
+
+fn list_install_executables_blocking(extraction_path: String) -> Result<Vec<String>, String> {
   let root = PathBuf::from(extraction_path);
   if !root.exists() || !root.is_dir() {
     return Ok(Vec::new());
   }
 
   let mut results = Vec::new();
-  collect_install_candidates(&root, &root, &mut results)?;
+  collect_install_candidates(&root, &mut results);
   let (preferred_installer, _) = read_saved_installer_preferences(&root);
   let normalized_preferred = preferred_installer
     .as_ref()
     .map(|value| value.replace('\\', "/").to_ascii_lowercase());
+
+  // Lower rank = more likely to be the real installer. Common setup names
+  // (setup.exe, install.exe, …) are preferred so the correct executable ends
+  // up at the top of the list when no preferred installer is configured.
+  fn installer_name_rank(relative: &str) -> u8 {
+    let normalized = relative.replace('\\', "/").to_ascii_lowercase();
+    let basename = normalized.rsplit('/').next().unwrap_or(&normalized);
+    let stem = basename
+      .rsplit_once('.')
+      .map(|(stem, _)| stem)
+      .unwrap_or(basename);
+    const COMMON: &[&str] = &[
+      "setup", "install", "installer", "autorun", "autoplay", "start",
+      "launcher", "setup64", "install64", "setup32", "install32",
+    ];
+    if COMMON.contains(&stem) {
+      0
+    } else if stem.contains("setup") || stem.contains("install") {
+      1
+    } else {
+      2
+    }
+  }
 
   results.sort_by(|left, right| {
     let left_normalized = left.replace('\\', "/").to_ascii_lowercase();
@@ -168,6 +235,7 @@ pub(crate) fn list_install_executables(extraction_path: String) -> Result<Vec<St
 
     right_is_preferred
       .cmp(&left_is_preferred)
+      .then_with(|| installer_name_rank(left).cmp(&installer_name_rank(right)))
       .then_with(|| left_normalized.cmp(&right_normalized))
   });
   Ok(results)
@@ -187,10 +255,19 @@ pub(crate) fn copy_installation_files(
     return Err("Extraction folder does not exist".to_string());
   }
 
+  // The copy keeps running when the webview is reloaded (F5). Two copies into
+  // the same folder would fight over the same files, so keep the running one
+  // and let the UI re-attach to its progress events.
+  if crate::state::is_install_copy_running(game_id) {
+    return Ok(());
+  }
+
   fs::create_dir_all(&destination)
     .map_err(|e| format!("Failed to create installation directory: {e}"))?;
 
   std::thread::spawn(move || {
+    // Sizing the source and checking free space can take seconds on large
+    // games, so it runs on this thread rather than blocking the UI.
     let total = match compute_directory_size(&source) {
       Ok(total) => total,
       Err(error) => {
@@ -198,6 +275,25 @@ pub(crate) fn copy_installation_files(
         return;
       }
     };
+
+    // Avoid wasting the user's time copying onto an obviously-full disk.
+    if let Some(free) = crate::util::free_space_on(&destination) {
+      if total > free {
+        emit_install_copy_progress(
+          &app,
+          game_id,
+          "error",
+          0,
+          Some(total),
+          None,
+          Some(format!(
+            "Not enough disk space to install (needs about {} bytes, only {} bytes free).",
+            total, free
+          )),
+        );
+        return;
+      }
+    }
 
     emit_install_copy_progress(&app, game_id, "copying", 0, Some(total), None, None);
 
@@ -213,15 +309,23 @@ pub(crate) fn copy_installation_files(
     );
 
     match result {
-      Ok(_) => emit_install_copy_progress(
-        &app,
-        game_id,
-        "completed",
-        total,
-        Some(total),
-        None,
-        None,
-      ),
+      Ok(_) => {
+        // On Linux, restore the executable bit on copied shell scripts so
+        // portable games can be launched right after auto-install.
+        if let Err(error) = make_sh_scripts_executable(&destination) {
+          emit_install_copy_progress(
+            &app,
+            game_id,
+            "error",
+            processed,
+            Some(total),
+            None,
+            Some(error),
+          );
+          return;
+        }
+        emit_install_copy_progress(&app, game_id, "completed", total, Some(total), None, None)
+      }
       Err(error) => emit_install_copy_progress(
         &app,
         game_id,
@@ -237,23 +341,338 @@ pub(crate) fn copy_installation_files(
   Ok(())
 }
 
+/// How long to keep polling the installation directory after the installer
+/// process exits before deciding the install actually failed. Some
+/// self-extracting installers (notably GOG/NSIS wrappers) spawn a child
+/// installer and their wrapper exits immediately with a non-zero code — e.g.
+/// `0xC000041D` / `-1073740771` — even though the real installation continues
+/// in the detached child and succeeds. Rather than trusting the exit code,
+/// verify the install directory actually got populated.
+const INSTALLER_VERIFY_GRACE: Duration = Duration::from_secs(90);
+
+/// Returns true once the installation directory contains at least one entry,
+/// meaning the installer (or its detached child) has written into it.
+fn installation_directory_populated(path: &Path) -> bool {
+  fs::read_dir(path)
+    .map(|mut entries| entries.next().is_some())
+    .unwrap_or(false)
+}
+
+/// Splits an installer parameter string on whitespace while keeping double-
+/// quoted spans (e.g. `/DIR="path with spaces"`) as single tokens, so paths
+/// substituted via `%INSTALLDIR%` survive as one argument. Quote characters
+/// are dropped: wine quotes spaced arguments itself when it rebuilds the
+/// Windows command line, and leftover embedded quotes would otherwise be
+/// escaped (`\"`) and misparsed by the installer.
+#[cfg(target_os = "linux")]
+fn split_installer_params(params: &str) -> Vec<String> {
+  let mut tokens = Vec::new();
+  let mut current = String::new();
+  let mut in_quotes = false;
+  for c in params.chars() {
+    match c {
+      '"' => {
+        in_quotes = !in_quotes;
+      }
+      c if c.is_whitespace() && !in_quotes => {
+        if !current.is_empty() {
+          tokens.push(std::mem::take(&mut current));
+        }
+      }
+      c => current.push(c),
+    }
+  }
+  if !current.is_empty() {
+    tokens.push(current);
+  }
+  tokens
+}
+
+/// Polls the installation directory for `INSTALLER_VERIFY_GRACE`, returning
+/// true as soon as it is populated (or immediately if it already is).
+fn wait_for_installation_populated(path: &Path) -> bool {
+  let start = Instant::now();
+  while start.elapsed() < INSTALLER_VERIFY_GRACE {
+    if installation_directory_populated(path) {
+      return true;
+    }
+    thread::sleep(Duration::from_millis(500));
+  }
+  installation_directory_populated(path)
+}
+
+/// Runs a Windows installer through `umu-run` on Linux. Auto-installs
+/// umu-launcher when missing, streams its setup output via `umu-status`
+/// events (drives the "Setting up umu launcher…" overlay) and keeps the
+/// regular `installer-status` protocol so the download card stays in sync.
+#[cfg(target_os = "linux")]
+fn run_installer_via_umu(
+  app: tauri::AppHandle,
+  game_id: i64,
+  version_directory: Option<&str>,
+  installer_path: &Path,
+  installer_relative: &str,
+  installation_path_resolved: &str,
+  installer_parameters: Option<String>,
+  is_msi: bool,
+  umu_game_id: Option<&str>,
+  umu_store: Option<&str>,
+  umu_proton_path: Option<&str>,
+  umu_wine_prefix: Option<&str>,
+) {
+  // Installer runs get their own log too: the window is not opened
+  // automatically (installs take a while), but the output can be opened from
+  // the settings at any time.
+  let log = crate::launch_log::begin_launch(
+    &app,
+    &format!("Installer: {installer_relative}"),
+    "installer",
+  );
+  log.push(
+    "info",
+    &format!("Installer: {}", installer_path.display()),
+  );
+  if let Some(parameters) = installer_parameters.as_deref() {
+    log.push("info", &format!("Parameters: {parameters}"));
+  }
+
+  if let Err(error) = crate::umu::ensure_umu_installed(&app, None) {
+    log.push("err", &error);
+    log.finish_failed(&app, None);
+    emit_installer_status(
+      &app,
+      game_id,
+      "error",
+      Some(installer_relative.to_string()),
+      None,
+      Some(error),
+    );
+    return;
+  }
+
+  let Some(umu_run) = crate::umu::find_umu_run() else {
+    let message = "umu-run was not found. Unable to launch Windows installer on Linux.".to_string();
+    log.push("err", &message);
+    log.finish_failed(&app, None);
+    crate::events::emit_umu_status(&app, None, "error", None, Some(message.clone()));
+    emit_installer_status(
+      &app,
+      game_id,
+      "error",
+      Some(installer_relative.to_string()),
+      None,
+      Some(message),
+    );
+    return;
+  };
+
+  let working_dir = installer_path
+    .parent()
+    .map(|parent| parent.to_path_buf())
+    .unwrap_or_default();
+
+  let mut command = Command::new(&umu_run);
+  crate::umu::prepare_umu_run_env(&mut command);
+  if is_msi {
+    command.arg("msiexec").arg("/i");
+  }
+  command.arg(installer_path).current_dir(&working_dir);
+
+  // Use the same isolated per-game prefix as the game launch, so a game is
+  // installed into the prefix it later runs in.
+  if let Some(prefix) = crate::umu::resolve_wine_prefix(
+    &app,
+    &crate::umu::PrefixContext {
+      per_game_prefix: umu_wine_prefix,
+      version_directory,
+      game_id: Some(game_id),
+      umu_game_id,
+    },
+  ) {
+    command.env("WINEPREFIX", &prefix);
+  }
+  if let Some(value) = umu_game_id.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("GAMEID", value);
+  }
+  if let Some(value) = umu_store.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("STORE", value);
+  }
+  if let Some(value) = umu_proton_path.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("PROTONPATH", value);
+  }
+
+  let mut installer_args: Vec<String> = Vec::new();
+  if is_msi {
+    installer_args.push("msiexec".to_string());
+    installer_args.push("/i".to_string());
+  }
+  installer_args.push(installer_path.display().to_string());
+
+  if let Some(parameters) = installer_parameters {
+    // The installer runs inside wine, so any install directory it receives
+    // must be a Windows path (umu maps $HOME to X:, / to Z:), not the raw
+    // Linux path.
+    let windows_install_dir = crate::umu::to_windows_install_path(installation_path_resolved);
+    let parameters = parameters.replace("%INSTALLDIR%", &windows_install_dir);
+    let parameters = parameters.trim();
+    if !parameters.is_empty() {
+      // Split on whitespace but keep double-quoted spans (e.g.
+      // `/DIR="path with spaces"`) as single arguments so the substituted
+      // install directory survives intact.
+      for arg in split_installer_params(parameters) {
+        command.arg(arg.clone());
+        installer_args.push(arg);
+      }
+    }
+  }
+
+  // Surface the exact command in the web console + terminal for debugging.
+  crate::events::emit_installer_command(&app, &umu_run.to_string_lossy(), &installer_args);
+  println!("GV_INSTALLER: {} {:?}", umu_run.display(), installer_args);
+
+  command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+  let mut child = match command.spawn() {
+    Ok(child) => child,
+    Err(error) => {
+      let message = format!("Failed to start installer: {error}");
+      crate::events::emit_umu_status(&app, None, "error", None, Some(message.clone()));
+      emit_installer_status(
+        &app,
+        game_id,
+        "error",
+        Some(installer_relative.to_string()),
+        None,
+        Some(message),
+      );
+      return;
+    }
+  };
+
+  let stdout = child.stdout.take();
+  let stderr = child.stderr.take();
+  let handle = crate::umu::spawn_umu_streamers(&app, None, stdout, stderr, Some(log.clone()));
+
+  emit_installer_status(
+    &app,
+    game_id,
+    "running",
+    Some(installer_relative.to_string()),
+    None,
+    None,
+  );
+
+  // Let the umu overlay know once the installer window actually appears (umu
+  // emits "running" right when the wine container finishes setting up).
+  {
+    let exe_path = installer_path.to_path_buf();
+    let running_flag = handle.running.clone();
+    let overlay_app = app.clone();
+    thread::spawn(move || {
+      let started = Instant::now();
+      loop {
+        if running_flag.load(Ordering::SeqCst) || crate::umu::detect_process_running(&exe_path) {
+          crate::events::emit_umu_status(&overlay_app, None, "running", None, None);
+          break;
+        }
+        // Safety net: assume the installer started even if undetected.
+        if started.elapsed() >= Duration::from_secs(600) {
+          crate::events::emit_umu_status(&overlay_app, None, "running", None, None);
+          break;
+        }
+        thread::sleep(Duration::from_millis(500));
+      }
+    });
+  }
+
+  let status = child.wait();
+  let exit_code = status.as_ref().ok().and_then(|s| s.code());
+
+  if status.map(|s| s.success()).unwrap_or(false) {
+    log.push(
+      "info",
+      &format!("Installer exited with code {}.", exit_code.unwrap_or(0)),
+    );
+    log.finish_success(&app, exit_code);
+    emit_installer_status(
+      &app,
+      game_id,
+      "completed",
+      Some(installer_relative.to_string()),
+      exit_code,
+      None,
+    );
+  } else if wait_for_installation_populated(Path::new(installation_path_resolved)) {
+    // Non-zero exit is not a reliable failure (GOG/NSIS wrappers detach a
+    // child that keeps installing); verify the install dir got populated.
+    log.push(
+      "info",
+      &format!(
+        "Installer exited with code {}, but the installation directory was populated — treating it as success.",
+        exit_code.unwrap_or(-1)
+      ),
+    );
+    log.finish_success(&app, exit_code);
+    emit_installer_status(
+      &app,
+      game_id,
+      "completed",
+      Some(installer_relative.to_string()),
+      exit_code,
+      None,
+    );
+  } else {
+    let message = format!("Installer exited with code {}.", exit_code.unwrap_or(-1));
+    log.push("err", &message);
+    log.finish_failed(&app, exit_code);
+    emit_installer_status(
+      &app,
+      game_id,
+      "error",
+      Some(installer_relative.to_string()),
+      exit_code,
+      Some(message),
+    );
+  }
+}
+
 #[tauri::command]
 pub(crate) fn launch_installation_executable(
   app: tauri::AppHandle,
   game_id: i64,
+  version_directory: Option<String>,
   extraction_path: String,
   installer_relative_path: String,
   installation_path: String,
   installer_parameters: Option<String>,
+  umu_game_id: Option<String>,
+  umu_store: Option<String>,
+  umu_proton_path: Option<String>,
+  umu_wine_prefix: Option<String>,
 ) -> Result<(), String> {
   let extraction_root = PathBuf::from(extraction_path);
-  let installer_path = extraction_root.join(installer_relative_path.replace('/', "\\"));
+  // Candidate paths are normalized to forward slashes; convert back to the
+  // platform separator so nested installers resolve on every OS (a literal
+  // backslash only works as a separator on Windows).
+  let installer_path = extraction_root
+    .join(installer_relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
   if !installer_path.exists() || !installer_path.is_file() {
-    return Err("Selected installer does not exist".to_string());
+    return Err(format!(
+      "Selected installer does not exist: {}",
+      installer_path.display()
+    ));
   }
 
   let installation_path_resolved = installation_path.clone();
   let installer_relative = installer_relative_path.clone();
+  let version_directory = version_directory.clone();
+
+  // An installer keeps running when the webview is reloaded (F5), and the UI
+  // cannot see it any more. Starting a second one would run two setup
+  // processes over the same folder, so keep the running one.
+  if crate::state::is_installer_running(game_id) {
+    return Ok(());
+  }
   let (_, saved_installer_parameters) = read_saved_installer_preferences(&extraction_root);
   let installer_parameters = installer_parameters
     .map(|value| value.trim().to_string())
@@ -274,6 +693,26 @@ pub(crate) fn launch_installation_executable(
       None,
       None,
     );
+
+    // On Linux, Windows installers run through umu-launcher (Proton/Wine).
+    #[cfg(target_os = "linux")]
+    if crate::umu::is_windows_executable(&installer_path) {
+      run_installer_via_umu(
+        app,
+        game_id,
+        version_directory.as_deref(),
+        &installer_path,
+        &installer_relative,
+        &installation_path_resolved,
+        installer_parameters.clone(),
+        is_msi,
+        umu_game_id.as_deref(),
+        umu_store.as_deref(),
+        umu_proton_path.as_deref(),
+        umu_wine_prefix.as_deref(),
+      );
+      return;
+    }
 
     let mut command = if is_msi {
       let mut cmd = Command::new("msiexec");
@@ -393,17 +832,33 @@ pub(crate) fn launch_installation_executable(
             None,
           );
         } else {
-          emit_installer_status(
-            &app,
-            game_id,
-            "error",
-            Some(installer_relative),
-            exit_code,
-            Some(format!(
-              "Installer exited with code {}.",
-              exit_code.unwrap_or(-1)
-            )),
-          );
+          // A non-zero exit code is not a reliable failure signal. Some
+          // self-extracting installers (GOG/NSIS wrappers) spawn a child and
+          // their wrapper exits right away (e.g. -1073740771 / 0xC000041D)
+          // while the real install continues and succeeds. Verify the install
+          // directory actually got populated before reporting an error.
+          if wait_for_installation_populated(Path::new(&installation_path_resolved)) {
+            emit_installer_status(
+              &app,
+              game_id,
+              "completed",
+              Some(installer_relative),
+              exit_code,
+              None,
+            );
+          } else {
+            emit_installer_status(
+              &app,
+              game_id,
+              "error",
+              Some(installer_relative),
+              exit_code,
+              Some(format!(
+                "Installer exited with code {}.",
+                exit_code.unwrap_or(-1)
+              )),
+            );
+          }
         }
       }
       Err(error) => emit_installer_status(
@@ -420,11 +875,123 @@ pub(crate) fn launch_installation_executable(
   Ok(())
 }
 
+/// Runs a Windows uninstaller through `umu-run` on Linux (auto-installing
+/// umu-launcher when missing). Mirrors the native wait + exit-code semantics.
+#[cfg(target_os = "linux")]
+fn run_uninstall_via_umu(
+  app: tauri::AppHandle,
+  version_directory: Option<&str>,
+  executable: &Path,
+  working_directory: Option<&str>,
+  arguments: Option<String>,
+  is_msi: bool,
+  umu_game_id: Option<&str>,
+  umu_store: Option<&str>,
+  umu_proton_path: Option<&str>,
+  umu_wine_prefix: Option<&str>,
+) -> Result<Option<i32>, String> {
+  if let Err(error) = crate::umu::ensure_umu_installed(&app, None) {
+    return Err(error);
+  }
+  let umu_run = crate::umu::find_umu_run()
+    .ok_or_else(|| "umu-run was not found. Unable to run Windows uninstaller on Linux.".to_string())?;
+
+  let mut command = Command::new(&umu_run);
+  crate::umu::prepare_umu_run_env(&mut command);
+  if is_msi {
+    command.arg("msiexec").arg("/x");
+  }
+  command.arg(executable);
+  if let Some(directory) = working_directory.filter(|value| !value.trim().is_empty()) {
+    command.current_dir(directory);
+  }
+  if let Some(arguments) = arguments.filter(|value| !value.trim().is_empty()) {
+    for arg in split_installer_params(arguments.trim()) {
+      command.arg(arg);
+    }
+  }
+
+  // The uninstaller must run in the prefix the game was installed into.
+  if let Some(prefix) = crate::umu::resolve_wine_prefix(
+    &app,
+    &crate::umu::PrefixContext {
+      per_game_prefix: umu_wine_prefix,
+      version_directory,
+      game_id: None,
+      umu_game_id,
+    },
+  ) {
+    command.env("WINEPREFIX", &prefix);
+  }
+  if let Some(value) = umu_game_id.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("GAMEID", value);
+  }
+  if let Some(value) = umu_store.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("STORE", value);
+  }
+  if let Some(value) = umu_proton_path.map(str::trim).filter(|v| !v.is_empty()) {
+    command.env("PROTONPATH", value);
+  }
+
+  let mut child = command
+    .spawn()
+    .map_err(|error| format!("Failed to start uninstall executable: {error}"))?;
+  let status = child
+    .wait()
+    .map_err(|error| format!("Failed while waiting for uninstall executable: {error}"))?;
+  let exit_code = status.code();
+  if status.success() {
+    Ok(exit_code)
+  } else {
+    Err(format!(
+      "Uninstall executable exited with code {}.",
+      exit_code.unwrap_or(-1)
+    ))
+  }
+}
+
 #[tauri::command]
-pub(crate) fn launch_uninstall_executable(
+pub(crate) async fn launch_uninstall_executable(
+  app: tauri::AppHandle,
+  version_directory: Option<String>,
   executable_path: String,
   working_directory: Option<String>,
   argument_list: Option<String>,
+  umu_game_id: Option<String>,
+  umu_store: Option<String>,
+  umu_proton_path: Option<String>,
+  umu_wine_prefix: Option<String>,
+) -> Result<Option<i32>, String> {
+  // The uninstaller is waited for, which takes as long as the user needs in its
+  // wizard: running that on the UI thread used to freeze the whole app.
+  tauri::async_runtime::spawn_blocking(move || {
+    launch_uninstall_executable_blocking(
+      app,
+      version_directory,
+      executable_path,
+      working_directory,
+      argument_list,
+      umu_game_id,
+      umu_store,
+      umu_proton_path,
+      umu_wine_prefix,
+    )
+  })
+  .await
+  .map_err(|error| format!("Uninstall task failed: {error}"))?
+}
+
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
+fn launch_uninstall_executable_blocking(
+  app: tauri::AppHandle,
+  version_directory: Option<String>,
+  executable_path: String,
+  working_directory: Option<String>,
+  argument_list: Option<String>,
+  umu_game_id: Option<String>,
+  umu_store: Option<String>,
+  umu_proton_path: Option<String>,
+  umu_wine_prefix: Option<String>,
 ) -> Result<Option<i32>, String> {
   let executable = PathBuf::from(&executable_path);
   if !executable.exists() || !executable.is_file() {
@@ -436,6 +1003,23 @@ pub(crate) fn launch_uninstall_executable(
     .and_then(|value| value.to_str())
     .map(|value| value.eq_ignore_ascii_case("msi"))
     .unwrap_or(false);
+
+  // On Linux, Windows uninstallers run through umu-launcher (Proton/Wine).
+  #[cfg(target_os = "linux")]
+  if crate::umu::is_windows_executable(&executable) {
+    return run_uninstall_via_umu(
+      app,
+      version_directory.as_deref(),
+      &executable,
+      working_directory.as_deref(),
+      argument_list,
+      is_msi,
+      umu_game_id.as_deref(),
+      umu_store.as_deref(),
+      umu_proton_path.as_deref(),
+      umu_wine_prefix.as_deref(),
+    );
+  }
 
   let mut command = if is_msi {
     let mut cmd = Command::new("msiexec");
@@ -513,5 +1097,36 @@ pub(crate) fn launch_uninstall_executable(
       }
     }
     Err(error) => Err(format!("Failed while waiting for uninstall executable: {error}")),
+  }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+  use super::split_installer_params;
+
+  #[test]
+  fn keeps_quoted_paths_as_single_tokens() {
+    // Quotes are dropped (wine re-quotes spaced args itself); each /DIR path
+    // stays one token.
+    assert_eq!(
+      split_installer_params(
+        "/D=\"X:\\Games\\GameVault\\ReStory - Chill Electronics Repairs\\Installation\" /S /DIR=\"X:\\Games\\GameVault\\ReStory - Chill Electronics Repairs\\Installation\" /SILENT /COMPONENTS=text"
+      ),
+      vec![
+        "/D=X:\\Games\\GameVault\\ReStory - Chill Electronics Repairs\\Installation",
+        "/S",
+        "/DIR=X:\\Games\\GameVault\\ReStory - Chill Electronics Repairs\\Installation",
+        "/SILENT",
+        "/COMPONENTS=text",
+      ]
+    );
+  }
+
+  #[test]
+  fn splits_unquoted_parameters() {
+    assert_eq!(
+      split_installer_params("/S /D=C:\\Games\\foo.exe"),
+      vec!["/S", "/D=C:\\Games\\foo.exe"]
+    );
   }
 }

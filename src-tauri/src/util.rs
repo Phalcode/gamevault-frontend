@@ -2,8 +2,71 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-#[cfg(windows)]
-use std::process::Command;
+/// Returns the free (available) disk space, in bytes, on the volume that
+/// contains the given path. Returns `None` if the free space could not be
+/// determined.
+pub(crate) fn free_space_on(path: &Path) -> Option<u64> {
+  use sysinfo::Disks;
+
+  let disks = Disks::new_with_refreshed_list();
+  let mut best: Option<(usize, &sysinfo::Disk)> = None;
+  for disk in disks.list() {
+    let mount = disk.mount_point();
+    if path.starts_with(mount) {
+      let depth = mount.components().count();
+      if best.map(|(d, _)| depth > d).unwrap_or(true) {
+        best = Some((depth, disk));
+      }
+    }
+  }
+  best.map(|(_, disk)| disk.available_space() as u64)
+}
+
+/// Returns `(total, available)` bytes on the volume that contains `path`.
+/// Returns `None` if the disk could not be determined.
+pub(crate) fn disk_space(path: &Path) -> Option<(u64, u64)> {
+  use sysinfo::Disks;
+
+  let disks = Disks::new_with_refreshed_list();
+  let mut best: Option<(usize, &sysinfo::Disk)> = None;
+  for disk in disks.list() {
+    let mount = disk.mount_point();
+    if path.starts_with(mount) {
+      let depth = mount.components().count();
+      if best.map(|(d, _)| depth > d).unwrap_or(true) {
+        best = Some((depth, disk));
+      }
+    }
+  }
+  best.map(|(_, disk)| (disk.total_space(), disk.available_space()))
+}
+
+/// Recursively sums the size (in bytes) of every regular file under `path`.
+/// Symlinks are skipped (to avoid following cycles) and unreadable entries are
+/// ignored, so this is best-effort.
+pub(crate) fn dir_size(path: &Path) -> u64 {
+  let mut total = 0u64;
+  if let Ok(entries) = fs::read_dir(path) {
+    for entry in entries.flatten() {
+      let entry_path = entry.path();
+      let file_type = match entry.file_type() {
+        Ok(ft) => ft,
+        Err(_) => continue,
+      };
+      if file_type.is_symlink() {
+        continue;
+      }
+      if file_type.is_dir() {
+        total = total.saturating_add(dir_size(&entry_path));
+      } else if file_type.is_file() {
+        if let Ok(metadata) = entry.metadata() {
+          total = total.saturating_add(metadata.len());
+        }
+      }
+    }
+  }
+  total
+}
 
 pub(crate) fn parse_version_folder(folder_name: &str) -> (i64, String) {
   if let Some(rest) = folder_name.strip_prefix('(') {
@@ -14,6 +77,17 @@ pub(crate) fn parse_version_folder(folder_name: &str) -> (i64, String) {
   }
   (0, folder_name.to_string())
 }
+
+/// Opens the browser DevTools for the main window. Only meaningful in builds
+/// compiled with the tauri `devtools` feature (enabled in Cargo.toml).
+#[tauri::command]
+pub(crate) fn open_devtools(app: tauri::AppHandle) {
+  use tauri::Manager;
+  if let Some(window) = app.get_webview_window("main") {
+    let _ = window.open_devtools();
+  }
+}
+
 
 pub(crate) fn stable_id_from_path(path: &str) -> i64 {
   let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -110,59 +184,82 @@ pub(crate) fn read_saved_installer_preferences(start_path: &Path) -> (Option<Str
   (installer_executable, installer_parameters)
 }
 
-#[cfg(windows)]
-pub(crate) fn escape_powershell_single_quoted(value: &str) -> String {
-  value.replace('\'', "''")
-}
-
+/// Launches the installer elevated (UAC) via `ShellExecuteExW` directly.
+///
+/// This bypasses PowerShell entirely. `Start-Process -FilePath` performs
+/// PowerShell wildcard resolution, so folder/file names containing wildcard
+/// metacharacters (`[`, `]`, `*`, `?` — e.g. repack folder names like
+/// "… [Vanya Repack]") make it fail with "wildcard path … did not resolve to
+/// a file". `ShellExecuteExW` passes `lpFile`/`lpDirectory` literally — no
+/// globbing, no quoting layer — so bracket- and space-containing paths work.
 #[cfg(windows)]
 pub(crate) fn run_elevated_installer_and_wait(
   executable: &str,
   argument_list: Option<&str>,
   working_directory: Option<&str>,
 ) -> Result<Option<i32>, String> {
-  let file_path = escape_powershell_single_quoted(executable);
-  let working_directory_segment = working_directory
-    .filter(|value| !value.trim().is_empty())
-    .map(escape_powershell_single_quoted)
-    .map(|value| format!(" -WorkingDirectory '{value}'"))
-    .unwrap_or_default();
-  let script = if let Some(arguments) = argument_list.filter(|value| !value.trim().is_empty()) {
-    let escaped_arguments = escape_powershell_single_quoted(arguments);
-    format!(
-      "$process = Start-Process -FilePath '{file_path}' -ArgumentList '{escaped_arguments}'{working_directory_segment} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
-    )
-  } else {
-    format!(
-      "$process = Start-Process -FilePath '{file_path}'{working_directory_segment} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
-    )
-  };
+  use std::ffi::OsStr;
+  use std::iter::once;
+  use std::os::windows::ffi::OsStrExt;
+  use winapi::um::handleapi::CloseHandle;
+  use winapi::um::processthreadsapi::GetExitCodeProcess;
+  use winapi::um::shellapi::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+  use winapi::um::synchapi::WaitForSingleObject;
+  use winapi::um::winbase::INFINITE;
+  use winapi::um::winuser::SW_SHOWNORMAL;
 
-  let output = Command::new("powershell")
-    .arg("-NoProfile")
-    .arg("-Command")
-    .arg(script)
-    .output()
-    .map_err(|error| format!("Failed to start elevated installer: {error}"))?;
-
-  if output.status.success() {
-    return Ok(output.status.code());
+  fn to_wide(value: &str) -> Vec<u16> {
+    OsStr::new(value).encode_wide().chain(once(0)).collect()
   }
 
-  let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-  let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-  let message = if !stderr.is_empty() {
-    stderr
-  } else if !stdout.is_empty() {
-    stdout
-  } else {
-    format!(
-      "Elevated installer exited with code {}.",
-      output.status.code().unwrap_or(-1)
-    )
-  };
+  let executable = to_wide(executable);
+  let verb = to_wide("runas");
+  let arguments = argument_list
+    .filter(|value| !value.trim().is_empty())
+    .map(|value| to_wide(value));
+  let directory = working_directory
+    .filter(|value| !value.trim().is_empty())
+    .map(|value| to_wide(value));
 
-  Err(message)
+  let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+  info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+  // NOCLOSEPROCESS gives us a handle we can wait on and read the exit code
+  // from. All paths are passed literally — no PowerShell, no wildcard
+  // resolution, so bracket paths just work.
+  info.fMask = SEE_MASK_NOCLOSEPROCESS;
+  info.lpVerb = verb.as_ptr();
+  info.lpFile = executable.as_ptr();
+  info.lpParameters = arguments
+    .as_ref()
+    .map_or(std::ptr::null(), |value| value.as_ptr());
+  info.lpDirectory = directory
+    .as_ref()
+    .map_or(std::ptr::null(), |value| value.as_ptr());
+  info.nShow = SW_SHOWNORMAL;
+
+  let launched = unsafe { ShellExecuteExW(&mut info) };
+  if launched == 0 {
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(1223) {
+      return Err("Installation canceled by user (UAC prompt declined).".to_string());
+    }
+    return Err(format!("Failed to launch elevated installer: {error}"));
+  }
+
+  if info.hProcess.is_null() {
+    return Ok(None);
+  }
+
+  unsafe {
+    WaitForSingleObject(info.hProcess, INFINITE);
+    let mut exit_code: u32 = 0;
+    let valid = GetExitCodeProcess(info.hProcess, &mut exit_code);
+    CloseHandle(info.hProcess);
+    if valid == 0 {
+      return Ok(None);
+    }
+    Ok(Some(exit_code as i32))
+  }
 }
 
 /// Compare two paths for equality.

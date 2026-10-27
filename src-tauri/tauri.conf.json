@@ -10,6 +10,7 @@
     "beforeBuildCommand": "pnpm build"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "GameVault",
@@ -47,13 +48,14 @@
       }
     },
     "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      },
       "deb": {
         "desktopTemplate": "linux/gamevault.desktop.hbs",
-        "changelog": "debian-changelog",
         "section": "games",
         "files": {
           "usr/share/doc/gamevault/copyright": "debian-copyright",
-          "usr/share/doc/gamevault/changelog.Debian": "debian-changelog",
           "usr/share/metainfo/com.phalcode.gamevault.metainfo.xml": "linux/com.phalcode.gamevault.metainfo.xml"
         }
       }

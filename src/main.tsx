@@ -5,6 +5,7 @@ import { MotionConfig } from "motion/react";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
 import { PageLoader } from "./components/PageLoader";
+import { PrereleaseNotice } from "./components/PrereleaseNotice";
 import {
   AlertDialogProvider,
   GlobalAlertDialogBridge,
@@ -15,6 +16,7 @@ import { DownloadProvider } from "./context/DownloadContext";
 import { GamepadProvider } from "./context/GamepadContext";
 import { IgnoreListProvider } from "./context/IgnoreListContext";
 import { OfflineProvider } from "./context/OfflineContext";
+import { UmuProvider } from "./context/UmuContext";
 import "./index.css";
 import DashboardLayout from "./layouts/DashboardLayout";
 import FullscreenLayout from "./layouts/FullscreenLayout";
@@ -35,91 +37,129 @@ const Downloads = lazy(() => import("./pages/Downloads"));
 import { applyTheme, getStoredTheme } from "./utils/theme";
 import { applyZoom, getStoredZoom, registerZoomHotkeys } from "./utils/zoom";
 import { registerReloadHotkey } from "./utils/reload";
-import {
-  registerExternalLinkHandler,
-  isTauriApp,
-} from "./utils/tauri";
+import { registerStreamerModeHotkey } from "./utils/streamerMode";
+import { registerExternalLinkHandler, isTauriApp } from "./utils/tauri";
 import { isAnalyticsEnabled } from "./utils/analytics";
 import { startMediaCacheMaintenance } from "./utils/mediaCache";
+import { startFrontendDiagnostics } from "./utils/frontendDiagnostics";
 import * as Swetrix from "swetrix";
+import { LaunchLogWindow } from "./pages/LaunchLogWindow";
 
-// Apply stored theme immediately to prevent flash of wrong theme
-applyTheme(getStoredTheme());
-// Apply persisted zoom level (native webview zoom in Tauri, CSS zoom on web)
-void applyZoom(getStoredZoom());
-void startMediaCacheMaintenance();
+// The launch log window boots standalone: it renders its own document without
+// the app providers, router, analytics or global hotkeys.
+const isLaunchLogWindow = window.location.hash === "#launch-log";
 
-(window as any).global = window;
+if (isLaunchLogWindow) {
+  createRoot(document.getElementById("root")!).render(<LaunchLogWindow />);
+} else {
+  // Apply stored theme immediately to prevent flash of wrong theme
+  applyTheme(getStoredTheme());
+  // Apply persisted zoom level (native webview zoom in Tauri, CSS zoom on web)
+  void applyZoom(getStoredZoom());
+  void startMediaCacheMaintenance();
 
-if (isAnalyticsEnabled()) {
-  Swetrix.init("dBl2xaaJ9x3M", { preloadSessionReplay: true, apiURL: "https://analytics.platform.phalco.de/log" });
-  Swetrix.trackViews();
-  Swetrix.trackErrors();
+  // Reflect the user's locale on <html> so native form controls (e.g. the
+  // <input type="date"> filters) render dates in the locale the computer uses
+  // instead of the statically-declared "en".
+  if (typeof document !== "undefined" && typeof navigator !== "undefined") {
+    document.documentElement.lang = navigator.language || "en";
+  }
+
+  (window as any).global = window;
+
+  if (isAnalyticsEnabled()) {
+    Swetrix.init("dBl2xaaJ9x3M", {
+      preloadSessionReplay: true,
+      apiURL: "https://analytics.platform.phalco.de/log",
+    });
+    Swetrix.trackViews();
+    Swetrix.trackErrors();
+  }
+
+  // Ctrl/Cmd + +/-/0 zoom hotkeys (browsers already handle these natively)
+  if (isTauriApp()) {
+    registerZoomHotkeys();
+    // F5 reloads the app in the Tauri webview (packaged builds have no native F5)
+    registerReloadHotkey();
+    // Ctrl/Cmd+Shift+O toggles OPSEC/streamer mode
+    registerStreamerModeHotkey();
+    // Open every external link (target=_blank, http(s), mailto, tel) through
+    // the native OS opener instead of being swallowed by the webview.
+    registerExternalLinkHandler();
+    // Feed the native watchdog so a UI freeze leaves a trace in the app log.
+    startFrontendDiagnostics();
+  }
+
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <MotionConfig reducedMotion="user">
+        <AuthProvider>
+          <OfflineProvider>
+            <IgnoreListProvider>
+              <DownloadProvider>
+                <AlertDialogProvider>
+                  <AppUpdaterProvider>
+                    <UmuProvider>
+                      <GlobalAlertDialogBridge />
+                      <PrereleaseNotice />
+                      <BrowserRouter>
+                        <GamepadProvider>
+                          <Suspense fallback={<PageLoader />}>
+                            <Routes>
+                              <Route element={<FullscreenLayout />}>
+                                <Route index element={<Login />} />
+                                <Route path="register" element={<Register />} />
+                              </Route>
+
+                              <Route element={<DashboardLayout />}>
+                                <Route
+                                  index
+                                  path="library"
+                                  element={<Library />}
+                                />
+                                <Route
+                                  path="library/:id"
+                                  element={<GameView />}
+                                />
+                                <Route
+                                  path="downloads"
+                                  element={<Downloads />}
+                                />
+                                <Route
+                                  path="community"
+                                  element={<Community />}
+                                />
+                                <Route
+                                  path="community/:id"
+                                  element={<UserProfile />}
+                                />
+                                <Route path="settings" element={<Settings />} />
+                                <Route
+                                  path="admin"
+                                  element={
+                                    <ProtectedRoute
+                                      guarded
+                                      requiredRole={GamevaultUserRoleEnum._3}
+                                    >
+                                      <Administration />
+                                    </ProtectedRoute>
+                                  }
+                                />
+                              </Route>
+
+                              <Route path="*" element={<NotFound />} />
+                            </Routes>
+                          </Suspense>
+                        </GamepadProvider>
+                      </BrowserRouter>
+                    </UmuProvider>
+                  </AppUpdaterProvider>
+                </AlertDialogProvider>
+              </DownloadProvider>
+            </IgnoreListProvider>
+          </OfflineProvider>
+        </AuthProvider>
+      </MotionConfig>
+    </StrictMode>,
+  );
 }
-
-// Ctrl/Cmd + +/-/0 zoom hotkeys (browsers already handle these natively)
-if (isTauriApp()) {
-  registerZoomHotkeys();
-  // F5 reloads the app in the Tauri webview (packaged builds have no native F5)
-  registerReloadHotkey();
-  // Open every external link (target=_blank, http(s), mailto, tel) through
-  // the native OS opener instead of being swallowed by the webview.
-  registerExternalLinkHandler();
-}
-
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <MotionConfig reducedMotion="user">
-      <AuthProvider>
-        <OfflineProvider>
-          <IgnoreListProvider>
-            <DownloadProvider>
-              <AlertDialogProvider>
-                <AppUpdaterProvider>
-                  <GlobalAlertDialogBridge />
-                  <BrowserRouter>
-                    <GamepadProvider>
-                      <Suspense fallback={<PageLoader />}>
-                        <Routes>
-                        <Route element={<FullscreenLayout />}>
-                          <Route index element={<Login />} />
-                          <Route path="register" element={<Register />} />
-                        </Route>
-
-                        <Route element={<DashboardLayout />}>
-                          <Route index path="library" element={<Library />} />
-                          <Route path="library/:id" element={<GameView />} />
-                          <Route path="downloads" element={<Downloads />} />
-                          <Route path="community" element={<Community />} />
-                          <Route
-                            path="community/:id"
-                            element={<UserProfile />}
-                          />
-                          <Route path="settings" element={<Settings />} />
-                          <Route
-                            path="admin"
-                            element={
-                              <ProtectedRoute
-                                guarded
-                                requiredRole={GamevaultUserRoleEnum._3}
-                              >
-                                <Administration />
-                              </ProtectedRoute>
-                            }
-                          />
-                        </Route>
-
-                        <Route path="*" element={<NotFound />} />
-                      </Routes>
-                      </Suspense>
-                    </GamepadProvider>
-                  </BrowserRouter>
-                </AppUpdaterProvider>
-              </AlertDialogProvider>
-            </DownloadProvider>
-          </IgnoreListProvider>
-        </OfflineProvider>
-      </AuthProvider>
-    </MotionConfig>
-  </StrictMode>,
-);

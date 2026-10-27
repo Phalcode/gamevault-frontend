@@ -1,5 +1,29 @@
 # GameVault Frontend Changelog
 
+## 17.1.0
+
+### Changes
+
+- GameVault 2 is now available on Windows, Linux and macOS.
+- Download and install a specific version of a game instead of only the latest one.
+- Linux: AppImage and .deb packages, native file manager integration, and the GStreamer plugins needed for sound effects and trailers.
+- Windows games on Linux run through umu-launcher, with automatic setup, per-game Proton/Wine overrides, Wine prefixes and launch logs.
+- Offline mode: play installed games and track playtime without a server connection, then sync once you reconnect.
+- Streamer / OPSEC mode masks user names, emails, profile pictures and the server URL. Toggle it with Ctrl/Cmd+Shift+O.
+- Native download progress in the Windows taskbar, macOS dock and Linux launcher.
+- Downloads survive restarts and page refreshes: interrupted downloads resume automatically, paused or cancelled ones stay paused.
+- Redesigned system tray menu with the current game, live playtime and your five most recent games. The Windows jump list offers the same shortcuts.
+- Installed games: disk usage per download location, install timestamps, automatic launch executable detection, and cleanup of leftover files after uninstalling.
+- Sign in with SSO directly in the desktop app.
+- An "Update available" indicator, reliable switching between stable, early-access and unstable update channels, and platform-correct version matching.
+- Dates and numbers follow the system locale.
+- Administrators can delete other users' progress entries and view or delete individual game files.
+- Added an "Open" button for download locations.
+- Fixed various stability issues: playtime tracking across session refreshes and offline periods, umu-launcher setup, freezes during uninstall, scans or large folders, and downloads stalling.
+- Fixed various UI issues: tab switching, the sidebar indicator, settings dialogs on small screens, and Escape handling.
+- Game websites in Additional Metadata are now collapsed behind a "More" button when a game has more than three, keeping the panel compact.
+- Fixed extracting UDF-only disc images ([#36](https://github.com/Phalcode/gamevault-frontend/issues/36)) and only the first URL appearing in Additional Metadata ([#43](https://github.com/Phalcode/gamevault-frontend/issues/43)).
+
 ## 17.0.0
 
 ### Changes
@@ -29,7 +53,6 @@
 - The logo now switches its text variant with the theme.
 - Surface and fix non-executable shell scripts in launch options, added a sudo fallback for Linux, and allow running games as root on Linux.
 - Stabilized popup heights so they no longer resize with content.
-
 
 ## 16.2.1
 
