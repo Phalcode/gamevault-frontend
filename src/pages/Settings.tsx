@@ -303,7 +303,7 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
   {
     id: "startup-start-minimized",
     title: "Minimize to System Tray on Startup",
-    description: "Start silently in the tray instead of opening the window",
+    description: "Start silently in the tray when launched at login",
     category: "startup",
     keywords: ["startup", "minimize", "tray", "background", "hidden"],
     desktopOnly: true,
@@ -712,8 +712,7 @@ export default function Settings() {
   );
   const [alwaysShowLaunchLogs, setAlwaysShowLaunchLogs] =
     useState<boolean>(false);
-  const [verboseDiagnostics, setVerboseDiagnostics] =
-    useState<boolean>(false);
+  const [verboseDiagnostics, setVerboseDiagnostics] = useState<boolean>(false);
   const [autoExtract, setAutoExtract] = useState<boolean>(() => {
     try {
       return localStorage.getItem(AUTO_EXTRACT_KEY) === "1";
@@ -1948,7 +1947,7 @@ export default function Settings() {
                       <SettingsRow>
                         <SettingsLabel
                           title="Minimize GameVault to System Tray on Startup"
-                          description="When auto-start is enabled, GameVault will start silently in the system tray instead of opening the full window."
+                          description="When auto-start is enabled, GameVault will start silently in the system tray instead of opening the full window. Launching GameVault yourself still opens the window."
                         />
                         <Switch
                           name="startMinimized"
@@ -2565,9 +2564,7 @@ export default function Settings() {
                             color="indigo"
                             aria-label="Verbose diagnostics logging"
                             checked={verboseDiagnostics}
-                            onChange={(v: boolean) =>
-                              setVerboseDiagnostics(v)
-                            }
+                            onChange={(v: boolean) => setVerboseDiagnostics(v)}
                           />
                         </SettingsRow>
                       </SettingsGroup>

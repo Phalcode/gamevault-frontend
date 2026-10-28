@@ -7,8 +7,15 @@ use tauri::Manager;
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub(crate) struct AppSettings {
+  /// Keep the window in the tray when the login autostart entry starts the
+  /// app (`--minimized`). Manual launches always open the window.
   #[serde(default)]
   pub start_minimized: bool,
+  /// Set once the login autostart entry has been rewritten with the arguments
+  /// this build registers (`--minimized`). Entries written by older builds
+  /// carried none, so they would open the window at login.
+  #[serde(default)]
+  pub autostart_args_synced: bool,
   #[serde(default)]
   pub minimize_on_game_launch: bool,
   #[serde(default)]
@@ -134,6 +141,17 @@ pub(crate) async fn set_start_minimized(app: tauri::AppHandle, minimized: bool) 
   let mut settings = load_settings(&app);
   settings.start_minimized = minimized;
   save_settings(&app, &settings)
+}
+
+/// Whether the login autostart entry already carries `--minimized`.
+pub(crate) fn autostart_args_synced(app: &tauri::AppHandle) -> bool {
+  load_settings(app).autostart_args_synced
+}
+
+pub(crate) fn mark_autostart_args_synced(app: &tauri::AppHandle) -> Result<(), String> {
+  let mut settings = load_settings(app);
+  settings.autostart_args_synced = true;
+  save_settings(app, &settings)
 }
 
 #[tauri::command]

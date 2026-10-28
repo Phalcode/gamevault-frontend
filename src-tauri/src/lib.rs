@@ -3,6 +3,7 @@ mod events;
 mod util;
 mod executables;
 mod downloads;
+mod launch_mode;
 mod extraction;
 mod installation;
 mod jumplist;
@@ -22,12 +23,12 @@ mod umu;
 mod rendering;
 mod frontend_watchdog;
 
-use crate::settings::AppSettings;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
@@ -445,11 +446,27 @@ pub fn run() {
     // Registered after single-instance so a second instance's URL is forwarded
     // to this process (see the plugin's `deep-link` feature).
     .plugin(tauri_plugin_deep_link::init())
-    .plugin(tauri_plugin_window_state::Builder::default().build())
+    // Visibility is owned by the launch logic in `setup`: restoring it from the
+    // last session would show the window again on autostart, and a close-to-tray
+    // exit would persist a hidden window that then never appears on launch.
+    .plugin(
+      tauri_plugin_window_state::Builder::default()
+        .with_state_flags(
+          tauri_plugin_window_state::StateFlags::all()
+            & !tauri_plugin_window_state::StateFlags::VISIBLE,
+        )
+        .build(),
+    )
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_opener::init())
-    .plugin(tauri_plugin_autostart::init(Default::default(), None));
+    // The login entry carries `--minimized`, which is how a start from the OS is
+    // told apart from a manual launch. Launch Agents (the default) keep the
+    // argument; only the AppleScript mode would drop it.
+    .plugin(tauri_plugin_autostart::init(
+      MacosLauncher::LaunchAgent,
+      Some(vec![launch_mode::MINIMIZED_FLAG]),
+    ));
 
   if let Some(pubkey) = updater_public_key() {
     builder = builder.plugin(
@@ -548,25 +565,34 @@ pub fn run() {
         });
       }
 
-      // ── Conditionally hide window at startup ───────────────────────────
+      // ── Window visibility on launch ───────────────────────────────────
+      //
+      // The window is created hidden (`visible: false` in tauri.conf.json), so
+      // the autostart path never flashes a window. It only stays hidden when
+      // the login entry started us *and* the user enabled "start minimized";
+      // a manual launch always opens the window.
+      if let Some(window) = app.get_webview_window("main") {
+        let start_in_tray = launch_mode::requested_start_minimized(std::env::args())
+          && settings::load_settings(app.handle()).start_minimized;
 
-      {
-        let path = app.path().app_data_dir().unwrap().join("gamevault-settings.json");
-        let start_minimized = if path.exists() {
-          std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|data| serde_json::from_str::<AppSettings>(&data).ok())
-            .map(|s| s.start_minimized)
-            .unwrap_or(false)
-        } else {
-          false
-        };
-
-        if start_minimized {
-          if let Some(window) = app.get_webview_window("main") {
-            let _ = window.hide();
-          }
+        if !start_in_tray {
+          let _ = window.show();
+          let _ = window.set_focus();
         }
+      }
+
+      // ── One-time autostart entry migration ─────────────────────────────
+      //
+      // Builds before `--minimized` registered the entry without arguments, so
+      // an already enabled autostart would now open the window at login.
+      // Rewrite it once; doing this on every launch would also re-enable an
+      // entry the user switched off in the OS' own startup settings.
+      if !settings::autostart_args_synced(app.handle()) {
+        let autolaunch = app.autolaunch();
+        if autolaunch.is_enabled().unwrap_or(false) {
+          let _ = autolaunch.enable();
+        }
+        let _ = settings::mark_autostart_args_synced(app.handle());
       }
 
       // ── Apply persisted WebKitGTK rendering settings (Linux) ──────────
