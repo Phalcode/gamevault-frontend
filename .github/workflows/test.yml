@@ -66,12 +66,15 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install Linux system dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
+        timeout-minutes: 15
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+        with:
+          version: "1-${{ env.ImageVersion }}"
+          execute_install_scripts: true
+          packages: >-
+            libwebkit2gtk-4.1-dev
+            libappindicator3-dev
+            librsvg2-dev
             patchelf
 
       - name: Setup Rust
