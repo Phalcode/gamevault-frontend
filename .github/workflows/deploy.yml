@@ -176,10 +176,15 @@ jobs:
           path: src/api
           key: api-${{ steps.api-spec.outputs.hash }}
 
+      # The runner mirror (azure.archive.ubuntu.com) is occasionally extremely
+      # slow. Downloading the ~275 packages used to add 30 to 45 minutes to
+      # this job on those days. The package archives are cached now, so a warm
+      # cache installs in seconds regardless of how the mirror behaves.
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt update
+        timeout-minutes: 15
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+        with:
           # The gstreamer plugin packages provide the media elements WebKitGTK
           # looks up at runtime. The AppImage bundler copies every installed
           # plugin verbatim (`bundleMediaFramework: true`), so only what is
@@ -187,13 +192,18 @@ jobs:
           #   -plugins-base: appsink, ogg/vorbis, opus, isomp4
           #   -plugins-good: autoaudiosink, vpx (VP8/VP9), matroska
           #   -plugins-bad:  fakevideosink, WebVTT encoder, H.264 (openh264), AAC (faad)
-          sudo apt install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
+          # Bump the number whenever this list changes. The runner image
+          # version is part of the key, so an image upgrade cannot serve
+          # packages that no longer fit it.
+          version: "1-${{ env.ImageVersion }}"
+          execute_install_scripts: true
+          packages: >-
+            libwebkit2gtk-4.1-dev
+            libappindicator3-dev
+            librsvg2-dev
+            patchelf
+            gstreamer1.0-plugins-base
+            gstreamer1.0-plugins-good
             gstreamer1.0-plugins-bad
 
       - name: Setup Rust

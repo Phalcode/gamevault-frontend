@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [#57](https://github.com/Phalcode/gamevault-frontend/issues/57) Added a random game button to the library toolbar, like GameVault 1 had. It picks from the whole library and ignores the active filters.
 - [#571](https://github.com/Phalcode/gamevault-app/issues/571) Fixed login failing with a wrong-password error when the password contains characters like `ä`, `ö`, `ü`, `ß` or an emoji. Signing up worked because it sends JSON, only the login encoded the credentials in the wrong character set.
 - The desktop app now handles `gamevault://show?gameid=<id>` links on Windows, Linux and macOS: the link opens the game, the request is remembered until login, and unknown ids or malformed links fall back to the library or are ignored.
 - `gamevault://start?gameid=<id>` links launch an installed game directly. Links for games that are not installed, have no launch executable configured, or are malformed are ignored.

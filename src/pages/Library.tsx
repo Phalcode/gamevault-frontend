@@ -27,6 +27,8 @@ import { Strong, Text, TextLink } from "@/components/tailwind/text";
 import { isTauriApp } from "@/utils/tauri";
 import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { useOnlineStatus } from "@/context/OfflineContext";
+import { useAlertDialog } from "@/context/AlertDialogContext";
+import { useNavigate } from "react-router";
 import { SectionExpander } from "@/components/SectionExpander";
 import { RowCountControl } from "@/components/RowCountControl";
 import { motion } from "motion/react";
@@ -90,9 +92,32 @@ const BOOKMARK_OPTIONS: { label: string; value: BookmarkFilter }[] = [
 const LIB_SORT_KEY = "app_library_sort";
 const LIB_ORDER_KEY = "app_library_order";
 
+/** Die icon for the random game action. */
+function DiceIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="4" />
+      <circle cx="8.5" cy="8.5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="8.5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="8.5" cy="15.5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="15.5" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export default function Library() {
-  const { serverUrl, user } = useAuth();
+  const { serverUrl, user, authFetch } = useAuth();
   const { isOnline } = useOnlineStatus();
+  const { showAlert } = useAlertDialog();
+  const navigate = useNavigate();
   const isTauri = isTauriApp();
 
   const CONTROL_HEIGHT_CLASS = "min-h-11 sm:min-h-9";
@@ -100,6 +125,7 @@ export default function Library() {
 
   const urlInitializedRef = useRef(false);
   const [search, setSearch] = useState("");
+  const [pickingRandomGame, setPickingRandomGame] = useState(false);
   // Sort/order preferences are always retained (they're the default behaviour).
   const [sortBy, setSortBy] = useState(() => {
     try {
@@ -540,6 +566,44 @@ export default function Library() {
     publisherNames,
   ]);
 
+  /**
+   * Opens a random game from the whole library.
+   *
+   * Deliberately asks the server, like GameVault 1 does, so the pick covers
+   * every game instead of only the pages loaded so far. The endpoint does not
+   * apply the library filters, which the button label states.
+   */
+  const openRandomGame = useCallback(async () => {
+    if (!serverUrl || pickingRandomGame) return;
+    setPickingRandomGame(true);
+    try {
+      const response = await authFetch(`${serverUrl}/api/games/random`, {
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        let reason = `HTTP ${response.status}`;
+        try {
+          const body = await response.json();
+          if (typeof body?.message === "string") reason = body.message;
+        } catch {
+          // Keep the status code when the body is not JSON.
+        }
+        throw new Error(reason);
+      }
+      const game = (await response.json()) as GamevaultGame;
+      if (game?.id == null) throw new Error("The server returned no game.");
+      navigate(`/library/${game.id}`);
+    } catch (error) {
+      void showAlert({
+        title: "Could not pick a random game",
+        description: error instanceof Error ? error.message : String(error),
+        tone: "danger",
+      });
+    } finally {
+      setPickingRandomGame(false);
+    }
+  }, [authFetch, navigate, pickingRandomGame, serverUrl, showAlert]);
+
   return (
     <div className="flex min-h-full flex-col gap-5">
       <div className="flex flex-col gap-4">
@@ -557,7 +621,7 @@ export default function Library() {
       </div>
 
       <section className="surface-panel rounded-3xl p-5 sm:p-6">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto_auto] lg:items-end">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto_auto_auto] lg:items-end">
           <div className="w-full lg:col-span-1">
             <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
               Search
@@ -611,6 +675,20 @@ export default function Library() {
                   <span className="hidden sm:inline">
                     {order === "ASC" ? "Ascending" : "Descending"}
                   </span>
+                </Button>
+              </div>
+
+              <div className="shrink-0">
+                <Button
+                  outline
+                  className={`${CONTROL_HEIGHT_CLASS} px-3 gap-1.5`}
+                  title="Picks a random game from the whole library. Active filters are not applied."
+                  aria-label="Pick a random game from the whole library"
+                  onClick={() => void openRandomGame()}
+                  disabled={!serverUrl || pickingRandomGame}
+                >
+                  <DiceIcon className="h-4 w-4" />
+                  <span className="hidden sm:inline">Random</span>
                 </Button>
               </div>
             </div>
