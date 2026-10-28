@@ -43,6 +43,27 @@ export function LaunchLogWindow() {
     }
   }, []);
 
+  const closeWindow = useCallback(() => {
+    void import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) => getCurrentWindow().close())
+      .catch((error) => {
+        console.warn("Failed to close the launch log window:", error);
+      });
+  }, []);
+
+  // Escape and Ctrl/Cmd+W close the window, like the rest of the app.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const closeShortcut =
+        (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "w";
+      if (event.key !== "Escape" && !closeShortcut) return;
+      event.preventDefault();
+      closeWindow();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [closeWindow]);
+
   // Initial snapshot.
   useEffect(() => {
     let cancelled = false;
@@ -184,11 +205,7 @@ export function LaunchLogWindow() {
           <button
             type="button"
             className="rounded border border-gv-line px-2 py-1 text-xs hover:bg-gv-panel"
-            onClick={() =>
-              void import("@tauri-apps/api/window").then(
-                ({ getCurrentWindow }) => getCurrentWindow().close(),
-              )
-            }
+            onClick={closeWindow}
           >
             Close
           </button>

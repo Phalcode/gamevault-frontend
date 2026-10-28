@@ -34,7 +34,7 @@ import {
   useRef,
   useLayoutEffect,
 } from "react";
-import { useParams, useNavigate } from "react-router";
+import { useParams, useNavigate, useLocation } from "react-router";
 import {
   CloudArrowDownIcon,
   Cog8ToothIcon,
@@ -79,6 +79,12 @@ export default function GameView() {
   const { id } = useParams<{ id: string }>();
   const numericId = Number(id);
   const navigate = useNavigate();
+  const location = useLocation();
+  // A game opened from a `gamevault://show?gameid=...` link should fall back
+  // to the library when the id does not exist, instead of showing an error.
+  const openedFromDeepLink = Boolean(
+    (location.state as { fromDeepLink?: boolean } | null)?.fromDeepLink,
+  );
   const { serverUrl, authFetch, user } = useAuth();
   const streamerMode = useStreamerMode();
   const [game, setGame] = useState<GamevaultGame | null>(null);
@@ -163,6 +169,10 @@ export default function GameView() {
         const res = await authFetch(`${base}/api/games/${numericId}`, {
           method: "GET",
         });
+        if (res.status === 404 && openedFromDeepLink) {
+          if (!cancelled) navigate("/library", { replace: true });
+          return;
+        }
         if (!res.ok) throw new Error(`Failed to load game (${res.status})`);
         const json = await res.json();
         if (!cancelled) setGame(json);
@@ -191,7 +201,7 @@ export default function GameView() {
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, authFetch, numericId, isOnline]);
+  }, [serverUrl, authFetch, numericId, isOnline, openedFromDeepLink, navigate]);
 
   useEffect(() => {
     setWebsitesExpanded(false);

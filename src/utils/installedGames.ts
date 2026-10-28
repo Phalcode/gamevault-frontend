@@ -1,4 +1,5 @@
 import type { InstalledGameInfo } from "@/hooks/useInstalledGames";
+import { getRootPaths } from "@/utils/rootPaths";
 
 /**
  * Normalize a raw `list_installed_games` result (which may use either
@@ -36,4 +37,39 @@ export function normalizeAndDedupeInstalledGames(
     }
   }
   return out;
+}
+
+/**
+ * Finds an installed game by id across all configured root paths.
+ *
+ * Used by deep links, which have no library state to look the game up in.
+ * Roots are scanned in order and the first match wins; an unreadable root is
+ * skipped rather than failing the whole lookup.
+ */
+export async function findInstalledGameById(
+  gameId: number,
+): Promise<InstalledGameInfo | null> {
+  if (!Number.isSafeInteger(gameId) || gameId <= 0) return null;
+
+  const roots = getRootPaths();
+  if (roots.length === 0) return null;
+
+  const { invoke } = await import("@tauri-apps/api/core");
+
+  for (const root of roots) {
+    const rawResults = await invoke<any[]>("list_installed_games", {
+      selectedRoot: root.path,
+    }).catch(() => [] as any[]);
+
+    if (!Array.isArray(rawResults)) continue;
+
+    for (const raw of rawResults) {
+      const info = normalizeInstalledGame(raw);
+      if (info.gameId !== gameId) continue;
+      if (!info.installationDirectory || !info.versionDirectory) continue;
+      return info;
+    }
+  }
+
+  return null;
 }

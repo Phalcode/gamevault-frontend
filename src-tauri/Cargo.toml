@@ -7,7 +7,8 @@ license = "CC BY-NC-SA 4.0"
 repository = "https://github.com/Phalcode/gamevault-frontend"
 homepage = "https://gamevau.lt"
 edition = "2021"
-rust-version = "1.77.2"
+# tauri-plugin-deep-link requires Rust 1.90.
+rust-version = "1.90"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -31,7 +32,10 @@ tauri-plugin-fs = "2.7.1"
 tauri-plugin-window-state = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-updater = "2.14.0"
-tauri-plugin-single-instance = "2"
+# The `deep-link` feature forwards URLs passed to a second instance to the
+# running app before our own single-instance callback runs.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-deep-link = "2"
 tauri-plugin-opener = "2"
 sevenz-rust2 = { version = "0.20.2", features = ["aes256"] }
 tauri-plugin-stronghold = "2"

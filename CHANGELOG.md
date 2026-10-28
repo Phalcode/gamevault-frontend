@@ -5,6 +5,9 @@
 ### Changes
 
 - [#571](https://github.com/Phalcode/gamevault-app/issues/571) Fixed login failing with a wrong-password error when the password contains characters like `ä`, `ö`, `ü`, `ß` or an emoji. Signing up worked because it sends JSON, only the login encoded the credentials in the wrong character set.
+- The desktop app now handles `gamevault://show?gameid=<id>` links on Windows, Linux and macOS: the link opens the game, the request is remembered until login, and unknown ids or malformed links fall back to the library or are ignored.
+- `gamevault://start?gameid=<id>` links launch an installed game directly. Links for games that are not installed, have no launch executable configured, or are malformed are ignored.
+- Fixed the desktop app freezing when the launch log window opened after a failed game launch. The window is now created off the main thread, can be closed with the Close button, Escape or Ctrl/Cmd+W, and no longer blocks quitting or other actions.
 
 ### Thanks
 

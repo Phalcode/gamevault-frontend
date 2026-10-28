@@ -62,6 +62,11 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["gamevault"]
+      }
+    },
     "updater": {
       "endpoints": [
         "https://github.com/Phalcode/gamevault-frontend/releases/latest/download/latest.json"

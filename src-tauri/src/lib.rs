@@ -442,6 +442,9 @@ pub fn run() {
         let _ = window.set_focus();
       }
     }))
+    // Registered after single-instance so a second instance's URL is forwarded
+    // to this process (see the plugin's `deep-link` feature).
+    .plugin(tauri_plugin_deep_link::init())
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
@@ -458,6 +461,18 @@ pub fn run() {
 
   builder
     .setup(|app| {
+      // ── Deep links ─────────────────────────────────────────────────────
+      // Installers register `gamevault://` for packaged builds. Development
+      // builds and AppImages (which are not integrated into the desktop
+      // environment) need the scheme registered at runtime instead.
+      #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+      {
+        use tauri_plugin_deep_link::DeepLinkExt;
+        if let Err(error) = app.deep_link().register_all() {
+          log::warn!("failed to register deep link schemes: {error}");
+        }
+      }
+
       // Serve YouTube embed pages over a loopback HTTP origin so they keep
       // working in packaged builds (tauri-apps/tauri#14422).
       youtube::start_embed_server();

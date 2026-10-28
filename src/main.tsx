@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from "react-router";
 import { MotionConfig } from "motion/react";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
+import DeepLinkHandler from "./components/DeepLinkHandler";
 import { PageLoader } from "./components/PageLoader";
 import { PrereleaseNotice } from "./components/PrereleaseNotice";
 import {
@@ -103,6 +104,7 @@ if (isLaunchLogWindow) {
                       <GlobalAlertDialogBridge />
                       <PrereleaseNotice />
                       <BrowserRouter>
+                        <DeepLinkHandler />
                         <GamepadProvider>
                           <Suspense fallback={<PageLoader />}>
                             <Routes>

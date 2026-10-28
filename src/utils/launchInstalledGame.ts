@@ -7,6 +7,9 @@
  * all launch through here so those paths cannot drift apart.
  */
 
+import { findInstalledGameById } from "@/utils/installedGames";
+import { installedGameTitle } from "@/utils/trayRecentGames";
+
 export interface InstalledGameLaunchTarget {
   gameId: number;
   /** Display name used in logs and error dialogs. */
@@ -96,6 +99,33 @@ export async function launchInstalledGame(
     return { status: "launched" };
   } catch (error: any) {
     return { status: "failed", message: error?.message || String(error) };
+  }
+}
+
+/**
+ * Launches an installed game by id, for callers that have no installed-game
+ * state of their own (deep links).
+ *
+ * Deliberately silent: a `gamevault://start` link for a game that is not
+ * installed, has no executable configured, or whose executable is missing must
+ * do nothing at all. Problems are only visible in the console.
+ */
+export async function launchInstalledGameById(gameId: number): Promise<void> {
+  const game = await findInstalledGameById(gameId);
+  if (!game) {
+    console.warn(`Ignoring start link: game ${gameId} is not installed`);
+    return;
+  }
+
+  const outcome = await launchInstalledGame({
+    gameId: game.gameId,
+    title: installedGameTitle(game),
+    versionDirectory: game.versionDirectory,
+    installationDirectory: game.installationDirectory,
+  });
+
+  if (outcome.status !== "launched") {
+    console.warn(`Ignoring start link for game ${gameId}: ${outcome.status}`);
   }
 }
 

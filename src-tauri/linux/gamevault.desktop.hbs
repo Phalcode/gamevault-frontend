@@ -1,8 +1,11 @@
 [Desktop Entry]
 Categories={{categories}}
 Comment=The self-hosted gaming platform for DRM-free games
-Exec={{exec}}
+Exec={{exec}} %u
 Icon={{icon}}
 Name=GameVault
 Terminal=false
 Type=Application
+{{#if mime_type}}
+MimeType={{mime_type}}
+{{/if}}
