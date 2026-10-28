@@ -1,5 +1,15 @@
 # GameVault Frontend Changelog
 
+## 17.1.1
+
+### Changes
+
+- [#571](https://github.com/Phalcode/gamevault-app/issues/571) Fixed login failing with a wrong-password error when the password contains characters like `ä`, `ö`, `ü`, `ß` or an emoji. Signing up worked because it sends JSON, only the login encoded the credentials in the wrong character set.
+
+### Thanks
+
+- @editon96
+
 ## 17.1.0
 
 ### Changes

@@ -9,6 +9,7 @@ import {
 } from "react";
 import { GamevaultUser } from "../api";
 import { AuthTokens } from "../types/AuthTokens";
+import { encodeBasicAuthorizationHeader } from "@/utils/basicAuth";
 import {
   AUTH_SERVER_STORAGE_KEY,
   getDevAutologinConfig,
@@ -93,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await fetch(`${serverRef.current}/api/auth/basic/login`, {
       method: "GET",
       headers: {
-        Authorization: "Basic " + btoa(`${username}:${password}`),
+        Authorization: encodeBasicAuthorizationHeader(username, password),
         Accept: "application/json",
       },
       signal: AbortSignal.timeout(10_000),
