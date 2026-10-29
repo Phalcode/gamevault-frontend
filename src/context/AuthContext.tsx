@@ -22,6 +22,7 @@ import {
   setRefreshToken,
 } from "@/utils/tokenStorage";
 import { isTauriApp } from "@/utils/tauri";
+import { trackEvent } from "@/utils/analytics";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import {
   computeNextTokenRefresh,
@@ -86,6 +87,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const bootstrapInProgressRef = useRef(true);
 
   const { onReconnect } = useOnlineStatus();
+
+  /** Whether the server is the one that served the UI or a remote install. */
+  function serverKind(server: string): "self" | "remote" {
+    try {
+      return new URL(server).host === window.location.host ? "self" : "remote";
+    } catch {
+      return "remote";
+    }
+  }
+
+  /** Buckets a login failure without sending any message text. */
+  function loginFailureReason(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/401|unauthori|invalid|credential/i.test(message)) return "credentials";
+    if (/network|fetch|timeout|aborted/i.test(message)) return "network";
+    return "other";
+  }
 
   async function loginBasicRequest(
     username: string,
@@ -206,6 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log(
       "[auth] session expired — clearing auth and redirecting to login",
     );
+    trackEvent("session_expired", { offline: offlineModeRef.current });
     offlineModeRef.current = false;
     offlineRefreshCooldownRef.current = 0;
     authRef.current = null;
@@ -371,9 +390,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             /* ignore */
           }
         }
+        trackEvent("login_succeeded", {
+          method: "basic",
+          server_kind: serverKind(serverRef.current),
+        });
         return { auth: authData, user: me };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        trackEvent("login_failed", {
+          method: "basic",
+          reason: loginFailureReason(e),
+        });
         setError(msg);
         throw e;
       } finally {
@@ -413,9 +440,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             /* ignore */
           }
         }
+        trackEvent("login_succeeded", {
+          method: "sso",
+          server_kind: serverKind(serverRef.current),
+        });
         return { auth: tokens, user: me };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        trackEvent("login_failed", {
+          method: "sso",
+          reason: loginFailureReason(e),
+        });
         setError(msg);
         throw e;
       } finally {
@@ -656,6 +691,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [onReconnect, performRefresh]);
 
   const logout = useCallback(async () => {
+    trackEvent("logout");
     offlineModeRef.current = false;
     authRef.current = null;
     nextTokenRefreshRef.current = null;

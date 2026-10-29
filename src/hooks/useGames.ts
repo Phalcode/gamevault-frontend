@@ -6,6 +6,7 @@ import { ProgressStateEnum } from "@/api/models/Progress";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { isTauriApp } from "@/utils/tauri";
+import { countBucket, trackEvent } from "@/utils/analytics";
 import {
   buildCacheKey,
   buildGamesQueryParams,
@@ -193,6 +194,7 @@ export function useGames({
     if (!serverUrl) return;
     // Skip fetch when offline in Tauri mode — installed games handle themselves
     if (isTauriApp() && !isOnline) {
+      trackEvent("library_load_skipped", { reason: "offline" });
       setLoading(false);
       return;
     }
@@ -238,6 +240,12 @@ export function useGames({
       setGames(fetchedGames);
       setNext(json.links?.next || null);
       loadedPagesRef.current = 1;
+      trackEvent("library_loaded", {
+        results: countBucket(fetchedCount),
+        sortBy,
+        order,
+        hasMore: Boolean(json.links?.next),
+      });
       // Persist page 1 results to the module-level cache so that navigating
       // away and back (e.g. Library → GameView → back) restores instantly.
       setGamesCache(cacheKeyRef.current, {
@@ -248,6 +256,11 @@ export function useGames({
       });
     } catch (e: any) {
       if (e?.name === "AbortError") return;
+      trackEvent("library_load_failed", {
+        reason: /Games fetch failed \((\d+)\)/.test(String(e?.message))
+          ? "http"
+          : "network",
+      });
       setError(e.message || String(e));
     } finally {
       setLoading(false);
@@ -306,6 +319,10 @@ export function useGames({
         return merged;
       });
       setNext(json.links?.next || null);
+      trackEvent("library_load_more", {
+        page: loadedPagesRef.current,
+        results: countBucket(json.meta?.totalItems),
+      });
     } catch (e: any) {
       setError(e.message || String(e));
     } finally {

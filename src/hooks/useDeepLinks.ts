@@ -8,6 +8,7 @@ import {
   setPendingDeepLink,
 } from "@/utils/pendingRoute";
 import { isTauriDesktop } from "@/utils/tauri";
+import { trackEvent } from "@/utils/analytics";
 
 /**
  * Handles `gamevault://` links for the desktop app.
@@ -33,6 +34,15 @@ const SEEN_URLS_LIMIT = 20;
 const DUPLICATE_WINDOW_MS = 1_000;
 
 let lastHandled: { url: string; at: number } | null = null;
+
+/**
+ * Command of a link we could not parse, for the `deep_link_invalid` event.
+ * Only the command is reported, never the URL or the game id.
+ */
+function deepLinkKind(raw: string): string {
+  const match = /^gamevault:\/\/?([a-z]+)/i.exec(raw.trim());
+  return match ? match[1].toLowerCase() : "unknown";
+}
 
 /** Records a URL from `getCurrent`; returns true when it was already handled. */
 function markSeen(url: string): boolean {
@@ -129,8 +139,13 @@ export function useDeepLinks(): void {
     if (!action) {
       // Unknown command or malformed id: ignore it, keep the current screen.
       console.warn("Ignoring unsupported deep link:", next);
+      trackEvent("deep_link_invalid", { path: deepLinkKind(next) });
       return;
     }
+    trackEvent("deep_link_received", {
+      kind: action.kind,
+      authenticated: Boolean(auth),
+    });
 
     if (!auth) {
       // Sign-in required: remember the action instead of dropping it. The

@@ -25,6 +25,7 @@ import MultiSelectFilterDialog, {
 } from "@/components/MultiSelectFilterDialog";
 import { Strong, Text, TextLink } from "@/components/tailwind/text";
 import { isTauriApp } from "@/utils/tauri";
+import { countBucket, trackEvent } from "@/utils/analytics";
 import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
@@ -229,6 +230,9 @@ export default function Library() {
 
   // Clear all filters
   const clearAllFilters = useCallback(() => {
+    trackEvent("library_filters_cleared", {
+      activeFilters: countBucket(activeFilterCount),
+    });
     setBookmarkFilter("all");
     setSelectedGameTypes([]);
     setSelectedTags([]);
@@ -592,8 +596,10 @@ export default function Library() {
       }
       const game = (await response.json()) as GamevaultGame;
       if (game?.id == null) throw new Error("The server returned no game.");
+      trackEvent("library_random_game", { success: true });
       navigate(`/library/${game.id}`);
     } catch (error) {
+      trackEvent("library_random_game", { success: false });
       void showAlert({
         title: "Could not pick a random game",
         description: error instanceof Error ? error.message : String(error),
@@ -648,7 +654,13 @@ export default function Library() {
                 <Listbox
                   name="sortBy"
                   value={sortBy}
-                  onChange={(v: any) => setSortBy(String(v))}
+                  onChange={(v: any) => {
+                    setSortBy(String(v));
+                    trackEvent("library_sort_changed", {
+                      sortBy: String(v),
+                      order,
+                    });
+                  }}
                 >
                   {SORT_BY.map((opt) => (
                     <ListboxOption key={opt.value} value={opt.value}>
@@ -662,10 +674,16 @@ export default function Library() {
                 <Button
                   outline
                   className={`${CONTROL_HEIGHT_CLASS} px-3 gap-1.5`}
+                  data-analytics-id="library.sortDirection"
                   aria-label="Toggle sorting direction"
-                  onClick={() =>
-                    setOrder((o) => (o === "ASC" ? "DESC" : "ASC"))
-                  }
+                  onClick={() => {
+                    const nextOrder = order === "ASC" ? "DESC" : "ASC";
+                    setOrder(nextOrder);
+                    trackEvent("library_sort_changed", {
+                      sortBy,
+                      order: nextOrder,
+                    });
+                  }}
                 >
                   {order === "ASC" ? (
                     <ArrowUpIcon className="h-4 w-4" />
@@ -683,6 +701,7 @@ export default function Library() {
                   outline
                   className={`${CONTROL_HEIGHT_CLASS} px-3 gap-1.5`}
                   title="Picks a random game from the whole library. Active filters are not applied."
+                  data-analytics-id="library.random"
                   aria-label="Pick a random game from the whole library"
                   onClick={() => void openRandomGame()}
                   disabled={!serverUrl || pickingRandomGame}
@@ -697,12 +716,18 @@ export default function Library() {
               <Button
                 outline
                 className={`${CONTROL_HEIGHT_CLASS} px-3 ${hasActiveFilters ? "text-gv-accent" : ""}`}
+                data-analytics-id="library.toggleFilters"
                 aria-label={
                   showFilters
                     ? "Hide filters"
                     : `Show filters${activeFilterCount > 0 ? ` (${activeFilterCount} active)` : ""}`
                 }
-                onClick={() => setShowFilters((s) => !s)}
+                onClick={() => {
+                  trackEvent("library_filters_panel_toggled", {
+                    open: !showFilters,
+                  });
+                  setShowFilters((s) => !s);
+                }}
               >
                 <FunnelIcon className="h-4 w-4 sm:mr-1" />
                 <span>{showFilters ? "Hide filters" : "Filters"}</span>
@@ -857,9 +882,12 @@ export default function Library() {
                 <Listbox
                   name="gameState"
                   value={selectedGameState}
-                  onChange={(v: any) =>
-                    setSelectedGameState(v as ProgressStateEnum | "")
-                  }
+                  onChange={(v: any) => {
+                    setSelectedGameState(v as ProgressStateEnum | "");
+                    trackEvent("library_filter_changed", {
+                      filter: "progress_state",
+                    });
+                  }}
                   disabled={!user}
                 >
                   <ListboxOption value="">
@@ -907,7 +935,12 @@ export default function Library() {
                 <Listbox
                   name="earlyAccess"
                   value={earlyAccess}
-                  onChange={(v: any) => setEarlyAccess(v as EarlyAccessFilter)}
+                  onChange={(v: any) => {
+                    setEarlyAccess(v as EarlyAccessFilter);
+                    trackEvent("library_filter_changed", {
+                      filter: "early_access",
+                    });
+                  }}
                 >
                   {EARLY_ACCESS_OPTIONS.map((opt) => (
                     <ListboxOption key={opt.value} value={opt.value}>
@@ -925,7 +958,12 @@ export default function Library() {
                 <Listbox
                   name="bookmarkFilter"
                   value={bookmarkFilter}
-                  onChange={(v: any) => setBookmarkFilter(v as BookmarkFilter)}
+                  onChange={(v: any) => {
+                    setBookmarkFilter(v as BookmarkFilter);
+                    trackEvent("library_filter_changed", {
+                      filter: "bookmarks",
+                    });
+                  }}
                   disabled={!user}
                 >
                   {BOOKMARK_OPTIONS.map((opt) => (
@@ -1309,7 +1347,10 @@ export default function Library() {
         title="Types"
         staticItems={GAME_TYPE_FILTER_ITEMS}
         selectedItems={selectedGameTypes}
-        onSelectionChange={setSelectedGameTypes}
+        onSelectionChange={(next) => {
+          setSelectedGameTypes(next);
+          trackEvent("library_filter_changed", { filter: "types" });
+        }}
         badgeColor="pink"
       />
       <MultiSelectFilterDialog
@@ -1318,7 +1359,10 @@ export default function Library() {
         title="Tags"
         endpoint="/api/tags"
         selectedItems={selectedTags}
-        onSelectionChange={setSelectedTags}
+        onSelectionChange={(next) => {
+          setSelectedTags(next);
+          trackEvent("library_filter_changed", { filter: "tags" });
+        }}
         badgeColor="blue"
       />
       <MultiSelectFilterDialog
@@ -1327,7 +1371,10 @@ export default function Library() {
         title="Genres"
         endpoint="/api/genres"
         selectedItems={selectedGenres}
-        onSelectionChange={setSelectedGenres}
+        onSelectionChange={(next) => {
+          setSelectedGenres(next);
+          trackEvent("library_filter_changed", { filter: "genres" });
+        }}
         badgeColor="green"
       />
       <MultiSelectFilterDialog
@@ -1336,7 +1383,10 @@ export default function Library() {
         title="Developers"
         endpoint="/api/developers"
         selectedItems={selectedDevelopers}
-        onSelectionChange={setSelectedDevelopers}
+        onSelectionChange={(next) => {
+          setSelectedDevelopers(next);
+          trackEvent("library_filter_changed", { filter: "developers" });
+        }}
         badgeColor="purple"
       />
       <MultiSelectFilterDialog
@@ -1345,7 +1395,10 @@ export default function Library() {
         title="Publishers"
         endpoint="/api/publishers"
         selectedItems={selectedPublishers}
-        onSelectionChange={setSelectedPublishers}
+        onSelectionChange={(next) => {
+          setSelectedPublishers(next);
+          trackEvent("library_filter_changed", { filter: "publishers" });
+        }}
         badgeColor="orange"
       />
     </div>

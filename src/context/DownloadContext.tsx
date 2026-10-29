@@ -11,6 +11,13 @@ import { useAuth } from "./AuthContext";
 import { useOnlineStatus } from "./OfflineContext";
 import { useServerStatus } from "@/hooks/useServerStatus";
 import { isTauriApp } from "@/utils/tauri";
+import {
+  countBucket,
+  durationBucket,
+  progressBucket,
+  sizeBucket,
+  trackEvent,
+} from "@/utils/analytics";
 import { onGameUpdated } from "@/utils/gameUpdates";
 import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
 import { computeTaskbarIndicator } from "@/utils/taskbarIndicator";
@@ -819,6 +826,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         installationStatus: "idle",
       };
       setDownloads((prev) => ({ ...prev, [gameId]: entry }));
+      trackEvent("download_started", {
+        gameType,
+        resume: Boolean(resumePosition && resumePosition > 0),
+        mode: isDesktop ? "desktop" : "web",
+      });
       speedSamplesRef.current[gameId] = [
         {
           t: performance.now(),
@@ -1094,6 +1106,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               });
               // Cache game data + images for offline use (Download tab)
               cacheInstalledGameData(gameId);
+              trackEvent("download_completed", {
+                gameType: entry.gameType,
+                size: sizeBucket(total && total > 0 ? total : received),
+                duration: durationBucket(performance.now() - entry.startedAt),
+              });
 
               // Auto-extract if enabled
               try {
@@ -1124,6 +1141,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                 progress: 0,
                 speedBps: undefined,
               });
+              trackEvent("download_aborted", { gameType: entry.gameType });
             } else if (payload.status === "error") {
               void writeVersionConfig(versionBaseFolder, {
                 downloadfinished: false,
@@ -1135,6 +1153,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                 total: null,
                 progress: 0,
                 speedBps: undefined,
+              });
+              trackEvent("download_failed", {
+                gameType: entry.gameType,
+                progress: progressBucket(entry.progress),
               });
             }
 
@@ -1348,6 +1370,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     (gameId: number) => {
       const d = downloads[gameId];
       if (!d || d.status !== "downloading") return;
+      trackEvent("download_paused", {
+        gameType: d.gameType,
+        progress: progressBucket(d.progress),
+      });
       if (gameId < 0) {
         clearSimulatedTimer(gameId);
         updateDownload(gameId, { status: "paused", speedBps: undefined });
@@ -1374,6 +1400,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     (gameId: number) => {
       const d = downloads[gameId];
       if (!d || (d.status !== "paused" && d.status !== "aborted")) return;
+      trackEvent("download_resumed", {
+        gameType: d.gameType,
+        progress: progressBucket(d.progress),
+      });
       if (gameId < 0) {
         const total = d.total ?? 100 * 1024 * 1024;
         updateDownload(gameId, {
@@ -1520,6 +1550,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     (gameId: number) => {
       const d = downloads[gameId];
       if (!d) return;
+      trackEvent("download_retried", { previousStatus: d.status });
       if (gameId < 0) {
         const total = d.total ?? 100 * 1024 * 1024;
         clearSimulatedTimer(gameId);
@@ -1764,6 +1795,11 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         extractionError: undefined,
         extractionPasswordRequired: false,
       });
+      trackEvent("extraction_started", {
+        gameType: d.gameType,
+        size: sizeBucket(d.total),
+        password: Boolean(password),
+      });
 
       try {
         const { invoke } = await import("@tauri-apps/api/core");
@@ -1958,6 +1994,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         installationCurrentFile: undefined,
         installationError: undefined,
       });
+      trackEvent("install_completed", { gameType: d.gameType });
 
       // Cache game data for offline use
       cacheInstalledGameData(gameId);
@@ -2052,6 +2089,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         installationError: undefined,
         installationExitCode: null,
       });
+      trackEvent("install_started", { mode: "copy", gameType: d.gameType });
 
       try {
         const { invoke } = await import("@tauri-apps/api/core");
@@ -2150,6 +2188,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         installationCurrentFile: installerRelativePath,
         installationError: undefined,
         installationExitCode: null,
+      });
+      trackEvent("install_started", {
+        mode: "installer",
+        gameType: d.gameType,
       });
 
       // A fresh installer run (or a re-attach to a running one) resets the
@@ -2450,6 +2492,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     const val = Math.max(0, v || 0);
     setSpeedLimitKBState(val);
     localStorage.setItem("download_speed_limit_kb", String(val));
+    trackEvent("download_speed_limit_changed", {
+      enabled: val > 0,
+      limitMb: countBucket(Math.round(val / 1024)),
+    });
   }, []);
 
   useEffect(() => {

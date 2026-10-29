@@ -9,6 +9,7 @@
 
 import { findInstalledGameById } from "@/utils/installedGames";
 import { installedGameTitle } from "@/utils/trayRecentGames";
+import { trackEvent } from "@/utils/analytics";
 
 export interface InstalledGameLaunchTarget {
   gameId: number;
@@ -16,6 +17,8 @@ export interface InstalledGameLaunchTarget {
   title: string;
   versionDirectory: string;
   installationDirectory: string;
+  /** Which surface started the launch, for anonymous usage stats. */
+  source?: "card" | "game_view" | "tray" | "deep_link";
 }
 
 export type LaunchOutcome =
@@ -70,6 +73,7 @@ async function readLaunchConfig(configPath: string): Promise<LaunchConfig> {
 export async function launchInstalledGame(
   target: InstalledGameLaunchTarget,
 ): Promise<LaunchOutcome> {
+  const source = target.source ?? "unknown";
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     const { join } = await import("@tauri-apps/api/path");
@@ -78,6 +82,7 @@ export async function launchInstalledGame(
       await join(target.versionDirectory, ".gamevault.game.config.json"),
     );
     if (!config.launchExecutable) {
+      trackEvent("game_launched", { source, outcome: "no-executable" });
       return { status: "no-executable" };
     }
 
@@ -96,8 +101,15 @@ export async function launchInstalledGame(
       forceUmu: config.forceUmu,
     });
 
+    trackEvent("game_launched", {
+      source,
+      outcome: "launched",
+      umu: Boolean(config.umuGameId || config.umuStore || config.umuProtonPath),
+      runAsAdmin: config.runAsAdmin,
+    });
     return { status: "launched" };
   } catch (error: any) {
+    trackEvent("game_launched", { source, outcome: "failed" });
     return { status: "failed", message: error?.message || String(error) };
   }
 }
@@ -122,6 +134,7 @@ export async function launchInstalledGameById(gameId: number): Promise<void> {
     title: installedGameTitle(game),
     versionDirectory: game.versionDirectory,
     installationDirectory: game.installationDirectory,
+    source: "deep_link",
   });
 
   if (outcome.status !== "launched") {

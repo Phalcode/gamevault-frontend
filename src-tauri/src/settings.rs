@@ -53,6 +53,13 @@ pub(crate) struct AppSettings {
   /// automatic recovery reload stay active either way.
   #[serde(default)]
   pub diagnostics_verbose: bool,
+  /// Anonymous usage analytics consent. `None` means the user never chose, which
+  /// defaults to enabled (opt-out).
+  ///
+  /// Lives here instead of the webview's localStorage because the installer
+  /// clears that folder on updates, which would silently opt users back in.
+  #[serde(default)]
+  pub analytics_enabled: Option<bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -135,7 +142,6 @@ pub(crate) fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> R
 pub(crate) async fn get_start_minimized(app: tauri::AppHandle) -> bool {
   load_settings(&app).start_minimized
 }
-
 #[tauri::command]
 pub(crate) async fn set_start_minimized(app: tauri::AppHandle, minimized: bool) -> Result<(), String> {
   let mut settings = load_settings(&app);
@@ -152,6 +158,23 @@ pub(crate) fn mark_autostart_args_synced(app: &tauri::AppHandle) -> Result<(), S
   let mut settings = load_settings(app);
   settings.autostart_args_synced = true;
   save_settings(app, &settings)
+}
+
+/// Whether the user opted out of anonymous usage analytics. `None` until they
+/// chose for the first time, which counts as enabled.
+#[tauri::command]
+pub(crate) async fn get_analytics_enabled(app: tauri::AppHandle) -> Option<bool> {
+  load_settings(&app).analytics_enabled
+}
+
+#[tauri::command]
+pub(crate) async fn set_analytics_enabled(
+  app: tauri::AppHandle,
+  enabled: bool,
+) -> Result<(), String> {
+  let mut settings = load_settings(&app);
+  settings.analytics_enabled = Some(enabled);
+  save_settings(&app, &settings)
 }
 
 #[tauri::command]

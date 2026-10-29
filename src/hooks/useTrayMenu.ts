@@ -77,6 +77,7 @@ export function useTrayMenu() {
         title: installedGameTitle(game),
         versionDirectory: game.versionDirectory,
         installationDirectory: game.installationDirectory,
+        source: "tray",
       });
       const alert = launchOutcomeAlert(outcome);
       if (alert) showAlert(alert);

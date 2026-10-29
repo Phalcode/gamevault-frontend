@@ -40,10 +40,13 @@ import { applyZoom, getStoredZoom, registerZoomHotkeys } from "./utils/zoom";
 import { registerReloadHotkey } from "./utils/reload";
 import { registerStreamerModeHotkey } from "./utils/streamerMode";
 import { registerExternalLinkHandler, isTauriApp } from "./utils/tauri";
-import { isAnalyticsEnabled } from "./utils/analytics";
+import {
+  initAnalytics,
+  registerAnalyticsClicks,
+  trackEvent,
+} from "./utils/analytics";
 import { startMediaCacheMaintenance } from "./utils/mediaCache";
 import { startFrontendDiagnostics } from "./utils/frontendDiagnostics";
-import * as Swetrix from "swetrix";
 import { LaunchLogWindow } from "./pages/LaunchLogWindow";
 
 // The launch log window boots standalone: it renders its own document without
@@ -68,14 +71,22 @@ if (isLaunchLogWindow) {
 
   (window as any).global = window;
 
-  if (isAnalyticsEnabled()) {
-    Swetrix.init("dBl2xaaJ9x3M", {
-      preloadSessionReplay: true,
-      apiURL: "https://analytics.platform.phalco.de/log",
-    });
-    Swetrix.trackViews();
-    Swetrix.trackErrors();
-  }
+  // Analytics start after the consent is resolved (the desktop app keeps it in
+  // the Rust settings so an opt-out survives app updates). Tracking is a no-op
+  // until then, so `app_started` is the first event.
+  void initAnalytics().then(() =>
+    trackEvent("app_started", {
+      version: __APP_VERSION__,
+      channel: __BUILD_CHANNEL__,
+      platform: isTauriApp() ? "desktop" : "web",
+      theme: getStoredTheme(),
+      zoom: String(getStoredZoom()),
+      lang: navigator.language,
+      screen: `${window.screen.width}x${window.screen.height}`,
+      cores: navigator.hardwareConcurrency ?? 0,
+    }),
+  );
+  registerAnalyticsClicks();
 
   // Ctrl/Cmd + +/-/0 zoom hotkeys (browsers already handle these natively)
   if (isTauriApp()) {
