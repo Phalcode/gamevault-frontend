@@ -10,6 +10,7 @@ import { countBucket, trackEvent } from "@/utils/analytics";
 import {
   buildCacheKey,
   buildGamesQueryParams,
+  isGamesCacheFresh,
   BookmarkFilter,
   EarlyAccessFilter,
 } from "@/utils/gamesQuery";
@@ -54,6 +55,8 @@ interface CachedGamesState {
   games: GamevaultGame[];
   next: string | null;
   loadedPages: number;
+  /** When the page was fetched, so a warm entry can skip the refetch. */
+  fetchedAt: number;
 }
 
 // Module-level cache that survives component unmount/remount cycles.
@@ -97,6 +100,7 @@ onGameDeleted((gameId) => {
         games: state.games.filter((g) => g.id !== gameId),
         next: state.next,
         loadedPages: state.loadedPages,
+        fetchedAt: state.fetchedAt,
       });
     }
   }
@@ -253,6 +257,7 @@ export function useGames({
         games: fetchedGames,
         next: json.links?.next || null,
         loadedPages: 1,
+        fetchedAt: Date.now(),
       });
     } catch (e: any) {
       if (e?.name === "AbortError") return;
@@ -315,6 +320,7 @@ export function useGames({
           games: merged,
           next: json.links?.next || null,
           loadedPages: loadedPagesRef.current,
+          fetchedAt: Date.now(),
         });
         return merged;
       });
@@ -331,7 +337,13 @@ export function useGames({
   }, [serverUrl, authFetch, next, loading]);
 
   useEffect(() => {
-    fetchGames();
+    // A fresh cache for this exact query already holds what the request would
+    // return, so returning from a game page does not refetch page 1 and
+    // re-render every card for nothing. Filter, search and sort changes get a
+    // different cache key and fetch normally.
+    const entry = gamesCache.get(cacheKeyRef.current);
+    if (isGamesCacheFresh(entry?.fetchedAt)) return;
+    void fetchGames();
     return () => abortRef.current?.abort();
   }, [fetchGames]);
 

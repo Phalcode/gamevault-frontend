@@ -1,6 +1,21 @@
 export type EarlyAccessFilter = "all" | "true" | "false";
 export type BookmarkFilter = "all" | "mine" | "others";
 
+/**
+ * A cached game list younger than this is rendered as-is instead of being
+ * refetched on mount, so going back to the library from a game is instant.
+ */
+export const GAMES_CACHE_FRESH_MS = 30_000;
+
+/** Whether a cached game list is still fresh enough to skip a refetch. */
+export function isGamesCacheFresh(
+  fetchedAt: number | undefined,
+  now: number = Date.now(),
+): boolean {
+  if (!fetchedAt) return false;
+  return now - fetchedAt < GAMES_CACHE_FRESH_MS;
+}
+
 export interface BuildGamesQueryParamsOptions {
   search?: string;
   sortBy?: string;
@@ -65,7 +80,10 @@ export function buildGamesQueryParams(
     params.set("filter.metadata.genres.name", `$in:${genres.join(",")}`);
   }
   if (developers.length > 0) {
-    params.set("filter.metadata.developers.name", `$in:${developers.join(",")}`);
+    params.set(
+      "filter.metadata.developers.name",
+      `$in:${developers.join(",")}`,
+    );
   }
   if (publishers.length > 0) {
     params.set(

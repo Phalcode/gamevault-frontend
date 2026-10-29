@@ -19,6 +19,7 @@ import {
   trackEvent,
 } from "@/utils/analytics";
 import { onGameUpdated } from "@/utils/gameUpdates";
+import { invalidateInstalledGames } from "@/hooks/useInstalledGames";
 import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
 import { computeTaskbarIndicator } from "@/utils/taskbarIndicator";
 import { getRootPaths } from "@/utils/rootPaths";
@@ -1995,6 +1996,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         installationError: undefined,
       });
       trackEvent("install_completed", { gameType: d.gameType });
+
+      // The installed-games list is cached across page transitions, so it has
+      // to learn about the new installation explicitly.
+      invalidateInstalledGames();
 
       // Cache game data for offline use
       cacheInstalledGameData(gameId);
