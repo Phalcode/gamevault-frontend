@@ -1,5 +1,5 @@
 import * as Swetrix from "swetrix";
-import { isTauriApp } from "./tauri";
+import { isTauriApp, isTauriDesktop } from "./tauri";
 
 /** Swetrix project the Phalcode endpoints collect into. */
 const ANALYTICS_PROJECT_ID = "dBl2xaaJ9x3M";
@@ -23,6 +23,7 @@ interface StopHandle {
 let consent: boolean | null = null;
 let tracking = false;
 let initPromise: Promise<void> | null = null;
+let transportInstalled = false;
 const stopHandles: StopHandle[] = [];
 
 function readLocalConsent(): boolean {
@@ -92,6 +93,8 @@ function startTracking(): void {
   if (tracking) return;
   tracking = true;
 
+  installDesktopTransport();
+
   Swetrix.init(ANALYTICS_PROJECT_ID, {
     apiURL: ANALYTICS_ENDPOINT,
     preloadSessionReplay: true,
@@ -123,6 +126,65 @@ function startTracking(): void {
     .catch(() => {
       // Replay is optional: a failed preload must not affect the app.
     });
+}
+
+/**
+ * Reads a request body as text, or returns `null` for bodies that cannot be
+ * forwarded (streams).
+ */
+async function requestBody(
+  body: BodyInit | null | undefined,
+): Promise<string | null> {
+  if (typeof body === "string") return body;
+  if (body instanceof Blob) return await body.text();
+  if (body === null || body === undefined) return "";
+  return null;
+}
+
+/**
+ * In the desktop app the webview runs on a custom origin, which the collector
+ * treats as third-party traffic: the pageview creates no session, so every
+ * heartbeat after it is answered with 403 and the client records nothing.
+ *
+ * Forwarding the SDK's requests through Rust removes the browser from the path.
+ * They arrive with our own user agent, no webview origin, and pageview and
+ * heartbeat share one connection identity, which is what sessions are keyed on.
+ */
+function installDesktopTransport(): void {
+  if (transportInstalled || !isTauriDesktop()) return;
+  transportInstalled = true;
+
+  const originalFetch = window.fetch.bind(window);
+
+  window.fetch = async (input, init) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+    if (!url.startsWith(ANALYTICS_ENDPOINT)) {
+      return originalFetch(input, init);
+    }
+
+    const body = await requestBody(init?.body);
+    if (body === null) return originalFetch(input, init);
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const status = await invoke<number>("analytics_post", { url, body });
+      return new Response("{}", {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.debug("[analytics] forwarding failed", error);
+      }
+      return new Response("{}", { status: 503 });
+    }
+  };
 }
 
 function stopTracking(): void {

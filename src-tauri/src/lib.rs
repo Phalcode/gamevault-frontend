@@ -4,6 +4,8 @@ mod util;
 mod executables;
 mod downloads;
 mod launch_mode;
+mod user_agent;
+mod analytics_forward;
 mod extraction;
 mod installation;
 mod jumplist;
@@ -413,9 +415,22 @@ async fn run_app_update(app: AppHandle, channel: UpdateChannel) -> Result<Option
   Ok(Some(update.version.clone()))
 }
 
+/// Replaces the webview's browser user agent with the product one, so API
+/// requests, server logs and analytics can identify the desktop client.
+fn apply_webview_user_agent<R: tauri::Runtime>(context: &mut tauri::Context<R>) {
+  let agent = user_agent::frontend_user_agent(
+    &context.package_info().version.to_string(),
+    user_agent::platform_token(),
+  );
+  for window in &mut context.config_mut().app.windows {
+    window.user_agent = Some(agent.clone());
+  }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  let context = tauri::generate_context!();
+  let mut context = tauri::generate_context!();
+  apply_webview_user_agent(&mut context);
 
   // The Windows taskbar jump list is keyed on this id, so it has to be set
   // before the first window appears.
@@ -659,6 +674,7 @@ pub fn run() {
       settings::get_analytics_enabled,
       settings::set_analytics_enabled,
       settings::take_watchdog_recovery,
+      analytics_forward::analytics_post,
       settings::get_minimize_on_game_launch,
       settings::set_minimize_on_game_launch,
       settings::get_ignore_list,
