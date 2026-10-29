@@ -5,6 +5,7 @@ import {
   type GamepadDirection,
   type GamepadFrame,
 } from "@/utils/gamepad";
+import { countBucket, trackEvent } from "@/utils/analytics";
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -90,9 +91,7 @@ function isAppElement(element: Element): boolean {
  */
 function collectPopoverItems(root: HTMLElement): HTMLElement[] {
   const items = Array.from(
-    root.querySelectorAll<HTMLElement>(
-      '[role="menuitem"], [role="option"]',
-    ),
+    root.querySelectorAll<HTMLElement>('[role="menuitem"], [role="option"]'),
   );
   return items.filter(
     (element) => !element.hasAttribute("disabled") && isVisible(element),
@@ -233,8 +232,7 @@ export default function GamepadNavigator() {
       const current = gamepadFocusRef.current;
       if (!current || event.target !== current) return;
       const next = event.relatedTarget;
-      const movedWithinApp =
-        next instanceof Element && isAppElement(next);
+      const movedWithinApp = next instanceof Element && isAppElement(next);
       const movedToBody =
         next === null ||
         next === document.body ||
@@ -484,7 +482,8 @@ export default function GamepadNavigator() {
       const now = performance.now();
       const cached = scrollContainerCache;
       if (cached && now - cached.at < 250) {
-        if (!cached.element || cached.element.isConnected) return cached.element;
+        if (!cached.element || cached.element.isConnected)
+          return cached.element;
       }
       const element = findScrollContainer();
       scrollContainerCache = { element, at: now };
@@ -540,12 +539,27 @@ export default function GamepadNavigator() {
       if (first) setGamepadFocus(first);
     }
 
+    // One event per session: whether gamepad navigation is used at all is the
+    // interesting part, not how often a stick moved.
+    let reportedInput = false;
+    const mountedAt = Date.now();
+    function reportGamepadUse(input: string): void {
+      if (reportedInput) return;
+      reportedInput = true;
+      trackEvent("gamepad_navigation_used", {
+        input,
+        after_seconds: countBucket(Math.round((Date.now() - mountedAt) / 1000)),
+      });
+    }
+
     function handleFrame(frame: GamepadFrame): void {
       if (frame.scrollX !== 0 || frame.scrollY !== 0) {
+        reportGamepadUse("scroll");
         scrollFocusedContainer(frame.scrollX, frame.scrollY);
       }
 
       for (const action of frame.justPressed) {
+        reportGamepadUse(action);
         switch (action) {
           case "a":
             activateFocused();
@@ -566,12 +580,12 @@ export default function GamepadNavigator() {
       }
 
       if (frame.direction) {
+        reportGamepadUse(frame.direction);
         moveFocus(frame.direction);
       }
     }
 
     const unsubscribe = subscribeGamepadInput(handleFrame);
-
     return () => {
       unsubscribe();
       window.removeEventListener("focusout", handleFocusOut, true);

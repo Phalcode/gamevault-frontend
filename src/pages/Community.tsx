@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useScrollRestoration } from "@/hooks/useScrollRestoration";
 import { maskUser, useStreamerMode } from "@/utils/streamerMode";
+import { countBucket, trackEvent } from "@/utils/analytics";
 import type { GamevaultGame, GamevaultUser, Progress } from "../api";
 
 type UserDetailsMap = Record<number, GamevaultUser>;
@@ -549,6 +550,9 @@ export default function Community() {
           });
 
         setUsers(activeUsers);
+        trackEvent("community_loaded", {
+          members: countBucket(activeUsers.length),
+        });
         // No users → nothing to await; details `useEffect` keeps the gate
         // closed below otherwise.
         setDetailsDone(activeUsers.length === 0);

@@ -60,6 +60,10 @@ pub(crate) struct AppSettings {
   /// clears that folder on updates, which would silently opt users back in.
   #[serde(default)]
   pub analytics_enabled: Option<bool>,
+  /// Unix timestamp of the last watchdog reload. Written before the webview is
+  /// reloaded (the frozen UI cannot report it) and read once on the next boot.
+  #[serde(default)]
+  pub watchdog_recovery_at: Option<u64>,
 }
 
 #[derive(Serialize, Clone)]
@@ -175,6 +179,31 @@ pub(crate) async fn set_analytics_enabled(
   let mut settings = load_settings(&app);
   settings.analytics_enabled = Some(enabled);
   save_settings(&app, &settings)
+}
+
+/// Records that the watchdog had to reload the webview to recover it.
+///
+/// The frozen UI cannot send this itself, so the marker is written before the
+/// reload and reported by the next frontend boot.
+pub(crate) fn mark_watchdog_recovery(app: &tauri::AppHandle) {
+  let mut settings = load_settings(app);
+  settings.watchdog_recovery_at = std::time::SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .ok()
+    .map(|duration| duration.as_secs());
+  let _ = save_settings(app, &settings);
+}
+
+/// Returns the timestamp of the last watchdog reload and clears the marker, so
+/// every recovery is reported exactly once.
+#[tauri::command]
+pub(crate) async fn take_watchdog_recovery(app: tauri::AppHandle) -> Option<u64> {
+  let mut settings = load_settings(&app);
+  let value = settings.watchdog_recovery_at.take();
+  if value.is_some() {
+    let _ = save_settings(&app, &settings);
+  }
+  value
 }
 
 #[tauri::command]

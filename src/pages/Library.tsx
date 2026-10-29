@@ -493,6 +493,7 @@ export default function Library() {
   });
   const handleRowsChange = useCallback((n: number) => {
     setInstalledRows(n);
+    trackEvent("library_rows_changed", { rows: n });
     try {
       localStorage.setItem(INSTALLED_ROWS_KEY, String(n));
     } catch {

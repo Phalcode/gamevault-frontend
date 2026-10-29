@@ -39,9 +39,11 @@ import {
   DialogTitle,
 } from "@/components/tailwind/dialog";
 import {
+  countBucket,
   initAnalytics,
   isAnalyticsEnabled,
   setAnalyticsEnabled,
+  trackEvent,
 } from "@/utils/analytics";
 import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
 import { clearImageCache } from "@/utils/mediaCache";
@@ -1256,6 +1258,7 @@ export default function Settings() {
 
     try {
       const removed = await clearImageCache();
+      trackEvent("media_cache_cleared", { removed: countBucket(removed) });
       await showAlert({
         title: "Image cache cleared",
         description:
