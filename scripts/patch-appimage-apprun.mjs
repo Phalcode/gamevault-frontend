@@ -29,6 +29,7 @@ import {
   readdir,
   rename,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -119,6 +120,32 @@ async function repack(squashFs, outputPath, workDir) {
   });
 }
 
+/**
+ * Grants read access to everyone below `dir`, keeping the original bits.
+ *
+ * The bundled AppImage is built with `0700` directories, and `appimagetool`
+ * (continuous build since 2026-10-29) refuses to repack a tree that other users
+ * could not read or descend into. Directories additionally need `x`, otherwise
+ * the AppImage is unusable for anyone but the build user.
+ */
+async function makeTreeWorldReadable(dir) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    // Symlinks keep pointing at whatever they pointed at before.
+    if (entry.isSymbolicLink()) continue;
+    const { mode } = await stat(full);
+    const bits = mode & 0o777;
+    if (entry.isDirectory()) {
+      await chmod(full, bits | 0o755);
+      await makeTreeWorldReadable(full);
+    } else if (entry.isFile()) {
+      // Executables stay executable for everyone, data files stay data files.
+      const isExecutable = (bits & 0o100) !== 0;
+      await chmod(full, bits | (isExecutable ? 0o555 : 0o444));
+    }
+  }
+}
+
 async function resign(appImagePath) {
   const privateKey = process.env.TAURI_SIGNING_PRIVATE_KEY;
   const password = process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
@@ -171,9 +198,11 @@ async function main() {
     const appRunReal = path.join(squashFs, "AppRun.real");
 
     // `appimagetool` (continuous build since 2026-10-29) refuses to repack a
-    // tree whose root directory is not readable and executable for everyone.
-    // The extraction keeps the temporary directory's 0700 mode, so normalise it.
+    // tree that is not readable and executable for everyone, and the bundled
+    // AppImage ships `0700` directories. Normalise the extracted tree before
+    // repacking, otherwise the Linux build cannot produce an AppImage at all.
     await chmod(squashFs, 0o755);
+    await makeTreeWorldReadable(squashFs);
 
     // 2. Preserve the generated AppRun and install our wayland wrapper.
     await rename(appRun, appRunReal);
