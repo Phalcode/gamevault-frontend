@@ -23,6 +23,7 @@ import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
 import { buildShareUrl } from "@/utils/shareUrl";
+import { trackEvent } from "@/utils/analytics";
 import { formatDate, formatTime, formatYear } from "@/utils/date";
 import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
 import { formatDecimal } from "@/utils/number";
@@ -176,6 +177,10 @@ export default function GameView() {
         if (!res.ok) throw new Error(`Failed to load game (${res.status})`);
         const json = await res.json();
         if (!cancelled) setGame(json);
+        trackEvent("game_view_opened", {
+          from_deep_link: openedFromDeepLink,
+          offline_cache: false,
+        });
       } catch (e: any) {
         // Offline fallback: try loading from local cache
         if (isTauriApp() && !isOnline) {
@@ -187,6 +192,11 @@ export default function GameView() {
             if (cached && !cancelled) {
               const json = JSON.parse(cached);
               setGame(json as GamevaultGame);
+              trackEvent("game_view_opened", {
+                from_deep_link: openedFromDeepLink,
+                offline_cache: true,
+              });
+              trackEvent("offline_cache_used", { area: "game" });
               return;
             }
           } catch {
@@ -367,7 +377,16 @@ export default function GameView() {
       const url = `${base}/api/users/me/bookmark/${game.id}`;
       const res = await authFetch(url, { method: next ? "POST" : "DELETE" });
       if (!res.ok) throw new Error("Bookmark toggle failed");
+      trackEvent("game_bookmark_toggled", {
+        source: "game_view",
+        bookmarked: next,
+      });
     } catch {
+      trackEvent("game_bookmark_toggled", {
+        source: "game_view",
+        bookmarked: !next,
+        success: false,
+      });
       setBookmarked(!next);
       showAlert({
         title: "Couldn't update bookmark",
@@ -396,11 +415,13 @@ export default function GameView() {
     const shareUrl = buildShareUrl(serverUrl, route);
     try {
       await navigator.clipboard.writeText(shareUrl);
+      trackEvent("game_share_link_copied", { success: true });
       // Show global alert notification
       showAlert({
         title: "Link copied",
       });
     } catch {
+      trackEvent("game_share_link_copied", { success: false });
       showAlert({
         title: "Couldn't copy link",
         description: shareUrl,
@@ -556,6 +577,7 @@ export default function GameView() {
         title: title || game?.title || "Game",
         versionDirectory: installedInfo.versionDirectory,
         installationDirectory: installedInfo.installationDirectory,
+        source: "game_view",
       });
       const alert = launchOutcomeAlert(outcome);
       if (alert) showAlert(alert);
@@ -566,6 +588,9 @@ export default function GameView() {
   const handleVersionSelect = useCallback(
     (selectedVersion: GameVersion) => {
       if (!pendingDownloadAction) return;
+      trackEvent("game_version_selected", {
+        early_access: Boolean((selectedVersion as any).early_access),
+      });
       executeDownloadAction(
         pendingDownloadAction,
         selectedVersion,
@@ -619,6 +644,7 @@ export default function GameView() {
             // mutate local userProgress optimistic
             setProgressState(nextKey as any);
           }
+          trackEvent("game_progress_state_changed", { state: nextKey });
         }
       } finally {
         setProgressUpdating(false);
@@ -904,6 +930,7 @@ export default function GameView() {
                   <Button
                     outline
                     onClick={() => setSettingsOpen(true)}
+                    data-analytics-id="game.settings"
                     className={floatingIconButtonClassName}
                     title="Settings"
                   >
@@ -912,6 +939,7 @@ export default function GameView() {
                   <Button
                     outline
                     onClick={toggleBookmark}
+                    data-analytics-id="game.bookmark"
                     disabled={!user || bookmarkBusy || (isTauri && !isOnline)}
                     className={clsx(
                       bookmarked

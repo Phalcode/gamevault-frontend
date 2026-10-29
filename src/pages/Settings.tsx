@@ -38,7 +38,11 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/tailwind/dialog";
-import { isAnalyticsEnabled, setAnalyticsEnabled } from "@/utils/analytics";
+import {
+  initAnalytics,
+  isAnalyticsEnabled,
+  setAnalyticsEnabled,
+} from "@/utils/analytics";
 import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
 import { clearImageCache } from "@/utils/mediaCache";
 import {
@@ -529,7 +533,11 @@ function SettingsGroup({
   id?: string;
 }) {
   return (
-    <div className={clsx(className)} id={id}>
+    <div
+      className={clsx(className)}
+      id={id}
+      data-analytics-id={id ? `settings.${id}` : undefined}
+    >
       {caption && (
         <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-gv-muted">
           {caption}
@@ -685,9 +693,9 @@ export default function Settings() {
     simulateDownload,
   } = useDownloads() as any;
   const kbValue = speedLimitKB;
-  const [analyticsConsent, setAnalyticsConsent] = useState<boolean>(() => {
-    return isAnalyticsEnabled();
-  });
+  const [analyticsConsent, setAnalyticsConsent] = useState<boolean | null>(
+    null,
+  );
   const [rootPaths, setRootPaths] = useState<RootPathEntry[]>(() =>
     getRootPaths(),
   );
@@ -909,6 +917,18 @@ export default function Settings() {
       cancelled = true;
     };
   }, [isTauri]);
+
+  // Resolve the stored analytics consent. The desktop app keeps it in the Rust
+  // settings, which survives app updates, so this is async.
+  useEffect(() => {
+    let cancelled = false;
+    void initAnalytics().then(() => {
+      if (!cancelled) setAnalyticsConsent(isAnalyticsEnabled());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Load the Wine/Proton prefix base directory from the Rust backend config.
   useEffect(() => {
@@ -2176,16 +2196,17 @@ export default function Settings() {
                       <SettingsRow>
                         <SettingsLabel
                           title="Help improve GameVault"
-                          description={`We'd like to send a few anonymous usage stats — which features you use and whether something goes wrong — so we know what to fix. Nothing personal, no game names, no IP-tracked browsing. It just helps us improve the app. You can turn it off anytime. Changes take effect after ${isTauri ? "restarting the app" : "reloading"}.`}
+                          description="We'd like to send a few anonymous usage stats: which features you use and whether something goes wrong, so we know what to fix. No game names, no search terms, no IP-tracked browsing. Turning this off stops the requests immediately and survives app updates."
                         />
                         <Switch
                           name="analyticsConsent"
                           color="indigo"
                           aria-label="Help improve GameVault with anonymous usage analytics"
-                          checked={analyticsConsent}
+                          checked={analyticsConsent ?? false}
+                          disabled={analyticsConsent === null}
                           onChange={(v: boolean) => {
-                            setAnalyticsEnabled(v);
                             setAnalyticsConsent(v);
+                            void setAnalyticsEnabled(v);
                           }}
                         />
                       </SettingsRow>

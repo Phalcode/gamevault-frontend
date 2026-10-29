@@ -205,7 +205,11 @@ export function DownloadCard({
 
     if (download.status === "downloading") {
       return (
-        <Button color="amber" onClick={() => pauseDownload(download.gameId)}>
+        <Button
+          color="amber"
+          data-analytics-id="download.pause"
+          onClick={() => pauseDownload(download.gameId)}
+        >
           <PauseIcon className="h-4 w-4" aria-hidden="true" />
           Pause
         </Button>
@@ -213,7 +217,11 @@ export function DownloadCard({
     }
     if (download.status === "paused") {
       return (
-        <Button color="indigo" onClick={() => resumeDownload(download.gameId)}>
+        <Button
+          color="indigo"
+          data-analytics-id="download.resume"
+          onClick={() => resumeDownload(download.gameId)}
+        >
           <PlayIcon className="h-4 w-4" aria-hidden="true" />
           Resume
         </Button>
@@ -221,7 +229,11 @@ export function DownloadCard({
     }
     if (isFailed) {
       return (
-        <Button color="indigo" onClick={() => retryDownload(download.gameId)}>
+        <Button
+          color="indigo"
+          data-analytics-id="download.retry"
+          onClick={() => retryDownload(download.gameId)}
+        >
           <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
           Try Again
         </Button>
