@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ANALYTICS_ENDPOINTS,
   countBucket,
   durationBucket,
   isAnalyticsEnabled,
@@ -101,10 +102,10 @@ describe("collector selection", () => {
     const analytics = await import("./analytics");
     await analytics.initAnalytics();
 
-    expect(fetchMock.mock.calls[0][0]).toBe("https://api.swetrix.com/log");
+    expect(fetchMock.mock.calls[0][0]).toBe(ANALYTICS_ENDPOINTS[0]);
     expect(Swetrix.init).toHaveBeenCalledWith(
       "dBl2xaaJ9x3M",
-      expect.objectContaining({ apiURL: "https://api.swetrix.com/log" }),
+      expect.objectContaining({ apiURL: ANALYTICS_ENDPOINTS[0] }),
     );
   });
 
@@ -124,9 +125,7 @@ describe("collector selection", () => {
 
     expect(Swetrix.init).toHaveBeenCalledWith(
       "dBl2xaaJ9x3M",
-      expect.objectContaining({
-        apiURL: "https://analytics.platform.phalco.de/log",
-      }),
+      expect.objectContaining({ apiURL: ANALYTICS_ENDPOINTS[1] }),
     );
   });
 

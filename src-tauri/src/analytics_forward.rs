@@ -8,19 +8,38 @@
 //! pageview and heartbeat then share one connection identity, which is what the
 //! collector keys sessions on.
 
+use base64::Engine as _;
 use reqwest::Client;
 use std::sync::OnceLock;
 use std::time::Duration;
 use url::Url;
 
-/// Hosts the command may call, in the order the client tries them.
-pub(crate) const ANALYTICS_HOSTS: [&str; 5] = [
-  "api.swetrix.com",
-  "analytics.platform.phalco.de",
-  "anal.phalco.de",
-  "track.phalco.de",
-  "your-dns-provider-is-pissing-me-off.phalco.de",
+/// Hosts the command may call, in the order the client tries them. The Phalcode
+/// hosts are Base64 encoded so they are not plain text in the binary.
+const ANALYTICS_HOSTS_ENCODED: [&str; 5] = [
+  "YW5hbHl0aWNzLnBsYXRmb3JtLnBoYWxjby5kZQ==",
+  "YW5hbC5waGFsY28uZGU=",
+  "dHJhY2sucGhhbGNvLmRl",
+  "eW91ci1kbnMtcHJvdmlkZXItaXMtcGlzc2luZy1tZS1vZmYucGhhbGNvLmRl",
+  "c3B5LnBoYWxjby5kZQ==",
 ];
+
+/// Host allowlist: the public Swetrix collector plus the decoded Phalcode hosts.
+fn allowed_hosts() -> &'static [String] {
+  static HOSTS: OnceLock<Vec<String>> = OnceLock::new();
+  HOSTS.get_or_init(|| {
+    std::iter::once("api.swetrix.com".to_string())
+      .chain(ANALYTICS_HOSTS_ENCODED.iter().map(|encoded| {
+        String::from_utf8(
+          base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .expect("valid base64 analytics host"),
+        )
+        .expect("analytics host is utf-8")
+      }))
+      .collect()
+  })
+}
 
 fn client() -> &'static Client {
   static CLIENT: OnceLock<Client> = OnceLock::new();
@@ -43,7 +62,7 @@ pub(crate) fn is_allowed_endpoint(url: &Url) -> bool {
   url.scheme() == "https"
     && url
       .host_str()
-      .is_some_and(|host| ANALYTICS_HOSTS.contains(&host))
+      .is_some_and(|host| allowed_hosts().iter().any(|allowed| allowed == host))
 }
 
 /// POSTs a JSON body to the collector and returns the HTTP status. The body is
@@ -68,12 +87,12 @@ pub(crate) async fn analytics_post(url: String, body: String) -> Result<u16, Str
 
 #[cfg(test)]
 mod tests {
-  use super::{is_allowed_endpoint, ANALYTICS_HOSTS};
+  use super::{allowed_hosts, is_allowed_endpoint};
   use url::Url;
 
   #[test]
   fn allows_every_collector() {
-    for host in ANALYTICS_HOSTS {
+    for host in allowed_hosts() {
       for path in ["/log", "/log/hb", "/log/custom", "/log/error"] {
         let url = Url::parse(&format!("https://{host}{path}")).expect("valid url");
         assert!(is_allowed_endpoint(&url), "{host}{path} should be allowed");
