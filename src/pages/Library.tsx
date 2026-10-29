@@ -37,6 +37,7 @@ import { DURATION_SLOW, EASE_OUT } from "@/lib/motion";
 import {
   activeFilterCount as computeActiveFilterCount,
   buildInstalledGameMap,
+  collectInstalledMetadataNames,
   filterAndSortInstalledGames,
   getParamValues,
   hasActiveFilters as computeHasActiveFilters,
@@ -120,6 +121,7 @@ export default function Library() {
   const { showAlert } = useAlertDialog();
   const navigate = useNavigate();
   const isTauri = isTauriApp();
+  const currentUserId = (user as any)?.id ?? (user as any)?.ID;
 
   const CONTROL_HEIGHT_CLASS = "min-h-11 sm:min-h-9";
   const INPUT_CONTROL_HEIGHT_CLASS = "[&_input]:min-h-11 sm:[&_input]:min-h-9";
@@ -501,36 +503,42 @@ export default function Library() {
     }
   }, []);
 
-  // Map installed games to a GamevaultGame-compatible shape for GameCard
+  // Map installed games to a GamevaultGame-compatible shape for GameCard.
+  // The offline cache stores the full game object (metadata, versions,
+  // bookmarks, progresses, size, created_at, ...), which is what lets the
+  // Library filters and sorts behave identically online and offline.
+  // `gameMetadata` is only the on-disk installer-preferences file, so it must
+  // not be treated as game metadata.
   const installedAsGames: GamevaultGame[] = useMemo(() => {
     return installedGames.map((ig) => {
-      const meta = (ig.cachedMetadata || ig.gameMetadata) as any;
-      const g = {
-        id: ig.gameId,
-        created_at: new Date(),
-        entity_version: 0,
-        title: ig.gameTitle,
-        sort_title: ig.gameTitle?.toLowerCase(),
-        type: ig.gameType as any,
-        // Carry the server's version info through so installed-only cards can
-        // also show the "update available" indicator.
-        version: (meta as any)?.version,
-        versions: (meta as any)?.versions,
-        metadata: meta
-          ? {
-              title: meta.title,
-              cover: meta.cover ?? meta.metadata?.cover,
-              rating: meta.rating ?? meta.metadata?.rating,
-              release_date: meta.release_date ?? meta.metadata?.release_date,
-              tags: meta.tags ?? meta.metadata?.tags,
-              genres: meta.genres ?? meta.metadata?.genres,
-              developers: meta.developers ?? meta.metadata?.developers,
-              publishers: meta.publishers ?? meta.metadata?.publishers,
-            }
-          : undefined,
-      } as GamevaultGame;
+      const cached =
+        ig.cachedMetadata && typeof ig.cachedMetadata === "object"
+          ? (ig.cachedMetadata as any)
+          : null;
+      const g: any = cached ? { ...cached } : {};
+
+      g.id = ig.gameId;
+      g.title = cached?.title || ig.gameTitle;
+      g.sort_title = String(
+        cached?.sort_title || ig.gameTitle || cached?.title || "",
+      ).toLowerCase();
+      g.type = (ig.gameType ?? cached?.type) as any;
+      g.metadata = cached?.metadata ? { ...cached.metadata } : undefined;
+      g.created_at = cached?.created_at
+        ? new Date(cached.created_at)
+        : (undefined as any);
+
+      // Fall back to the installed version's size when the legacy mirror is
+      // missing, so the Size sort and metric still work.
+      if (g.size === undefined || g.size === null) {
+        const versions = Array.isArray(g.versions) ? g.versions : [];
+        const version =
+          versions.find((v: any) => v?.id === ig.versionId) ?? versions[0];
+        if (version?.size !== undefined) g.size = version.size;
+      }
+
       // Attach installation info for GameCard play button
-      (g as any)._installedInfo = {
+      g._installedInfo = {
         installationDirectory: ig.installationDirectory,
         versionDirectory: ig.versionDirectory,
         versionId: ig.versionId,
@@ -539,10 +547,10 @@ export default function Library() {
         installedAt: ig.installedAt ?? 0,
         lastPlayedAt: ig.lastPlayedAt ?? 0,
       };
-      (g as any)._onUninstalled = refetchInstalledGames;
-      return g;
+      g._onUninstalled = refetchInstalledGames;
+      return g as GamevaultGame;
     });
-  }, [installedGames]);
+  }, [installedGames, refetchInstalledGames]);
 
   // Map installed game id -> installation info so server games that are
   // already installed locally can be marked (e.g. a small "Installed" badge).
@@ -551,7 +559,9 @@ export default function Library() {
     [installedGames],
   );
 
-  // Client-side filter + sort installed games with the same Library criteria
+  // Client-side filter + sort installed games with the same Library criteria.
+  // Everything is derived from locally cached game data, so this works the
+  // same whether the server is reachable or not.
   const filteredInstalledGames = useMemo(() => {
     return filterAndSortInstalledGames(installedAsGames, {
       search: deferredSearch,
@@ -560,6 +570,14 @@ export default function Library() {
       genres: genreNames,
       developers: developerNames,
       publishers: publisherNames,
+      bookmarkFilter,
+      gameState: selectedGameState,
+      releaseDateFrom,
+      releaseDateTo,
+      earlyAccess,
+      sortBy,
+      order,
+      userId: currentUserId,
     });
   }, [
     installedAsGames,
@@ -569,7 +587,33 @@ export default function Library() {
     genreNames,
     developerNames,
     publisherNames,
+    bookmarkFilter,
+    selectedGameState,
+    releaseDateFrom,
+    releaseDateTo,
+    earlyAccess,
+    sortBy,
+    order,
+    currentUserId,
   ]);
+
+  // Filter dialog options that are always available, even offline.
+  const installedTagOptions = useMemo(
+    () => collectInstalledMetadataNames(installedAsGames, "tags"),
+    [installedAsGames],
+  );
+  const installedGenreOptions = useMemo(
+    () => collectInstalledMetadataNames(installedAsGames, "genres"),
+    [installedAsGames],
+  );
+  const installedDeveloperOptions = useMemo(
+    () => collectInstalledMetadataNames(installedAsGames, "developers"),
+    [installedAsGames],
+  );
+  const installedPublisherOptions = useMemo(
+    () => collectInstalledMetadataNames(installedAsGames, "publishers"),
+    [installedAsGames],
+  );
 
   /**
    * Opens a random game from the whole library.
@@ -1105,7 +1149,11 @@ export default function Library() {
         {/* Installed Games Section (Tauri only) */}
         {isTauri && (
           <SectionExpander
-            title={`Installed Games (${filteredInstalledGames.length})`}
+            title={
+              filteredInstalledGames.length === installedAsGames.length
+                ? `Installed Games (${installedAsGames.length})`
+                : `Installed Games (${filteredInstalledGames.length} of ${installedAsGames.length})`
+            }
             defaultOpen={true}
             headerRight={
               <RowCountControl
@@ -1116,7 +1164,23 @@ export default function Library() {
           >
             {filteredInstalledGames.length === 0 ? (
               <div className="surface-panel-soft rounded-2xl p-4 text-sm text-gv-muted">
-                No installed games found.
+                {installedAsGames.length > 0
+                  ? "No installed games match your filters and search."
+                  : "No installed games found."}
+                {installedAsGames.length > 0 && (
+                  <div className="mt-2">
+                    <TextLink
+                      href="#"
+                      onClick={() => {
+                        clearAllFilters();
+                        setShowFilters(false);
+                        setSearch("");
+                      }}
+                    >
+                      <Strong>Try clearing all filters and search</Strong>
+                    </TextLink>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto overflow-y-hidden pb-3">
@@ -1359,6 +1423,7 @@ export default function Library() {
         onClose={() => setTagsDialogOpen(false)}
         title="Tags"
         endpoint="/api/tags"
+        fallbackItems={installedTagOptions}
         selectedItems={selectedTags}
         onSelectionChange={(next) => {
           setSelectedTags(next);
@@ -1371,6 +1436,7 @@ export default function Library() {
         onClose={() => setGenresDialogOpen(false)}
         title="Genres"
         endpoint="/api/genres"
+        fallbackItems={installedGenreOptions}
         selectedItems={selectedGenres}
         onSelectionChange={(next) => {
           setSelectedGenres(next);
@@ -1383,6 +1449,7 @@ export default function Library() {
         onClose={() => setDevelopersDialogOpen(false)}
         title="Developers"
         endpoint="/api/developers"
+        fallbackItems={installedDeveloperOptions}
         selectedItems={selectedDevelopers}
         onSelectionChange={(next) => {
           setSelectedDevelopers(next);
@@ -1395,6 +1462,7 @@ export default function Library() {
         onClose={() => setPublishersDialogOpen(false)}
         title="Publishers"
         endpoint="/api/publishers"
+        fallbackItems={installedPublisherOptions}
         selectedItems={selectedPublishers}
         onSelectionChange={(next) => {
           setSelectedPublishers(next);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activeFilterCount,
   buildInstalledGameMap,
+  collectInstalledMetadataNames,
   filterAndSortInstalledGames,
   getParamValues,
   hasActiveFilters,
@@ -153,9 +154,24 @@ describe("filterAndSortInstalledGames", () => {
 
   it("sorts by most-recent activity with a title tie-break", () => {
     const games = [
-      base({ id: 1, title: "Beta", sort_title: "beta", _installedInfo: { installedAt: 50, lastPlayedAt: 0 } }),
-      base({ id: 2, title: "Alpha", sort_title: "alpha", _installedInfo: { installedAt: 200, lastPlayedAt: 0 } }),
-      base({ id: 3, title: "Same B", sort_title: "same b", _installedInfo: { installedAt: 50, lastPlayedAt: 0 } }),
+      base({
+        id: 1,
+        title: "Beta",
+        sort_title: "beta",
+        _installedInfo: { installedAt: 50, lastPlayedAt: 0 },
+      }),
+      base({
+        id: 2,
+        title: "Alpha",
+        sort_title: "alpha",
+        _installedInfo: { installedAt: 200, lastPlayedAt: 0 },
+      }),
+      base({
+        id: 3,
+        title: "Same B",
+        sort_title: "same b",
+        _installedInfo: { installedAt: 50, lastPlayedAt: 0 },
+      }),
     ];
     const result = filterAndSortInstalledGames(games, {
       search: "",
@@ -170,5 +186,155 @@ describe("filterAndSortInstalledGames", () => {
     // Tie-broken by title ascending.
     expect(result[1].id).toBe(1);
     expect(result[2].id).toBe(3);
+  });
+
+  const emptyFilters = {
+    search: "",
+    gameTypes: [] as string[],
+    tags: [] as string[],
+    genres: [] as string[],
+    developers: [] as string[],
+    publishers: [] as string[],
+  };
+
+  it("sorts by the active library sort key and direction", () => {
+    const games = [
+      base({
+        id: 1,
+        title: "Beta",
+        sort_title: "beta",
+        metadata: { rating: 90, release_date: "2020-05-01" },
+      }),
+      base({
+        id: 2,
+        title: "Alpha",
+        sort_title: "alpha",
+        metadata: { rating: 40, release_date: "2022-01-01" },
+      }),
+      base({ id: 3, title: "Gamma", sort_title: "gamma", metadata: {} }),
+    ];
+
+    const byTitle = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      sortBy: "sort_title",
+      order: "ASC",
+    });
+    expect(byTitle.map((g) => g.id)).toEqual([2, 1, 3]);
+
+    const byRatingDesc = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      sortBy: "metadata.rating",
+      order: "DESC",
+    });
+    // Missing rating sinks to the end regardless of direction.
+    expect(byRatingDesc.map((g) => g.id)).toEqual([1, 2, 3]);
+
+    const byReleaseDateAsc = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      sortBy: "metadata.release_date",
+      order: "ASC",
+    });
+    expect(byReleaseDateAsc.map((g) => g.id)).toEqual([1, 2, 3]);
+  });
+
+  it("sorts by size using the installed version when the mirror is missing", () => {
+    const games = [
+      base({ id: 1, title: "Small", size: "100" }),
+      base({
+        id: 2,
+        title: "Big",
+        versions: [{ id: 7, size: "9000" }],
+        _installedInfo: { installedAt: 1, lastPlayedAt: 0, versionId: 7 },
+      }),
+    ];
+    const result = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      sortBy: "size",
+      order: "DESC",
+    });
+    expect(result.map((g) => g.id)).toEqual([2, 1]);
+  });
+
+  it("filters bookmarks, progress state, release range and early access", () => {
+    const games = [
+      base({
+        id: 1,
+        bookmarkFilter: "all",
+        bookmarked_users: [{ id: 5 }],
+        progresses: [{ user: { id: 5 }, state: ProgressStateEnum.playing }],
+        metadata: { release_date: "2019-03-01", early_access: true },
+      }),
+      base({
+        id: 2,
+        bookmarked_users: [{ id: 9 }],
+        progresses: [{ user: { id: 5 }, state: ProgressStateEnum.completed }],
+        metadata: { release_date: "2024-11-20", early_access: false },
+      }),
+      base({
+        id: 3,
+        bookmarked_users: [],
+        progresses: [],
+        metadata: { release_date: "2021-07-07", early_access: false },
+      }),
+    ];
+
+    const mine = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      bookmarkFilter: "mine",
+      userId: 5,
+    });
+    expect(mine.map((g) => g.id)).toEqual([1]);
+
+    const others = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      bookmarkFilter: "others",
+      userId: 5,
+    });
+    expect(others.map((g) => g.id)).toEqual([2]);
+
+    const playing = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      gameState: ProgressStateEnum.playing,
+      userId: 5,
+    });
+    expect(playing.map((g) => g.id)).toEqual([1]);
+
+    // "Unplayed" means no progress record or an explicit UNPLAYED state.
+    const unplayed = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      gameState: ProgressStateEnum.unplayed,
+      userId: 5,
+    });
+    expect(unplayed.map((g) => g.id)).toEqual([3]);
+
+    const recent = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      releaseDateFrom: "2024-01-01",
+      releaseDateTo: "2024-12-31",
+    });
+    expect(recent.map((g) => g.id)).toEqual([2]);
+
+    const earlyAccess = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      earlyAccess: "true",
+    });
+    expect(earlyAccess.map((g) => g.id)).toEqual([1]);
+  });
+
+  it("collects distinct metadata names sorted alphabetically", () => {
+    const games = [
+      base({
+        metadata: {
+          tags: [{ name: "Horror" }, { name: "Co-op" }],
+        },
+      }),
+      base({ metadata: { tags: [{ name: "horror" }, { name: "Puzzle" }] } }),
+      base({ metadata: {} }),
+    ];
+    expect(collectInstalledMetadataNames(games, "tags")).toEqual([
+      { id: "Co-op", name: "Co-op" },
+      { id: "Horror", name: "Horror" },
+      { id: "Puzzle", name: "Puzzle" },
+    ]);
   });
 });

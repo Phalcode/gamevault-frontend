@@ -420,7 +420,7 @@ async fn run_app_update(app: AppHandle, channel: UpdateChannel) -> Result<Option
 fn apply_webview_user_agent<R: tauri::Runtime>(context: &mut tauri::Context<R>) {
   let agent = user_agent::frontend_user_agent(
     &context.package_info().version.to_string(),
-    user_agent::platform_token(),
+    &user_agent::platform_token(),
   );
   for window in &mut context.config_mut().app.windows {
     window.user_agent = Some(agent.clone());

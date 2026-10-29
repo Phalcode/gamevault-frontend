@@ -1,4 +1,5 @@
 import { useAuth } from "@/context/AuthContext";
+import { useOnlineStatus } from "@/context/OfflineContext";
 import { Badge } from "@tw/badge";
 import { Button } from "@tw/button";
 import { Dialog, DialogActions, DialogBody, DialogTitle } from "@tw/dialog";
@@ -40,6 +41,11 @@ interface MultiSelectFilterDialogProps {
   endpoint?: string;
   /** Static items to use instead of fetching from API */
   staticItems?: FilterItem[];
+  /**
+   * Items to fall back to when the server cannot be reached (offline) or the
+   * request fails. Derived from locally cached game data.
+   */
+  fallbackItems?: FilterItem[];
   selectedItems: FilterItem[];
   onSelectionChange: (items: FilterItem[]) => void;
   /** Badge color for selected items */
@@ -155,15 +161,18 @@ export default function MultiSelectFilterDialog({
   title,
   endpoint,
   staticItems,
+  fallbackItems,
   selectedItems,
   onSelectionChange,
   badgeColor = "blue",
 }: MultiSelectFilterDialogProps) {
   const { serverUrl, authFetch } = useAuth();
+  const { isOnline } = useOnlineStatus();
   const [searchQuery, setSearchQuery] = useState("");
   const [allItems, setAllItems] = useState<FilterItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usingFallback, setUsingFallback] = useState(false);
 
   // Get color classes based on badgeColor
   const colors = colorClasses[badgeColor];
@@ -182,23 +191,43 @@ export default function MultiSelectFilterDialog({
       if (!res.ok) throw new Error(`Failed to fetch ${title} (${res.status})`);
       const json: PaginatedResponse<FilterItem> = await res.json();
       setAllItems(json.data || []);
+      setUsingFallback(false);
     } catch (e: any) {
-      setError(e.message || String(e));
+      // Falling back keeps the filter usable when the server is unreachable.
+      const fallback = fallbackItems ?? [];
+      if (fallback.length > 0) {
+        setAllItems(fallback);
+        setUsingFallback(true);
+        setError(null);
+      } else {
+        setError(e.message || String(e));
+      }
     } finally {
       setLoading(false);
     }
-  }, [serverUrl, authFetch, endpoint, title]);
+  }, [serverUrl, authFetch, endpoint, title, fallbackItems]);
 
   useEffect(() => {
-    if (open) {
-      if (staticItems) {
-        setAllItems(staticItems);
-      } else {
-        fetchItems();
-      }
-      setSearchQuery("");
+    if (!open) return;
+    if (staticItems) {
+      setAllItems(staticItems);
+      setError(null);
+      setUsingFallback(false);
+    } else if (!isOnline) {
+      // Skip a request that is guaranteed to fail and use local data instead.
+      const fallback = fallbackItems ?? [];
+      setAllItems(fallback);
+      setUsingFallback(fallback.length > 0);
+      setError(
+        fallback.length > 0
+          ? null
+          : `Offline — ${title.toLowerCase()} can't be loaded right now.`,
+      );
+    } else {
+      fetchItems();
     }
-  }, [open, fetchItems, staticItems]);
+    setSearchQuery("");
+  }, [open, fetchItems, staticItems, fallbackItems, isOnline, title]);
 
   // Filter items by search query
   const filteredItems = useMemo(() => {
@@ -234,7 +263,12 @@ export default function MultiSelectFilterDialog({
   );
 
   return (
-    <Dialog open={open} onClose={onClose} size="lg" className="!h-[min(70vh,650px)] flex flex-col">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="lg"
+      className="!h-[min(70vh,650px)] flex flex-col"
+    >
       <DialogTitle>{title}</DialogTitle>
       <DialogBody className="flex-1 min-h-0 overflow-y-auto">
         {/* Selected items display */}
@@ -275,6 +309,13 @@ export default function MultiSelectFilterDialog({
             placeholder={`Search ${title.toLowerCase()}...`}
           />
         </div>
+
+        {usingFallback && (
+          <div className="mb-4 rounded-lg bg-gv-panel-soft px-3 py-2 text-xs text-gv-muted">
+            Showing {title.toLowerCase()} from your installed games because the
+            server couldn't be reached.
+          </div>
+        )}
 
         {/* Items list */}
         {loading && <div className="text-sm text-fg-muted">Loading...</div>}

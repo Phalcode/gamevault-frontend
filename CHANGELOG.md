@@ -13,11 +13,13 @@
 - Uninstalling a game now also removes its desktop shortcut(s) once no installed version is left.
 - [#348](https://github.com/Phalcode/gamevault-app/issues/348) GameVault stays in the system tray only when the computer starts it. Launching the app yourself always opens the window again, even with "start minimized" enabled.
 - [#398](https://github.com/Phalcode/gamevault-app/issues/398) Usage analytics now report feature usage, errors and sampled session replays with masked text, so the client can be improved without guessing. The privacy toggle applies immediately and survives app updates.
+- [#447](https://github.com/Phalcode/gamevault-app/issues/447) The installed games list now uses the library's search, filters and sorting, and it keeps working offline from the cached game data.
 
 ### Thanks
 
 - @editon96
 - @KairuByte
+- @utlilb
 
 ## 17.1.0
 

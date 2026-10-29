@@ -49,7 +49,7 @@ fn client() -> &'static Client {
       // The desktop app identifies as GameVault, not as the webview engine.
       .user_agent(crate::user_agent::frontend_user_agent(
         env!("CARGO_PKG_VERSION"),
-        crate::user_agent::platform_token(),
+        &crate::user_agent::platform_token(),
       ))
       .build()
       .expect("analytics http client")
