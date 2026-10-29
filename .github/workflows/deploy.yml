@@ -48,7 +48,11 @@ jobs:
         shell: bash
         run: |
           SPEC_FILE="$RUNNER_TEMP/api-spec.yaml"
-          curl -fsSL "${{ vars.GV_API_SPEC_URL || 'https://gamevault.alfagun74.de/api/docs-yaml' }}" -o "$SPEC_FILE"
+          # The spec host is a single external instance, so a gateway hiccup
+          # (502/503) must not fail the whole job. Retry before giving up.
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 --max-time 120 \
+            "${{ vars.GV_API_SPEC_URL || 'https://gamevault.alfagun74.de/api/docs-yaml' }}" -o "$SPEC_FILE"
           echo "hash=$(sha256sum "$SPEC_FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "file=$SPEC_FILE" >> "$GITHUB_OUTPUT"
 
@@ -166,7 +170,11 @@ jobs:
         shell: bash
         run: |
           SPEC_FILE="$RUNNER_TEMP/api-spec.yaml"
-          curl -fsSL "${{ vars.GV_API_SPEC_URL || 'https://gamevault.alfagun74.de/api/docs-yaml' }}" -o "$SPEC_FILE"
+          # The spec host is a single external instance, so a gateway hiccup
+          # (502/503) must not fail the whole job. Retry before giving up.
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 --max-time 120 \
+            "${{ vars.GV_API_SPEC_URL || 'https://gamevault.alfagun74.de/api/docs-yaml' }}" -o "$SPEC_FILE"
           echo "hash=$(sha256sum "$SPEC_FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "file=$SPEC_FILE" >> "$GITHUB_OUTPUT"
 
