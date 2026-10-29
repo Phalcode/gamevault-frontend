@@ -170,6 +170,11 @@ async function main() {
     const appRun = path.join(squashFs, "AppRun");
     const appRunReal = path.join(squashFs, "AppRun.real");
 
+    // `appimagetool` (continuous build since 2026-10-29) refuses to repack a
+    // tree whose root directory is not readable and executable for everyone.
+    // The extraction keeps the temporary directory's 0700 mode, so normalise it.
+    await chmod(squashFs, 0o755);
+
     // 2. Preserve the generated AppRun and install our wayland wrapper.
     await rename(appRun, appRunReal);
     await writeFile(appRun, APPRUN_WRAPPER);
