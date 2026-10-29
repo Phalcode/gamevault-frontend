@@ -243,6 +243,9 @@ function installedSortValue(game: any, sortBy: string): string | number | null {
   switch (sortBy) {
     case "size":
       return installedGameSizeBytes(game);
+    case "recent":
+      // "Most Recent": last played or installed, whichever is newer.
+      return recencyValue(game) || null;
     case "created_at":
       return toTime(game?.created_at);
     case "metadata.release_date":

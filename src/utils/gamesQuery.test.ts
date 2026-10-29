@@ -32,6 +32,15 @@ describe("buildGamesQueryParams", () => {
     expect(params.get("limit")).toBe("25");
   });
 
+  it("maps the client-only 'recent' sort to created_at", () => {
+    expect(
+      buildGamesQueryParams({ sortBy: "recent", order: "DESC" }).get("sortBy"),
+    ).toBe("created_at:DESC");
+    expect(
+      buildGamesQueryParams({ sortBy: "recent", order: "ASC" }).get("sortBy"),
+    ).toBe("created_at:ASC");
+  });
+
   it("maps bookmark filters for the current user only", () => {
     const mine = buildGamesQueryParams({ bookmarkFilter: "mine", userId: 42 });
     expect(mine.get("filter.bookmarked_users.id")).toBe("$eq:42");

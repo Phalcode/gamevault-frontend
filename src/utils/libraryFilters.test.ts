@@ -237,6 +237,44 @@ describe("filterAndSortInstalledGames", () => {
     expect(byReleaseDateAsc.map((g) => g.id)).toEqual([1, 2, 3]);
   });
 
+  it("sorts by last played/installed for the 'recent' sort key", () => {
+    const games = [
+      base({
+        id: 1,
+        title: "Old Install",
+        sort_title: "old install",
+        _installedInfo: { installedAt: 10, lastPlayedAt: 0 },
+      }),
+      base({
+        id: 2,
+        title: "Played Recently",
+        sort_title: "played recently",
+        _installedInfo: { installedAt: 20, lastPlayedAt: 900 },
+      }),
+      base({
+        id: 3,
+        title: "Unknown",
+        sort_title: "unknown",
+        _installedInfo: { installedAt: 0, lastPlayedAt: 0 },
+      }),
+    ];
+
+    const desc = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      sortBy: "recent",
+      order: "DESC",
+    });
+    // Newest activity first; unknown timestamps sink to the end.
+    expect(desc.map((g) => g.id)).toEqual([2, 1, 3]);
+
+    const asc = filterAndSortInstalledGames(games, {
+      ...emptyFilters,
+      sortBy: "recent",
+      order: "ASC",
+    });
+    expect(asc.map((g) => g.id)).toEqual([1, 2, 3]);
+  });
+
   it("sorts by size using the installed version when the mirror is missing", () => {
     const games = [
       base({ id: 1, title: "Small", size: "100" }),

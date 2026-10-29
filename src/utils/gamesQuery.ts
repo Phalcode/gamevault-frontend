@@ -2,6 +2,16 @@ export type EarlyAccessFilter = "all" | "true" | "false";
 export type BookmarkFilter = "all" | "mine" | "others";
 
 /**
+ * Client-only sort keys and the server column they fall back to. `recent`
+ * means "last played/installed" for the installed list (resolved locally in
+ * `libraryFilters.ts`) and "last added" for the server catalogue, which has
+ * no playtime column to sort by.
+ */
+export const SERVER_SORT_ALIASES: Record<string, string> = {
+  recent: "created_at",
+};
+
+/**
  * A cached game list younger than this is rendered as-is instead of being
  * refetched on mount, so going back to the library from a game is instant.
  */
@@ -61,7 +71,10 @@ export function buildGamesQueryParams(
 
   const params = new URLSearchParams();
   if (search) params.set("search", search);
-  if (sortBy) params.set("sortBy", `${sortBy}:${order ?? "ASC"}`);
+  if (sortBy) {
+    const serverSortBy = SERVER_SORT_ALIASES[sortBy] ?? sortBy;
+    params.set("sortBy", `${serverSortBy}:${order ?? "ASC"}`);
+  }
   if (limit) params.set("limit", String(limit));
 
   if (bookmarkFilter === "mine" && userId != null) {
