@@ -13,8 +13,14 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use url::Url;
 
-/// Only this host may be called through the command.
-pub(crate) const ANALYTICS_HOST: &str = "analytics.platform.phalco.de";
+/// Hosts the command may call, in the order the client tries them.
+pub(crate) const ANALYTICS_HOSTS: [&str; 5] = [
+  "api.swetrix.com",
+  "analytics.platform.phalco.de",
+  "anal.phalco.de",
+  "track.phalco.de",
+  "your-dns-provider-is-pissing-me-off.phalco.de",
+];
 
 fn client() -> &'static Client {
   static CLIENT: OnceLock<Client> = OnceLock::new();
@@ -34,7 +40,10 @@ fn client() -> &'static Client {
 /// Guards the command: injected script must not be able to use it as an open
 /// proxy.
 pub(crate) fn is_allowed_endpoint(url: &Url) -> bool {
-  url.scheme() == "https" && url.host_str() == Some(ANALYTICS_HOST)
+  url.scheme() == "https"
+    && url
+      .host_str()
+      .is_some_and(|host| ANALYTICS_HOSTS.contains(&host))
 }
 
 /// POSTs a JSON body to the collector and returns the HTTP status. The body is
@@ -59,15 +68,16 @@ pub(crate) async fn analytics_post(url: String, body: String) -> Result<u16, Str
 
 #[cfg(test)]
 mod tests {
-  use super::is_allowed_endpoint;
+  use super::{is_allowed_endpoint, ANALYTICS_HOSTS};
   use url::Url;
 
   #[test]
-  fn allows_the_collector() {
-    for path in ["/log", "/log/hb", "/log/custom", "/log/error"] {
-      let url = Url::parse(&format!("https://analytics.platform.phalco.de{path}"))
-        .expect("valid url");
-      assert!(is_allowed_endpoint(&url), "{path} should be allowed");
+  fn allows_every_collector() {
+    for host in ANALYTICS_HOSTS {
+      for path in ["/log", "/log/hb", "/log/custom", "/log/error"] {
+        let url = Url::parse(&format!("https://{host}{path}")).expect("valid url");
+        assert!(is_allowed_endpoint(&url), "{host}{path} should be allowed");
+      }
     }
   }
 
@@ -77,7 +87,7 @@ mod tests {
       &Url::parse("https://example.com/log").expect("valid url")
     ));
     assert!(!is_allowed_endpoint(
-      &Url::parse("http://analytics.platform.phalco.de/log").expect("valid url")
+      &Url::parse("http://api.swetrix.com/log").expect("valid url")
     ));
   }
 }

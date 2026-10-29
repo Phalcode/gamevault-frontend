@@ -3,10 +3,24 @@ import { isTauriApp, isTauriDesktop } from "./tauri";
 
 /** Swetrix project the Phalcode endpoints collect into. */
 const ANALYTICS_PROJECT_ID = "dBl2xaaJ9x3M";
-/** Self-hosted collector; the GameVault Server posts to the same endpoint. */
-const ANALYTICS_ENDPOINT = "https://analytics.platform.phalco.de/log";
+/**
+ * Collectors in priority order. The first one that answers is used, so a blocked
+ * or unreachable domain falls through to the next entry.
+ */
+const ANALYTICS_ENDPOINTS = [
+  "https://api.swetrix.com/log",
+  "https://analytics.platform.phalco.de/log",
+  "https://anal.phalco.de/log",
+  "https://track.phalco.de/log",
+  "https://your-dns-provider-is-pissing-me-off.phalco.de/log",
+];
 /** Session replay is expensive, so only a fraction of sessions is recorded. */
 const REPLAY_SAMPLE_RATE = 0.2;
+/**
+ * A collector that hangs must not keep the app waiting, so the probe gives up
+ * quickly and the next one is tried.
+ */
+const PROBE_TIMEOUT_MS = 4_000;
 
 const ANALYTICS_CONSENT_KEY = "app_analytics_consent";
 
@@ -24,6 +38,8 @@ let consent: boolean | null = null;
 let tracking = false;
 let initPromise: Promise<void> | null = null;
 let transportInstalled = false;
+/** Collector the SDK is pointed at, chosen once at startup. */
+let activeEndpoint: string | null = null;
 const stopHandles: StopHandle[] = [];
 
 function readLocalConsent(): boolean {
@@ -91,12 +107,13 @@ export async function loadAnalyticsConsent(): Promise<boolean> {
 
 function startTracking(): void {
   if (tracking) return;
+  const endpoint = activeEndpoint ?? ANALYTICS_ENDPOINTS[0];
   tracking = true;
 
-  installDesktopTransport();
+  installDesktopTransport(endpoint);
 
   Swetrix.init(ANALYTICS_PROJECT_ID, {
-    apiURL: ANALYTICS_ENDPOINT,
+    apiURL: endpoint,
     preloadSessionReplay: true,
   });
 
@@ -150,7 +167,7 @@ async function requestBody(
  * They arrive with our own user agent, no webview origin, and pageview and
  * heartbeat share one connection identity, which is what sessions are keyed on.
  */
-function installDesktopTransport(): void {
+function installDesktopTransport(endpoint: string): void {
   if (transportInstalled || !isTauriDesktop()) return;
   transportInstalled = true;
 
@@ -164,7 +181,7 @@ function installDesktopTransport(): void {
           ? input.toString()
           : input.url;
 
-    if (!url.startsWith(ANALYTICS_ENDPOINT)) {
+    if (!url.startsWith(endpoint)) {
       return originalFetch(input, init);
     }
 
@@ -199,12 +216,59 @@ function stopTracking(): void {
 }
 
 /**
+ * A POST with an empty body is rejected by the collector (400). Any answer below
+ * 500 still proves the host is reachable, which is all this probe needs. A
+ * network error or a server error means the next candidate gets a chance.
+ */
+async function isEndpointReachable(endpoint: string): Promise<boolean> {
+  try {
+    if (isTauriDesktop()) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const status = await invoke<number>("analytics_post", {
+        url: endpoint,
+        body: "{}",
+      });
+      return status < 500;
+    }
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    return response.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+/** First collector that answers, `null` when none does. */
+async function selectEndpoint(): Promise<string | null> {
+  for (const endpoint of ANALYTICS_ENDPOINTS) {
+    if (await isEndpointReachable(endpoint)) return endpoint;
+  }
+  return null;
+}
+
+/**
  * Resolves the stored consent and starts tracking when it is enabled.
  */
 export function initAnalytics(): Promise<void> {
   initPromise ??= (async () => {
     const enabled = await loadAnalyticsConsent();
-    if (enabled) startTracking();
+    if (!enabled) return;
+
+    const endpoint = await selectEndpoint();
+    if (!endpoint) {
+      if (import.meta.env.DEV) {
+        console.debug("[analytics] no collector reachable, tracking stays off");
+      }
+      return;
+    }
+
+    activeEndpoint = endpoint;
+    startTracking();
   })();
   return initPromise;
 }
@@ -246,13 +310,25 @@ function cleanMeta(
   return Object.keys(cleaned).length > 0 ? cleaned : undefined;
 }
 
+/** Host of the collector in use, e.g. `api.swetrix.com`. */
+function collectorHost(): string {
+  return (activeEndpoint ?? ANALYTICS_ENDPOINTS[0])
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "");
+}
+
 /**
  * Sends one anonymous custom event. No-op while tracking is off, never throws.
+ * Every event carries the collector it was sent to, so a fallback is visible in
+ * the dashboard.
  */
 export function trackEvent(event: string, meta?: AnalyticsMeta): void {
   if (!tracking) return;
   try {
-    void Swetrix.track({ ev: event, meta: cleanMeta(meta) });
+    void Swetrix.track({
+      ev: event,
+      meta: cleanMeta({ ...meta, collector: collectorHost() }),
+    });
   } catch (error) {
     if (import.meta.env.DEV) {
       console.debug("[analytics] tracking failed", event, error);

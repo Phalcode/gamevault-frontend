@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   countBucket,
   durationBucket,
@@ -80,5 +80,68 @@ describe("buckets", () => {
     expect(countBucket(50_000)).toBe("gt_10k");
     expect(progressBucket(10)).toBe("0_25");
     expect(progressBucket(100)).toBe("100");
+  });
+});
+
+describe("collector selection", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("uses the first collector that answers", async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    const fetchMock = vi.fn((_url: string) =>
+      Promise.resolve(new Response("{}", { status: 400 })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const Swetrix = await import("swetrix");
+    const analytics = await import("./analytics");
+    await analytics.initAnalytics();
+
+    expect(fetchMock.mock.calls[0][0]).toBe("https://api.swetrix.com/log");
+    expect(Swetrix.init).toHaveBeenCalledWith(
+      "dBl2xaaJ9x3M",
+      expect.objectContaining({ apiURL: "https://api.swetrix.com/log" }),
+    );
+  });
+
+  it("falls back to the next collector when one is unreachable", async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    const fetchMock = vi.fn((url: string) =>
+      url.startsWith("https://api.swetrix.com")
+        ? Promise.reject(new TypeError("fetch failed"))
+        : Promise.resolve(new Response("{}", { status: 400 })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const Swetrix = await import("swetrix");
+    const analytics = await import("./analytics");
+    await analytics.initAnalytics();
+
+    expect(Swetrix.init).toHaveBeenCalledWith(
+      "dBl2xaaJ9x3M",
+      expect.objectContaining({
+        apiURL: "https://analytics.platform.phalco.de/log",
+      }),
+    );
+  });
+
+  it("keeps tracking off when no collector answers", async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("fetch failed"))),
+    );
+
+    const Swetrix = await import("swetrix");
+    const analytics = await import("./analytics");
+    await analytics.initAnalytics();
+
+    expect(Swetrix.init).not.toHaveBeenCalled();
   });
 });
