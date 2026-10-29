@@ -364,6 +364,12 @@ const GameCard = memo(function GameCard({
           "group/card relative rounded-3xl shadow-(--shadow-card)",
           "transform-gpu will-change-transform backface-hidden",
           "transition-transform duration-200 ease-out hover:[transform:translateY(-4px)_translateZ(0)]",
+          // The library keeps every loaded page mounted, so after deep
+          // scrolling hundreds of cards were laid out, painted and promoted to
+          // their own composited layer at once. That is what turned returning
+          // from a game into a multi-second blank screen. Skipping off-screen
+          // cards keeps the cost proportional to what is actually visible.
+          "game-card-deferred-paint",
         )}
       >
         <Link

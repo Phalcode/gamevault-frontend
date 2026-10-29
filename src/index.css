@@ -230,6 +230,32 @@
     box-shadow: var(--shadow-card);
   }
 
+  /* A route page that is kept mounted while another one is shown. It leaves the
+     flow and the paint work, but its DOM, component state and scroll offsets
+     survive, so returning to it is instant instead of a full rebuild. */
+  .page-inactive {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    content-visibility: hidden;
+    contain-intrinsic-size: 0 0;
+    pointer-events: none;
+  }
+
+  /* The library keeps every loaded page mounted, so after deep scrolling one
+     navigation had to lay out, paint and promote hundreds of cards at once.
+     That is what made returning from a game show an empty page for a long
+     time. `content-visibility: auto` skips layout and paint for cards outside
+     the viewport; `auto` in `contain-intrinsic-size` remembers each card's real
+     size after its first render, so the reserved space stays exact and the
+     scrollbar does not jump. Browsers without support ignore the whole block. */
+  @supports (content-visibility: auto) {
+    .game-card-deferred-paint {
+      content-visibility: auto;
+      contain-intrinsic-size: auto 260px;
+    }
+  }
+
   a {
     @apply font-medium;
     color: var(--color-gv-accent-cool);

@@ -1,23 +1,25 @@
 import { useEffect, useRef } from "react";
+import { usePageIsActive } from "@/context/PageVisibilityContext";
 
 /**
  * Persists and restores the scroll position of `[data-scroll-container]`
  * across React Router navigations.
  *
- * - Saves on every scroll event (debounced via rAF) — never in cleanup,
- *   so React StrictMode's simulated unmount-remount cannot corrupt the value.
- * - Restores once `readySignal` turns truthy (e.g. when list items are in
- *   the DOM) using `setTimeout(0)` so it survives StrictMode's effect
- *   cancel/reschedule cycle.
+ * The scroll container belongs to the layout and is shared by every page, so a
+ * page only owns its position while it is the visible one:
+ *
+ * - the position is saved only while the page is active, otherwise scrolling
+ *   another page would overwrite it;
+ * - it is restored every time the page becomes active again, because the
+ *   container kept the other page's position in the meantime.
  *
  * @param storageKey  Unique sessionStorage key per page (e.g. "library_scroll")
  * @param readySignal Set to `true` when the scrollable content is mounted
  */
-export function useScrollRestoration(
-  storageKey: string,
-  readySignal: boolean,
-) {
-  const restoredRef = useRef(false);
+export function useScrollRestoration(storageKey: string, readySignal: boolean) {
+  const isActive = usePageIsActive();
+  const activeRef = useRef(isActive);
+  activeRef.current = isActive;
 
   // ── 1. Save on scroll events ──────────────────────────────────────────
   useEffect(() => {
@@ -45,6 +47,8 @@ export function useScrollRestoration(
     const onScroll = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
+        // Another page is on screen and owns the container right now.
+        if (!activeRef.current) return;
         const now = performance.now();
         if (now - lastWriteAt >= WRITE_INTERVAL_MS) {
           if (trailingTimer) {
@@ -57,7 +61,7 @@ export function useScrollRestoration(
         if (!trailingTimer) {
           trailingTimer = window.setTimeout(() => {
             trailingTimer = 0;
-            write();
+            if (activeRef.current) write();
           }, WRITE_INTERVAL_MS);
         }
       });
@@ -71,9 +75,9 @@ export function useScrollRestoration(
     };
   }, [storageKey]);
 
-  // ── 2. Restore once content is in the DOM ────────────────────────────
+  // ── 2. Restore whenever this page becomes the visible one ────────────
   useEffect(() => {
-    if (restoredRef.current || !readySignal) return;
+    if (!isActive || !readySignal) return;
 
     const el = document.querySelector(
       "[data-scroll-container]",
@@ -82,19 +86,23 @@ export function useScrollRestoration(
 
     const raw = sessionStorage.getItem(storageKey);
     const target = raw ? Number(raw) : 0;
-
-    if (target <= 0) {
-      restoredRef.current = true;
-      return;
-    }
+    if (!(target > 0)) return;
 
     // setTimeout(0): runs after the current render commit and survives
     // StrictMode's cleanup-cancel cycle (second mount will reschedule it).
+    // The frame afterwards re-applies the value in case the page had not been
+    // laid out at its full height yet and the first write was clamped.
+    let rafId = 0;
     const id = setTimeout(() => {
       el.scrollTop = target;
-      restoredRef.current = true;
+      rafId = requestAnimationFrame(() => {
+        if (Math.abs(el.scrollTop - target) > 1) el.scrollTop = target;
+      });
     }, 0);
 
-    return () => clearTimeout(id);
-  }, [readySignal, storageKey]);
+    return () => {
+      clearTimeout(id);
+      cancelAnimationFrame(rafId);
+    };
+  }, [isActive, readySignal, storageKey]);
 }

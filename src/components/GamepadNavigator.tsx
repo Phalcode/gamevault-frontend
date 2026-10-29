@@ -37,6 +37,8 @@ function isVisible(element: Element): boolean {
   // computed display/visibility/opacity — not box size: HeadlessUI wraps its
   // floating panels and dialogs in zero-size portal containers, so a zero-box
   // ancestor must not hide the (absolutely positioned) element inside it.
+  // An `inert` ancestor is a cached route page that is not on screen.
+  if (element.closest("[inert]")) return false;
   const rect = element.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return false;
   let node: HTMLElement | null = element as HTMLElement;
