@@ -54,6 +54,12 @@ bzip2 = "0.5.2"
 xz2 = "0.1.7"
 zstd = "0.13.3"
 isomage = "2.1.0"
+# Desktop shortcuts: PE icon extraction works on every platform (no Windows
+# APIs), the image crate normalizes cover images for the icon fallback, and
+# icns encodes the macOS .app shortcut icon.
+icoextract_rs = { version = "0.1", features = ["thumbnail"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+icns = { version = "0.5", default-features = false, features = ["pngio"] }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["fileapi", "shellapi", "winnt", "winuser", "synchapi", "handleapi", "winbase", "winerror", "processthreadsapi", "sysinfoapi"] }

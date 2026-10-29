@@ -35,6 +35,7 @@ import {
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { emitGameDeleted, emitGameUpdated } from "@/utils/gameUpdates";
 import { GameMediaSlot, resolveApiMediaBlob } from "@/utils/mediaCache";
+import { blobToBase64 } from "@/utils/binary";
 import {
   PhotoIcon,
   CircleStackIcon,
@@ -294,6 +295,7 @@ export function GameSettings({
     [],
   );
   const [makingExecutable, setMakingExecutable] = useState(false);
+  const [creatingShortcut, setCreatingShortcut] = useState(false);
   const [launchParams, setLaunchParams] = useState<string>("");
   const [launchAsAdmin, setLaunchAsAdmin] = useState<boolean>(false);
   const [umuGameId, setUmuGameId] = useState<string>("");
@@ -673,6 +675,73 @@ export function GameSettings({
       setMakingExecutable(false);
     }
   }, [installedGame, nonExecutableScripts]);
+
+  /** Creates a desktop shortcut that starts this game via its deep link. */
+  const handleCreateDesktopShortcut = useCallback(async () => {
+    if (!installedGame || !selectedLaunchExe) return;
+    setCreatingShortcut(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { join } = await import("@tauri-apps/api/path");
+
+      const executablePath = await join(
+        installedGame.installationDirectory,
+        selectedLaunchExe,
+      );
+
+      // The cover is only a fallback for executables without an icon; a
+      // failure to load it must not block the shortcut itself.
+      let coverBase64: string | null = null;
+      const coverId = workingGame.metadata?.cover?.id;
+      if (coverId && serverUrl) {
+        try {
+          const blob = await resolveApiMediaBlob({
+            serverUrl,
+            mediaId: Number(coverId),
+            authFetch,
+            owner: { gameId: installedGame.gameId, slot: "cover" },
+          });
+          coverBase64 = await blobToBase64(blob);
+        } catch {
+          coverBase64 = null;
+        }
+      }
+
+      const result = await invoke<{ path: string; icon: string }>(
+        "create_desktop_shortcut",
+        {
+          gameId: installedGame.gameId,
+          title:
+            workingGame.metadata?.title ||
+            workingGame.title ||
+            installedGame.gameTitle ||
+            "Game",
+          executablePath,
+          coverBase64,
+        },
+      );
+      console.info("Desktop shortcut created:", result.path);
+
+      // Title-only alerts render as a non-blocking toast.
+      await showAlert({ title: "Desktop shortcut created." });
+    } catch (err: any) {
+      await showAlert({
+        title: "Could not create the desktop shortcut",
+        description: err?.message || String(err),
+      });
+    } finally {
+      setCreatingShortcut(false);
+    }
+  }, [
+    installedGame,
+    selectedLaunchExe,
+    workingGame.metadata?.title,
+    workingGame.metadata?.cover?.id,
+    workingGame.title,
+    serverUrl,
+    authFetch,
+    showAlert,
+  ]);
 
   const handleInstallUmu = useCallback(async () => {
     setInstallingUmu(true);
@@ -4145,6 +4214,29 @@ export function GameSettings({
                                 checked={launchAsAdmin}
                                 onChange={(v: boolean) => setLaunchAsAdmin(v)}
                               />
+                            </div>
+                          </SettingsRow>
+                        </SettingsRowGroup>
+
+                        <SettingsRowGroup>
+                          <SettingsRow
+                            label="Desktop Shortcut"
+                            description="Create a shortcut on your desktop that starts this game. It uses the selected executable's icon, or the game's cover image when the executable has no icon."
+                          >
+                            <div className="flex sm:justify-end">
+                              <Button
+                                color="indigo"
+                                onClick={() =>
+                                  void handleCreateDesktopShortcut()
+                                }
+                                disabled={
+                                  !selectedLaunchExe || creatingShortcut
+                                }
+                              >
+                                {creatingShortcut
+                                  ? "Creating shortcut…"
+                                  : "Create Desktop Shortcut"}
+                              </Button>
                             </div>
                           </SettingsRow>
                         </SettingsRowGroup>

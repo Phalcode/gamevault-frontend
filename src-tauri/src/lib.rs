@@ -8,6 +8,7 @@ mod extraction;
 mod installation;
 mod jumplist;
 mod launch_log;
+mod desktop_shortcut;
 mod tracker_log;
 mod games;
 mod fs_commands;
@@ -688,6 +689,7 @@ pub fn run() {
       launch_log::list_launch_logs,
       launch_log::open_launch_log_window,
       launch_log::open_launch_log_folder,
+      desktop_shortcut::create_desktop_shortcut,
       launch_log::clear_launch_logs,
       launch_log::read_launch_log_file,
       is_updater_enabled,
