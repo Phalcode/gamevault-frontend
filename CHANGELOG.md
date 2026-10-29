@@ -10,6 +10,7 @@
 - `gamevault://start?gameid=<id>` links launch an installed game directly. Links for games that are not installed, have no launch executable configured, or are malformed are ignored.
 - Fixed the desktop app freezing when the launch log window opened after a failed game launch. The window is now created off the main thread, can be closed with the Close button, Escape or Ctrl/Cmd+W, and no longer blocks quitting or other actions.
 - Game Settings → Launch Options now has a "Create Desktop Shortcut" button. It creates a shortcut that starts the game, using the selected executable's icon (or the game cover when the executable has no icon) on Windows, Linux and macOS.
+- Uninstalling a game now also removes its desktop shortcut(s) once no installed version is left.
 - [#348](https://github.com/Phalcode/gamevault-app/issues/348) GameVault stays in the system tray only when the computer starts it. Launching the app yourself always opens the window again, even with "start minimized" enabled.
 - [#398](https://github.com/Phalcode/gamevault-app/issues/398) Usage analytics now report feature usage, errors and sampled session replays with masked text, so the client can be improved without guessing. The privacy toggle applies immediately and survives app updates.
 

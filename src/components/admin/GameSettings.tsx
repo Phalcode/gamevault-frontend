@@ -1057,6 +1057,23 @@ export function GameSettings({
     [readLocalUmuConfig, showAlert],
   );
 
+  /**
+   * Removes desktop shortcuts that start a game. Called after an uninstall,
+   * once no installed version of the game is left.
+   */
+  const removeDesktopShortcuts = useCallback(
+    async (gameId: number) => {
+      if (!isTauri) return;
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("remove_desktop_shortcuts", { gameId });
+      } catch (error) {
+        console.warn("Failed to remove the desktop shortcut:", error);
+      }
+    },
+    [isTauri],
+  );
+
   const handleUninstallGame = useCallback(async () => {
     if (!installedGame) return;
 
@@ -1100,7 +1117,11 @@ export function GameSettings({
           installedGame.versionDirectory,
           installedGame.gameId,
         );
-        setInstalledGame(await findInstalledGame());
+        // Shortcuts only make sense while some version of the game is
+        // installed, so they go away with the last installed version.
+        const remaining = await findInstalledGame();
+        setInstalledGame(remaining);
+        if (!remaining) await removeDesktopShortcuts(installedGame.gameId);
         onUninstalled?.();
         await showAlert({
           title: "Game uninstalled",
@@ -1171,7 +1192,11 @@ export function GameSettings({
             installedGame.versionDirectory,
             installedGame.gameId,
           );
-          setInstalledGame(await findInstalledGame());
+          // Shortcuts only make sense while some version of the game is
+          // installed, so they go away with the last installed version.
+          const remaining = await findInstalledGame();
+          setInstalledGame(remaining);
+          if (!remaining) await removeDesktopShortcuts(installedGame.gameId);
           onUninstalled?.();
           await showAlert({
             title: "Game uninstalled",
@@ -1244,6 +1269,7 @@ export function GameSettings({
     installedGame,
     onClose,
     onUninstalled,
+    removeDesktopShortcuts,
     showAlert,
     updateInstallationFinishedFlag,
     workingGame.metadata?.title,

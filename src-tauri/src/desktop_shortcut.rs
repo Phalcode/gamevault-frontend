@@ -315,6 +315,116 @@ fn remove_existing(path: &Path) -> Result<(), String> {
   result.map_err(|error| format!("Failed to replace the existing shortcut: {error}"))
 }
 
+// ── Removal ────────────────────────────────────────────────────────────────
+
+/// Removes every desktop shortcut that starts `game_id`, plus the cached
+/// shortcut icons.
+///
+/// Shortcuts are matched by what they launch rather than by their file name,
+/// because the name is derived from the game title and may have changed (or
+/// been renamed by the user) since the shortcut was created.
+#[tauri::command]
+pub(crate) async fn remove_desktop_shortcuts(
+  app: AppHandle,
+  game_id: i64,
+) -> Result<usize, String> {
+  if game_id <= 0 {
+    return Ok(0);
+  }
+
+  tauri::async_runtime::spawn_blocking(move || {
+    let removed = remove_shortcuts_in(&desktop_dir(&app)?, game_id);
+
+    if let Ok(icons) = icon_dir(&app) {
+      let _ = fs::remove_file(icons.join(format!("{game_id}.ico")));
+      let _ = fs::remove_file(icons.join(format!("{game_id}.png")));
+    }
+
+    Ok(removed)
+  })
+  .await
+  .map_err(|error| format!("Removing the desktop shortcut failed: {error}"))?
+}
+
+/// Removes matching shortcuts from one folder and reports how many went away.
+fn remove_shortcuts_in(desktop: &Path, game_id: i64) -> usize {
+  let Ok(entries) = fs::read_dir(desktop) else {
+    return 0;
+  };
+  entries
+    .flatten()
+    .filter(|entry| shortcut_targets_game(&entry.path(), game_id))
+    .filter(|entry| remove_existing(&entry.path()).is_ok())
+    .count()
+}
+
+/// True when the desktop entry is a GameVault shortcut for `game_id`.
+///
+/// Not platform-gated: every format is recognized on every platform, so the
+/// matching logic is compiled and tested by all builds (and a copied shortcut
+/// is still recognized).
+fn shortcut_targets_game(path: &Path, game_id: i64) -> bool {
+  match path.extension().and_then(|extension| extension.to_str()) {
+    Some("url") => fs::read(path)
+      .map(|bytes| references_game(&decode_url_bytes(&bytes), game_id))
+      .unwrap_or(false),
+    Some("desktop") => fs::read_to_string(path)
+      .map(|contents| references_game(&contents, game_id))
+      .unwrap_or(false),
+    Some("app") => fs::read_to_string(path.join("Contents").join("Info.plist"))
+      .map(|plist| bundle_identifier_game_id(&plist) == Some(game_id))
+      .unwrap_or(false),
+    _ => false,
+  }
+}
+
+/// True when the text contains a `gameid=<game_id>` query value.
+///
+/// The digits are parsed instead of compared as text, so `gameid=42` does not
+/// match a shortcut for game 420.
+fn references_game(text: &str, game_id: i64) -> bool {
+  let marker = "gameid=";
+  let mut rest = text;
+  while let Some(position) = rest.find(marker) {
+    let after = &rest[position + marker.len()..];
+    let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+    if let Ok(parsed) = digits.parse::<i64>() {
+      if parsed == game_id {
+        return true;
+      }
+    }
+    rest = after;
+  }
+  false
+}
+
+/// Reads the game id from a shortcut bundle's identifier
+/// (`com.phalcode.gamevault.shortcut.<id>`).
+fn bundle_identifier_game_id(plist: &str) -> Option<i64> {
+  let marker = "com.phalcode.gamevault.shortcut.";
+  let position = plist.find(marker)?;
+  plist[position + marker.len()..]
+    .chars()
+    .take_while(char::is_ascii_digit)
+    .collect::<String>()
+    .parse()
+    .ok()
+}
+
+/// Decodes an Internet Shortcut file. GameVault writes UTF-16LE with a BOM;
+/// hand-edited or third-party files may be UTF-8.
+fn decode_url_bytes(bytes: &[u8]) -> String {
+  if bytes.starts_with(&[0xFF, 0xFE]) {
+    let units: Vec<u16> = bytes[2..]
+      .chunks_exact(2)
+      .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+      .collect();
+    String::from_utf16_lossy(&units)
+  } else {
+    String::from_utf8_lossy(bytes).into_owned()
+  }
+}
+
 /// File name for the shortcut. Windows forbids a handful of characters in
 /// names; strip them everywhere so the same title produces the same file on
 /// every platform.
@@ -485,7 +595,10 @@ fn write_app_bundle(
 
 /// Prefers the game bundle's own `.icns` (best quality), then converts the
 /// extracted PNG.
-#[cfg(target_os = "macos")]
+///
+/// Only the bundle writing below is macOS-gated, so this icon selection keeps
+/// compiling (and is exercised by tests) on every platform.
+#[allow(dead_code)]
 fn macos_icon(executable: &Path, icons: &ShortcutIcons) -> Option<Vec<u8>> {
   if let Some(bundle) = app_bundle_ancestor(executable) {
     if let Some(icns) = first_icns(&bundle) {
@@ -495,8 +608,19 @@ fn macos_icon(executable: &Path, icons: &ShortcutIcons) -> Option<Vec<u8>> {
     }
   }
 
-  let png = icons.png.as_ref()?;
-  let image = icns::Image::read_png(fs::File::open(png).ok()?).ok()?;
+  png_to_icns(icons.png.as_deref()?)
+}
+
+/// Converts one PNG icon into an ICNS container holding a single image.
+///
+/// Deliberately not `#[cfg]`-gated: keeping this compiled on every platform
+/// means the macOS icon path is type-checked and tested by the Windows and
+/// Linux builds too.
+#[allow(dead_code)]
+fn png_to_icns(png: &Path) -> Option<Vec<u8>> {
+  // `read_png` needs `BufRead + Seek`; a file only offers `Read + Seek`, and
+  // an in-memory cursor handles both without a second import.
+  let image = icns::Image::read_png(Cursor::new(fs::read(png).ok()?)).ok()?;
   let mut family = icns::IconFamily::new();
   family.add_icon(&image).ok()?;
   let mut out = Cursor::new(Vec::new());
@@ -504,7 +628,7 @@ fn macos_icon(executable: &Path, icons: &ShortcutIcons) -> Option<Vec<u8>> {
   Some(out.into_inner())
 }
 
-#[cfg(target_os = "macos")]
+#[allow(dead_code)]
 fn app_bundle_ancestor(executable: &Path) -> Option<PathBuf> {
   executable
     .ancestors()
@@ -512,7 +636,7 @@ fn app_bundle_ancestor(executable: &Path) -> Option<PathBuf> {
     .map(PathBuf::from)
 }
 
-#[cfg(target_os = "macos")]
+#[allow(dead_code)]
 fn first_icns(bundle: &Path) -> Option<PathBuf> {
   let resources = bundle.join("Contents").join("Resources");
   let mut files: Vec<PathBuf> = fs::read_dir(resources)
@@ -596,6 +720,126 @@ mod tests {
     assert_eq!(&ico[..4], &[0, 0, 1, 0]);
     assert_eq!(ico.len(), 22 + png.len());
     assert_eq!(&ico[18..22], &22u32.to_le_bytes());
+  }
+
+  /// The macOS shortcut converts the extracted PNG into its `.icns` bundle
+  /// icon. The helper is compiled on every platform, so this runs in the
+  /// regular test suite instead of only on macOS runners.
+  #[test]
+  fn converts_a_png_into_an_icns_icon_family() {
+    let root = std::env::temp_dir().join(format!(
+      "gv-shortcut-icns-{}",
+      std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let png = root.join("icon.png");
+
+    // Same size `prepare_icons` writes, so the conversion sees exactly the
+    // input it gets at runtime.
+    let mut encoded = Vec::new();
+    image::DynamicImage::ImageRgba8(image::RgbaImage::new(ICON_SIZE, ICON_SIZE))
+      .write_to(&mut Cursor::new(&mut encoded), image::ImageFormat::Png)
+      .unwrap();
+    fs::write(&png, encoded).unwrap();
+
+    let icns =
+      png_to_icns(&png).expect("a PNG icon should convert into an ICNS family");
+    assert_eq!(&icns[..4], b"icns");
+    let declared =
+      u32::from_be_bytes([icns[4], icns[5], icns[6], icns[7]]) as usize;
+    assert_eq!(declared, icns.len(), "ICNS header length matches the file");
+
+    let family = icns::IconFamily::read(Cursor::new(icns)).unwrap();
+    assert_eq!(family.available_icons().len(), 1);
+
+    let _ = fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn matches_only_the_exact_game_id() {
+    let url =
+      "[InternetShortcut]\r\nURL=gamevault://start?gameid=42\r\nIconIndex=0\r\n";
+    assert!(references_game(url, 42));
+    assert!(!references_game(url, 4));
+    assert!(!references_game(url, 420));
+
+    let entry = "Exec=xdg-open \"gamevault://start?gameid=7\"\nName=Game\n";
+    assert!(references_game(entry, 7));
+    assert!(!references_game(entry, 70));
+    assert!(!references_game("Name=Game\n", 7));
+  }
+
+  #[test]
+  fn decodes_utf16_and_utf8_url_files() {
+    let text = "[InternetShortcut]\r\nURL=gamevault://start?gameid=9\r\n";
+
+    let mut utf16 = vec![0xFF, 0xFE];
+    for unit in text.encode_utf16() {
+      utf16.extend_from_slice(&unit.to_le_bytes());
+    }
+
+    assert_eq!(decode_url_bytes(&utf16), text);
+    assert_eq!(decode_url_bytes(text.as_bytes()), text);
+  }
+
+  #[test]
+  fn removes_only_shortcuts_for_the_game() {
+    let root = std::env::temp_dir().join(format!(
+      "gv-shortcut-remove-{}",
+      std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+
+    let mine = root.join("Mine.url");
+    let mut utf16 = vec![0xFF, 0xFE];
+    for unit in url_file_contents("gamevault://start?gameid=42", "icon.ico")
+      .encode_utf16()
+    {
+      utf16.extend_from_slice(&unit.to_le_bytes());
+    }
+    fs::write(&mine, utf16).unwrap();
+
+    let other = root.join("Other.url");
+    fs::write(
+      &other,
+      "[InternetShortcut]\r\nURL=gamevault://start?gameid=7\r\n",
+    )
+    .unwrap();
+    // Same payload, but not a shortcut extension: must be left alone.
+    let notes = root.join("notes.txt");
+    fs::write(&notes, "gamevault://start?gameid=42").unwrap();
+
+    assert_eq!(remove_shortcuts_in(&root, 42), 1);
+    assert!(!mine.exists());
+    assert!(other.is_file());
+    assert!(notes.is_file());
+
+    let _ = fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn removes_app_bundles_by_identifier() {
+    let root = std::env::temp_dir().join(format!(
+      "gv-shortcut-bundle-{}",
+      std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    let bundle = root.join("Game.app");
+    fs::create_dir_all(bundle.join("Contents")).unwrap();
+    fs::write(
+      bundle.join("Contents").join("Info.plist"),
+      macos_info_plist("Game", 42),
+    )
+    .unwrap();
+
+    assert!(shortcut_targets_game(&bundle, 42));
+    assert!(!shortcut_targets_game(&bundle, 4));
+    assert_eq!(remove_shortcuts_in(&root, 42), 1);
+    assert!(!bundle.exists());
+
+    let _ = fs::remove_dir_all(&root);
   }
 
   /// Smoke test against a real PE file available on every Windows install.

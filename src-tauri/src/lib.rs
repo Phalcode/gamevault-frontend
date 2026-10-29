@@ -692,6 +692,7 @@ pub fn run() {
       launch_log::open_launch_log_window,
       launch_log::open_launch_log_folder,
       desktop_shortcut::create_desktop_shortcut,
+      desktop_shortcut::remove_desktop_shortcuts,
       launch_log::clear_launch_logs,
       launch_log::read_launch_log_file,
       is_updater_enabled,
