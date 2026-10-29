@@ -15,6 +15,7 @@
 - [#398](https://github.com/Phalcode/gamevault-app/issues/398) Usage analytics now report feature usage, errors and sampled session replays with masked text, so the client can be improved without guessing. The privacy toggle applies immediately and survives app updates.
 - [#447](https://github.com/Phalcode/gamevault-app/issues/447) The installed games list now uses the library's search, filters and sorting, and it keeps working offline from the cached game data.
 - Opening the library after visiting a game is fast again. Installed games are scanned once and shared between the library, the game page and the tray menu, the offline playtime check no longer walks every installed game's files, and a recently loaded game list is reused instead of being fetched and rebuilt on every visit.
+- Added a "Most Recent" sort to the library. Installed games are ordered by last played or installed, while the server list shows the newest additions first.
 
 ### Thanks
 
