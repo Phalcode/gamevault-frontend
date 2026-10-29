@@ -658,6 +658,7 @@ pub fn run() {
       settings::set_start_minimized,
       settings::get_analytics_enabled,
       settings::set_analytics_enabled,
+      settings::take_watchdog_recovery,
       settings::get_minimize_on_game_launch,
       settings::set_minimize_on_game_launch,
       settings::get_ignore_list,

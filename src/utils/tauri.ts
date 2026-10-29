@@ -1,3 +1,5 @@
+import { trackEvent } from "./analytics";
+
 const DEBUG_OVERRIDE_KEY = "gv_debug_tauri_mode";
 
 /**
@@ -113,6 +115,14 @@ export function registerExternalLinkHandler(): () => void {
 
     event.preventDefault();
     event.stopPropagation();
+    try {
+      // Host only: the path can name a game or a user profile.
+      trackEvent("external_link_opened", {
+        host: new URL(href, window.location.href).host,
+      });
+    } catch {
+      // Ignore unparsable links, the opener below reports the real failure.
+    }
     void openExternalUrl(href);
   };
 

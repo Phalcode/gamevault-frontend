@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { adjectives, animals, uniqueNamesGenerator } from "unique-names-generator";
+import { trackEvent } from "./analytics";
 
 const STREAMER_MODE_KEY = "gv_streamer_mode";
 const STREAMER_MODE_EVENT = "gv:streamer-mode-change";
@@ -146,6 +147,7 @@ export function registerStreamerModeHotkey(): () => void {
       return;
     }
     event.preventDefault();
+    trackEvent("hotkey_used", { hotkey: "streamer_mode" });
     setStreamerMode(!getStreamerMode());
   };
   window.addEventListener("keydown", handler);

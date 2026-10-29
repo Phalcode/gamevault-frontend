@@ -16,6 +16,7 @@ import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { getGameCoverMediaId } from "@/hooks/useGames";
 import { getRoleLabel } from "@/utils/roles";
+import { trackEvent } from "@/utils/analytics";
 import { maskUser, useStreamerMode } from "@/utils/streamerMode";
 import { GamevaultUserRoleEnum } from "@/api";
 import clsx from "clsx";
@@ -401,6 +402,9 @@ export default function UserProfile() {
         if (!res.ok) throw new Error(`Failed to load user (${res.status})`);
         const json = await res.json();
         if (!cancelled) setUser(json);
+        trackEvent("community_profile_opened", {
+          is_self: Number(userId) === currentUserId,
+        });
       } catch (e: any) {
         if (!cancelled) setError(e?.message || "Failed to load user profile");
       } finally {
@@ -496,6 +500,9 @@ export default function UserProfile() {
               }
             : prev,
         );
+        trackEvent("community_progress_deleted", {
+          is_self: userId === currentUserId,
+        });
       } catch (err: any) {
         console.error("Failed to delete progress:", err);
         showAlert({
@@ -747,7 +754,10 @@ export default function UserProfile() {
               <Listbox
                 name="progressFilter"
                 value={progressFilter}
-                onChange={(value: any) => setProgressFilter(String(value))}
+                onChange={(value: any) => {
+                  setProgressFilter(String(value));
+                  trackEvent("community_filter_changed", { filter: "progress" });
+                }}
               >
                 {PROFILE_FILTER_OPTIONS.map((option) => (
                   <ListboxOption key={option.value} value={option.value}>
@@ -763,9 +773,10 @@ export default function UserProfile() {
               <Listbox
                 name="progressSort"
                 value={progressSort}
-                onChange={(value: any) =>
-                  setProgressSort(value as ProfileProgressSort)
-                }
+                onChange={(value: any) => {
+                  setProgressSort(value as ProfileProgressSort);
+                  trackEvent("community_sorting_changed", { sort: "progress" });
+                }}
               >
                 {PROFILE_SORT_OPTIONS.map((option) => (
                   <ListboxOption key={option.value} value={option.value}>

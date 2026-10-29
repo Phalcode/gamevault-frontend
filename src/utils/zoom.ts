@@ -1,4 +1,5 @@
 import { isTauriApp } from "./tauri";
+import { trackEvent } from "./analytics";
 
 const STORAGE_KEY = "gv_zoom_level";
 
@@ -105,6 +106,9 @@ export function registerZoomHotkeys(): () => void {
     }
 
     event.preventDefault();
+    trackEvent("hotkey_used", {
+      hotkey: reset ? "zoom_reset" : delta > 0 ? "zoom_in" : "zoom_out",
+    });
     if (reset) {
       resetZoomLevel();
     } else {

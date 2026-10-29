@@ -26,6 +26,7 @@ import { isWindowsExecutablePath } from "@/components/downloads/install-utils";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { isTauriApp } from "@/utils/tauri";
 import { formatDate, formatYear } from "@/utils/date";
+import { countBucket, trackEvent } from "@/utils/analytics";
 import {
   applyDroppedSources,
   isProbablyImageUrl,
@@ -1307,6 +1308,9 @@ export function GameSettings({
           !!updatedGame &&
           Array.isArray(updatedGame.versions) &&
           updatedGame.versions.length > 0;
+        trackEvent("game_version_deleted", {
+          was_last_version: wasLastVersion,
+        });
 
         // The game is fully removed once its last version file is gone: close
         // the settings modal and let the library/game view react.
@@ -1438,6 +1442,9 @@ export function GameSettings({
 
           setMetadataProviders(providers);
           setSelectedMetadataProviderIndex(0);
+          trackEvent("metadata_providers_loaded", {
+            providers: countBucket(providers.length),
+          });
         } catch (e: any) {
           console.error("Failed to fetch metadata providers:", e);
           await showAlert({
@@ -1571,6 +1578,9 @@ export function GameSettings({
       setFullGame(updatedGame);
       onGameUpdated?.(updatedGame);
       emitGameUpdated(updatedGame);
+      trackEvent(providerDataId ? "metadata_mapped" : "metadata_unmapped", {
+        provider: selectedProvider.slug,
+      });
 
       // Refresh providers to get updated priorities
       setMetadataProviders([]);
@@ -1614,6 +1624,9 @@ export function GameSettings({
     }
 
     await remapGame(currentShownMappedGame.provider_data_id, priority);
+    trackEvent("metadata_priority_changed", {
+      provider: metadataProviders[selectedMetadataProviderIndex]?.slug,
+    });
     setCustomPriority("");
   };
 
@@ -1633,6 +1646,9 @@ export function GameSettings({
 
   const handleRecache = async () => {
     if (!currentShownMappedGame?.provider_data_id) return;
+    trackEvent("metadata_recached", {
+      provider: metadataProviders[selectedMetadataProviderIndex]?.slug,
+    });
     await remapGame(currentShownMappedGame.provider_data_id);
   };
 
@@ -2348,6 +2364,9 @@ export function GameSettings({
       setFullGame(updatedGame);
       onGameUpdated?.(updatedGame);
       emitGameUpdated(updatedGame);
+      trackEvent("game_metadata_saved", {
+        fields: countBucket(Object.keys(payload).length),
+      });
 
       await showAlert({
         title: "Success",

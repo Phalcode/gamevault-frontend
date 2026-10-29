@@ -105,6 +105,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return "other";
   }
 
+  /**
+   * Low-cardinality API group for the `api_error` event, e.g. `games` for
+   * `/api/games/42`. Ids and query strings never leave the app.
+   */
+  function endpointGroup(input: string): string {
+    try {
+      const path = new URL(input, window.location.origin).pathname;
+      const match = /^\/api\/([a-z-]+)/i.exec(path);
+      return match ? match[1].toLowerCase() : "other";
+    } catch {
+      return "other";
+    }
+  }
+
   async function loginBasicRequest(
     username: string,
     password: string,
@@ -342,6 +356,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // session is genuinely invalid — send the user to login.
           await handleSessionExpired();
         }
+      }
+
+      if (!res.ok) {
+        trackEvent("api_error", {
+          status: `${Math.floor(res.status / 100)}xx`,
+          endpoint: endpointGroup(input),
+        });
       }
 
       return res;

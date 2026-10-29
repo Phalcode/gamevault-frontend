@@ -41,6 +41,7 @@ import { registerReloadHotkey } from "./utils/reload";
 import { registerStreamerModeHotkey } from "./utils/streamerMode";
 import { registerExternalLinkHandler, isTauriApp } from "./utils/tauri";
 import {
+  countBucket,
   initAnalytics,
   registerAnalyticsClicks,
   trackEvent,
@@ -52,6 +53,29 @@ import { LaunchLogWindow } from "./pages/LaunchLogWindow";
 // The launch log window boots standalone: it renders its own document without
 // the app providers, router, analytics or global hotkeys.
 const isLaunchLogWindow = window.location.hash === "#launch-log";
+
+/**
+ * The native watchdog writes a timestamp before it reloads a frozen webview.
+ * Reading and clearing it here reports one `ui_freeze_recovered` event per
+ * recovery, which a frozen UI could not send itself.
+ */
+async function reportWatchdogRecovery(): Promise<void> {
+  if (!isTauriApp()) return;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const recoveredAt = await invoke<number | null>("take_watchdog_recovery");
+    if (!recoveredAt) return;
+    const minutesAgo = Math.max(
+      0,
+      Math.round((Date.now() / 1000 - recoveredAt) / 60),
+    );
+    trackEvent("ui_freeze_recovered", {
+      minutes_ago: countBucket(minutesAgo),
+    });
+  } catch {
+    // Older builds without the command, or an unreadable settings file.
+  }
+}
 
 if (isLaunchLogWindow) {
   createRoot(document.getElementById("root")!).render(<LaunchLogWindow />);
@@ -74,7 +98,7 @@ if (isLaunchLogWindow) {
   // Analytics start after the consent is resolved (the desktop app keeps it in
   // the Rust settings so an opt-out survives app updates). Tracking is a no-op
   // until then, so `app_started` is the first event.
-  void initAnalytics().then(() =>
+  void initAnalytics().then(() => {
     trackEvent("app_started", {
       version: __APP_VERSION__,
       channel: __BUILD_CHANNEL__,
@@ -84,8 +108,9 @@ if (isLaunchLogWindow) {
       lang: navigator.language,
       screen: `${window.screen.width}x${window.screen.height}`,
       cores: navigator.hardwareConcurrency ?? 0,
-    }),
-  );
+    });
+    void reportWatchdogRecovery();
+  });
   registerAnalyticsClicks();
 
   // Ctrl/Cmd + +/-/0 zoom hotkeys (browsers already handle these natively)
