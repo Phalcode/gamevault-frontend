@@ -50,9 +50,9 @@ import {
 
 const SORT_BY: { label: string; value: string }[] = [
   { label: "Title", value: "sort_title" },
-  // "Most Recent": last played/installed for installed games, last added for
+  // "Recent": last played/installed for installed games, last added for
   // the server catalogue (see SERVER_SORT_ALIASES in utils/gamesQuery.ts).
-  { label: "Most Recent", value: "recent" },
+  { label: "Recent", value: "recent" },
   { label: "Size", value: "size" },
   { label: "Date Added", value: "created_at" },
   { label: "Release Date", value: "metadata.release_date" },
@@ -96,7 +96,7 @@ const BOOKMARK_OPTIONS: { label: string; value: BookmarkFilter }[] = [
 
 const LIB_SORT_KEY = "app_library_sort_v2";
 const LIB_ORDER_KEY = "app_library_order_v2";
-// "Most Recent" is the default sort: last played/installed first in the
+// "Recent" is the default sort: last played/installed first in the
 // installed list, newest additions first on the server catalogue.
 const DEFAULT_SORT = "recent";
 const DEFAULT_ORDER: "ASC" | "DESC" = "DESC";
@@ -710,7 +710,7 @@ export default function Library() {
                   value={sortBy}
                   onChange={(v: any) => {
                     const nextSortBy = String(v);
-                    // "Most Recent" only makes sense newest-first.
+                    // "Recent" only makes sense newest-first.
                     const nextOrder =
                       nextSortBy === "recent" && order === "ASC"
                         ? "DESC"
