@@ -94,8 +94,12 @@ const BOOKMARK_OPTIONS: { label: string; value: BookmarkFilter }[] = [
   { label: "Bookmarked by Others", value: "others" },
 ];
 
-const LIB_SORT_KEY = "app_library_sort";
-const LIB_ORDER_KEY = "app_library_order";
+const LIB_SORT_KEY = "app_library_sort_v2";
+const LIB_ORDER_KEY = "app_library_order_v2";
+// "Most Recent" is the default sort: last played/installed first in the
+// installed list, newest additions first on the server catalogue.
+const DEFAULT_SORT = "recent";
+const DEFAULT_ORDER: "ASC" | "DESC" = "DESC";
 
 /** Die icon for the random game action. */
 function DiceIcon({ className }: { className?: string }) {
@@ -140,7 +144,7 @@ export default function Library() {
         if (saved && SORT_BY.some((o) => o.value === saved)) return saved;
       }
     } catch {}
-    return "sort_title";
+    return DEFAULT_SORT;
   });
   const [order, setOrder] = useState<"ASC" | "DESC">(() => {
     try {
@@ -150,7 +154,7 @@ export default function Library() {
         if (saved === "ASC" || saved === "DESC") return saved;
       }
     } catch {}
-    return "ASC";
+    return DEFAULT_ORDER;
   });
   const [showFilters, setShowFilters] = useState(false);
   const [bookmarkFilter, setBookmarkFilter] = useState<BookmarkFilter>("all");
@@ -321,7 +325,8 @@ export default function Library() {
 
     const ord = params.get("order");
     if (ord === "ASC" || ord === "DESC") setOrder(ord);
-    else if (sort === "recent") setOrder("DESC");
+    // Shared links to an explicit sort keep their old ascending default.
+    else if (sort && sort !== DEFAULT_SORT) setOrder("ASC");
 
     const bookmarked = params.get("bookmarked");
     if (bookmarked && isBookmark(bookmarked)) {
@@ -382,10 +387,10 @@ export default function Library() {
       if (search.trim().length > 0) params.set("q", search.trim());
       else params.delete("q");
 
-      if (sortBy !== "sort_title") params.set("sort", sortBy);
+      if (sortBy !== DEFAULT_SORT) params.set("sort", sortBy);
       else params.delete("sort");
 
-      if (order !== "ASC") params.set("order", order);
+      if (order !== DEFAULT_ORDER) params.set("order", order);
       else params.delete("order");
 
       if (bookmarkFilter !== "all") params.set("bookmarked", bookmarkFilter);
