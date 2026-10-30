@@ -637,9 +637,12 @@ const GameCard = memo(function GameCard({
             >
               {localGame.metadata?.title || localGame.title}
             </h3>
-            {sortMetric && (
-              <p className="truncate text-xs text-gv-muted">{sortMetric}</p>
-            )}
+            {/* Always rendered: a missing metric (e.g. no date for a game that
+                predates created_at) must not shrink the card and make the grid
+                rows ragged. */}
+            <p className="truncate text-xs text-gv-muted">
+              {sortMetric || "—"}
+            </p>
           </div>
         </Link>
       </div>
