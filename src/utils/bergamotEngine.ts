@@ -117,6 +117,14 @@ async function loadRegistry(): Promise<Registry> {
   if (registryPromise) return registryPromise;
 
   registryPromise = (async () => {
+    // The desktop webview cannot fetch from Google's bucket (their CORS setup
+    // does not cover `http://tauri.localhost`), so Rust does the request and
+    // keeps a cached copy next to the models.
+    if (hasDesktopRuntime()) {
+      const text = await invokeDesktop<string>("bergamot_model_registry");
+      return JSON.parse(text) as Registry;
+    }
+
     const cached = await cacheMatch(registryCacheKey());
     if (cached) {
       try {

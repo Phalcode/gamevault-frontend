@@ -42,6 +42,9 @@ struct DownloadProgress {
 }
 
 const PLAN_FILE: &str = "plan.json";
+const REGISTRY_FILE: &str = "registry.json";
+const REGISTRY_URL: &str =
+  "https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/db/models.json";
 
 fn models_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
   app
@@ -82,6 +85,61 @@ fn archive_name(name: &str) -> Result<&str, String> {
 fn read_plan(dir: &Path) -> Option<ModelPlan> {
   let raw = std::fs::read_to_string(dir.join(PLAN_FILE)).ok()?;
   serde_json::from_str(&raw).ok()
+}
+
+/// Mozilla's model registry as JSON.
+///
+/// Fetched here instead of in the webview: Google's bucket only allows CORS
+/// for some origins, and `http://tauri.localhost` is not one of them. The
+/// response is cached on disk so the language picker also works offline.
+#[tauri::command]
+pub(crate) async fn bergamot_model_registry(app: tauri::AppHandle) -> Result<String, String> {
+  let root = models_root(&app)?;
+  let cache = root.join(REGISTRY_FILE);
+
+  // Serve the cached copy immediately so the picker never waits on the
+  // network, and refresh it in the background for the next launch.
+  if let Ok(cached) = std::fs::read_to_string(&cache) {
+    if !cached.trim().is_empty() {
+      let cache_path = cache.clone();
+      tauri::async_runtime::spawn(async move {
+        if let Ok(fresh) = fetch_model_registry().await {
+          let _ = std::fs::write(&cache_path, fresh);
+        }
+      });
+      return Ok(cached);
+    }
+  }
+
+  let text = fetch_model_registry().await?;
+  std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+  // A failed cache write must not break the picker for this session.
+  let _ = std::fs::write(&cache, &text);
+  Ok(text)
+}
+
+async fn fetch_model_registry() -> Result<String, String> {
+  let client = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(20))
+    .build()
+    .map_err(|error| error.to_string())?;
+
+  let response = client
+    .get(REGISTRY_URL)
+    .send()
+    .await
+    .map_err(|error| format!("Model registry unavailable: {error}"))?;
+  if !response.status().is_success() {
+    return Err(format!(
+      "Model registry unavailable ({})",
+      response.status()
+    ));
+  }
+  let text = response.text().await.map_err(|error| error.to_string())?;
+  if text.trim().is_empty() {
+    return Err("The model registry response was empty".to_string());
+  }
+  Ok(text)
 }
 
 #[tauri::command]

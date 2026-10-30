@@ -687,6 +687,7 @@ pub fn run() {
       settings::get_interface_translation_language,
       settings::set_interface_translation_language,
       bergamot_models::bergamot_model_status,
+      bergamot_models::bergamot_model_registry,
       bergamot_models::read_bergamot_model_plan,
       bergamot_models::read_bergamot_model_file,
       bergamot_models::download_bergamot_model,
