@@ -2,6 +2,13 @@ import {
   ensureBergamotModelLoaded,
   translateStringsWithBergamot,
 } from "./bergamotEngine";
+import {
+  flushTranslationCache,
+  getCachedTranslation,
+  isTranslationCacheLoaded,
+  loadTranslationCache,
+  rememberTranslations,
+} from "./translationCache";
 
 /**
  * Translates the app's own interface text in place, using the local Bergamot
@@ -49,6 +56,7 @@ export interface UiTranslationState {
 }
 
 let language: string | null = null;
+let startPromise: Promise<void> | null = null;
 let observer: MutationObserver | null = null;
 let flushTimer: number | null = null;
 let lastState: UiTranslationState = { status: "idle", translated: 0 };
@@ -126,7 +134,60 @@ function considerNode(node: Text, into: Set<Text>): void {
   // Still holding our translation: nothing to do. If React wrote the original
   // English back, the values differ and the node is queued again.
   if (written.get(node) === value) return;
+  // Known string: replace it right here. MutationObserver callbacks run before
+  // the browser paints, so a cached translation never shows the English text.
+  if (language && applyCachedTranslation(node, language)) return;
   into.add(node);
+}
+
+/** Writes a cached translation to `node`; returns false when there is none. */
+function applyCachedTranslation(node: Text, target: string): boolean {
+  const value = node.nodeValue ?? "";
+  const cached = getCachedTranslation(target, value);
+  if (!cached || cached === value) return false;
+  if (!originals.has(node)) originals.set(node, value);
+  written.set(node, cached);
+  node.nodeValue = cached;
+  return true;
+}
+
+/**
+ * Applies every cached translation under `root`, synchronously. Used before
+ * the first paint so the initial screen never shows English for strings the
+ * cache already knows.
+ */
+export function applyCachedUiTranslations(
+  target: string,
+  root: Node = document.body,
+): number {
+  if (!isTranslationCacheLoaded(target)) return 0;
+
+  let applied = 0;
+  const apply = (node: Text) => {
+    const value = node.nodeValue ?? "";
+    if (!isTranslatable(value)) return;
+    if (isInsideSkippedElement(node.parentElement)) return;
+    if (written.get(node) === value) return;
+    if (applyCachedTranslation(node, target)) applied += 1;
+  };
+
+  if (root.nodeType === Node.TEXT_NODE) {
+    apply(root as Text);
+    return applied;
+  }
+  if (
+    root.nodeType !== Node.ELEMENT_NODE &&
+    root.nodeType !== Node.DOCUMENT_NODE
+  ) {
+    return 0;
+  }
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let current = walker.nextNode();
+  while (current) {
+    apply(current as Text);
+    current = walker.nextNode();
+  }
+  return applied;
 }
 
 function scheduleFlush(): void {
@@ -149,6 +210,8 @@ async function flushQueue(): Promise<void> {
       const value = node.nodeValue ?? "";
       if (!isTranslatable(value)) continue;
       if (isInsideSkippedElement(node.parentElement)) continue;
+      // Another pass may have cached this string in the meantime.
+      if (applyCachedTranslation(node, target)) continue;
       batch.push(node);
       chars += value.length;
       if (batch.length >= MAX_BATCH_NODES || chars >= MAX_BATCH_CHARS) break;
@@ -159,7 +222,7 @@ async function flushQueue(): Promise<void> {
     try {
       const translated = await translateStringsWithBergamot(texts, target);
       // React may have re-rendered while the engine was busy.
-      writeBack(batch, texts, translated);
+      writeBack(target, batch, texts, translated);
       emit({
         status: "active",
         translated: lastState.translated + batch.length,
@@ -179,10 +242,16 @@ async function flushQueue(): Promise<void> {
 }
 
 function writeBack(
+  target: string,
   batch: Text[],
   before: string[],
   translated: string[],
 ): void {
+  // A language switch or "off" while the engine was busy must win.
+  if (language !== target) return;
+
+  const remembered: [string, string][] = [];
+
   // Our own writes must not feed the observer again.
   const observing = observer !== null;
   if (observing) observer?.disconnect();
@@ -194,10 +263,13 @@ function writeBack(
       if (!originals.has(node)) originals.set(node, before[index]);
       written.set(node, next);
       node.nodeValue = next;
+      remembered.push([before[index], next]);
     });
   } finally {
     if (observing && observer) observe();
   }
+
+  if (remembered.length > 0) rememberTranslations(target, remembered);
 }
 
 function observe(): void {
@@ -235,33 +307,64 @@ function handleMutations(records: MutationRecord[]): void {
 /**
  * Starts translating the interface into `language`. The model has to be
  * downloaded already; this only loads it and walks the DOM.
+ *
+ * Known strings are applied synchronously from the cache, so a warm start
+ * never paints English. Only strings the cache does not know go to the engine.
  */
 export async function startUiTranslation(target: string): Promise<void> {
-  if (language === target) return;
+  if (language === target) {
+    // React StrictMode runs effects twice; never restart a running pass.
+    if (startPromise) return startPromise;
+    if (lastState.status !== "error") {
+      emit({ status: "active", translated: lastState.translated });
+    }
+    return;
+  }
 
-  stopUiTranslation();
+  if (language) {
+    // Switching language: restore the previous translation first.
+    stopUiTranslation();
+  } else {
+    // Fresh start: keep the cached pass that ran before the first paint.
+    resetPass();
+  }
+  startPromise = null;
   language = target;
   emit({ status: "translating", translated: 0 });
 
-  // Load the model before touching the DOM so a failure leaves the page alone.
-  await ensureBergamotModelLoaded(target).catch((error) => {
-    language = null;
-    emit({
-      status: "error",
-      translated: 0,
-      error: error instanceof Error ? error.message : String(error),
+  const run = (async () => {
+    // Load the model before touching the DOM so a failure leaves the page alone.
+    await ensureBergamotModelLoaded(target).catch((error) => {
+      language = null;
+      emit({
+        status: "error",
+        translated: 0,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     });
-    throw error;
-  });
 
-  collectTextNodes(document.body, queue);
-  observer = new MutationObserver(handleMutations);
-  observe();
-  await flushQueue();
+    // Everything the cache knows is written before the engine is asked for
+    // anything, keep that pass ahead of the first observer flush.
+    await loadTranslationCache(target);
+    applyCachedUiTranslations(target);
+
+    collectTextNodes(document.body, queue);
+    observer = new MutationObserver(handleMutations);
+    observe();
+    await flushQueue();
+  })();
+
+  startPromise = run;
+  try {
+    await run;
+  } finally {
+    if (startPromise === run) startPromise = null;
+  }
 }
 
-/** Restores the original English text and stops translating. */
-export function stopUiTranslation(): void {
+/** Disconnects the observer and drops pending work, keeping applied text. */
+function resetPass(): void {
   if (flushTimer !== null) {
     window.clearTimeout(flushTimer);
     flushTimer = null;
@@ -269,6 +372,12 @@ export function stopUiTranslation(): void {
   observer?.disconnect();
   observer = null;
   queue.clear();
+}
+
+/** Restores the original English text and stops translating. */
+export function stopUiTranslation(): void {
+  resetPass();
+  startPromise = null;
 
   for (const [node, original] of originals) {
     if (node.isConnected) node.nodeValue = original;
@@ -277,6 +386,8 @@ export function stopUiTranslation(): void {
   written.clear();
   language = null;
   emit({ status: "idle", translated: 0 });
+  // Keep what was learned for the next start or language switch.
+  void flushTranslationCache();
 }
 
 /** Restores one node's original text (used by on-demand translations). */

@@ -1,5 +1,6 @@
 import { isTauriApp } from "./tauri";
 import {
+  ensureBergamotModelLoaded,
   getBergamotModelStatus,
   listBergamotLanguages,
   type BergamotModelStatus,
@@ -9,6 +10,7 @@ import {
   stopUiTranslation,
   translatedUiLanguage,
 } from "./domTranslation";
+import { loadTranslationCache } from "./translationCache";
 
 /**
  * Interface translation for the desktop app.
@@ -157,6 +159,58 @@ export async function applyInterfaceTranslation(
 /** Language the interface is currently translated into, or null. */
 export function activeInterfaceTranslation(): string | null {
   return isTauriApp() ? translatedUiLanguage() : null;
+}
+
+/** Attribute that keeps the app hidden until the first translation pass. */
+export const TRANSLATION_PENDING_ATTRIBUTE =
+  "data-interface-translation-pending";
+
+let prepared = false;
+let preparedLanguage: string | null = null;
+
+/**
+ * Prepares interface translation before React renders.
+ *
+ * Reads the saved language, warms the translation cache and hides the app
+ * until the first cached pass has been applied. Without this step the app
+ * renders English first and the DOM translator replaces it after the paint.
+ * Returns the language to activate, or `null` when translation is off or the
+ * model is not installed.
+ */
+export async function prepareInterfaceTranslation(): Promise<string | null> {
+  if (!isTauriApp()) return null;
+  if (prepared) return preparedLanguage;
+  prepared = true;
+
+  const stored = await readInterfaceTranslationLanguage();
+  if (stored === INTERFACE_TRANSLATION_OFF) return null;
+
+  const ready = await isInterfaceTranslationAvailable(stored)
+    .then((status) => status.ready)
+    .catch(() => false);
+  if (!ready) return null;
+
+  await loadTranslationCache(stored).catch(() => undefined);
+  preparedLanguage = stored;
+  document.documentElement.setAttribute(TRANSLATION_PENDING_ATTRIBUTE, "");
+
+  // If React never mounts (crash), never leave the window invisible.
+  window.setTimeout(revealInterfaceTranslation, 10000);
+
+  // Loading the model takes a moment; overlap it with the first render.
+  void ensureBergamotModelLoaded(stored).catch(() => undefined);
+
+  return stored;
+}
+
+/** The language resolved by {@link prepareInterfaceTranslation}, if any. */
+export function preparedInterfaceTranslation(): string | null {
+  return preparedLanguage;
+}
+
+/** Shows the app again after the initial translation pass. */
+export function revealInterfaceTranslation(): void {
+  document.documentElement.removeAttribute(TRANSLATION_PENDING_ATTRIBUTE);
 }
 
 /** Whether translation is possible for `language` (model downloaded). */

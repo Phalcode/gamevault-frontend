@@ -195,6 +195,12 @@
     isolation: isolate;
   }
 
+  /* Interface translation: keep the app hidden until the first (cached)
+     translation pass is applied, so English never flashes on startup. */
+  html[data-interface-translation-pending] #root {
+    visibility: hidden;
+  }
+
   h1,
   h2,
   h3,

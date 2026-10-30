@@ -1,40 +1,53 @@
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import { isTauriApp } from "@/utils/tauri";
 import {
-  INTERFACE_TRANSLATION_OFF,
+  applyCachedUiTranslations,
+  onUiTranslationState,
+} from "@/utils/domTranslation";
+import {
   applyInterfaceTranslation,
-  isInterfaceTranslationAvailable,
-  readInterfaceTranslationLanguage,
+  preparedInterfaceTranslation,
+  revealInterfaceTranslation,
 } from "@/utils/interfaceTranslation";
 
+/** Never keep the app hidden when the engine stalls or a batch hangs. */
+const REVEAL_TIMEOUT_MS = 2000;
+
 /**
- * Applies the saved interface translation once on startup.
+ * Applies the saved interface translation on startup.
  *
- * Nothing happens when no language is selected, when the model has not been
- * downloaded yet, or in the web build, where the browser translates the page.
- * Navigation needs no hook: the DOM translator observes the document and picks
- * up text React renders later.
+ * `main.tsx` already loaded the translation cache and hid the app before the
+ * first render. The cached pass runs here in a layout effect, so the first
+ * paint is already translated. Only strings the cache does not know go to the
+ * engine, and the app is revealed as soon as that first pass is done.
  */
 export default function InterfaceTranslationBoot() {
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isTauriApp()) return;
-    let cancelled = false;
 
-    void (async () => {
-      const stored = await readInterfaceTranslationLanguage();
-      if (cancelled || stored === INTERFACE_TRANSLATION_OFF) return;
+    const language = preparedInterfaceTranslation();
+    if (!language) return;
 
-      const ready = await isInterfaceTranslationAvailable(stored)
-        .then((status) => status.ready)
-        .catch(() => false);
-      if (cancelled || !ready) return;
+    // Everything the cache knows is written before the browser paints.
+    applyCachedUiTranslations(language);
 
-      // Failures (engine blocked, corrupt model) keep the English UI.
-      await applyInterfaceTranslation(stored).catch(() => undefined);
-    })();
+    let revealed = false;
+    const reveal = () => {
+      if (revealed) return;
+      revealed = true;
+      revealInterfaceTranslation();
+    };
+
+    const unsubscribe = onUiTranslationState((state) => {
+      if (state.status === "active" || state.status === "error") reveal();
+    });
+    const timeout = window.setTimeout(reveal, REVEAL_TIMEOUT_MS);
+
+    void applyInterfaceTranslation(language).catch(reveal);
 
     return () => {
-      cancelled = true;
+      window.clearTimeout(timeout);
+      unsubscribe();
     };
   }, []);
 

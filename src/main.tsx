@@ -51,6 +51,7 @@ import {
 } from "./utils/analytics";
 import { startMediaCacheMaintenance } from "./utils/mediaCache";
 import { startFrontendDiagnostics } from "./utils/frontendDiagnostics";
+import { prepareInterfaceTranslation } from "./utils/interfaceTranslation";
 import { LaunchLogWindow } from "./pages/LaunchLogWindow";
 
 // The launch log window boots standalone: it renders its own document without
@@ -129,87 +130,96 @@ if (isLaunchLogWindow) {
     startFrontendDiagnostics();
   }
 
-  createRoot(document.getElementById("root")!).render(
-    <StrictMode>
-      <MotionConfig reducedMotion="user">
-        <AuthProvider>
-          <OfflineProvider>
-            <IgnoreListProvider>
-              <ArchivePasswordsProvider>
-                <DownloadProvider>
-                  <AlertDialogProvider>
-                    <AppUpdaterProvider>
-                      <UmuProvider>
-                        <GlobalAlertDialogBridge />
-                        <PrereleaseNotice />
-                        <ServerVersionNotice />
-                        <BrowserRouter>
-                          <DeepLinkHandler />
-                          <InterfaceTranslationBoot />
-                          <GamepadProvider>
-                            <Suspense fallback={<PageLoader />}>
-                              <Routes>
-                                <Route element={<FullscreenLayout />}>
-                                  <Route index element={<Login />} />
-                                  <Route
-                                    path="register"
-                                    element={<Register />}
-                                  />
-                                </Route>
+  const renderApp = () =>
+    createRoot(document.getElementById("root")!).render(
+      <StrictMode>
+        <MotionConfig reducedMotion="user">
+          <AuthProvider>
+            <OfflineProvider>
+              <IgnoreListProvider>
+                <ArchivePasswordsProvider>
+                  <DownloadProvider>
+                    <AlertDialogProvider>
+                      <AppUpdaterProvider>
+                        <UmuProvider>
+                          <GlobalAlertDialogBridge />
+                          <PrereleaseNotice />
+                          <ServerVersionNotice />
+                          <BrowserRouter>
+                            <DeepLinkHandler />
+                            <InterfaceTranslationBoot />
+                            <GamepadProvider>
+                              <Suspense fallback={<PageLoader />}>
+                                <Routes>
+                                  <Route element={<FullscreenLayout />}>
+                                    <Route index element={<Login />} />
+                                    <Route
+                                      path="register"
+                                      element={<Register />}
+                                    />
+                                  </Route>
 
-                                <Route element={<DashboardLayout />}>
-                                  <Route
-                                    index
-                                    path="library"
-                                    element={<Library />}
-                                  />
-                                  <Route
-                                    path="library/:id"
-                                    element={<GameView />}
-                                  />
-                                  <Route
-                                    path="downloads"
-                                    element={<Downloads />}
-                                  />
-                                  <Route
-                                    path="community"
-                                    element={<Community />}
-                                  />
-                                  <Route
-                                    path="community/:id"
-                                    element={<UserProfile />}
-                                  />
-                                  <Route
-                                    path="settings"
-                                    element={<Settings />}
-                                  />
-                                  <Route
-                                    path="admin"
-                                    element={
-                                      <ProtectedRoute
-                                        guarded
-                                        requiredRole={GamevaultUserRoleEnum._3}
-                                      >
-                                        <Administration />
-                                      </ProtectedRoute>
-                                    }
-                                  />
-                                </Route>
+                                  <Route element={<DashboardLayout />}>
+                                    <Route
+                                      index
+                                      path="library"
+                                      element={<Library />}
+                                    />
+                                    <Route
+                                      path="library/:id"
+                                      element={<GameView />}
+                                    />
+                                    <Route
+                                      path="downloads"
+                                      element={<Downloads />}
+                                    />
+                                    <Route
+                                      path="community"
+                                      element={<Community />}
+                                    />
+                                    <Route
+                                      path="community/:id"
+                                      element={<UserProfile />}
+                                    />
+                                    <Route
+                                      path="settings"
+                                      element={<Settings />}
+                                    />
+                                    <Route
+                                      path="admin"
+                                      element={
+                                        <ProtectedRoute
+                                          guarded
+                                          requiredRole={
+                                            GamevaultUserRoleEnum._3
+                                          }
+                                        >
+                                          <Administration />
+                                        </ProtectedRoute>
+                                      }
+                                    />
+                                  </Route>
 
-                                <Route path="*" element={<NotFound />} />
-                              </Routes>
-                            </Suspense>
-                          </GamepadProvider>
-                        </BrowserRouter>
-                      </UmuProvider>
-                    </AppUpdaterProvider>
-                  </AlertDialogProvider>
-                </DownloadProvider>
-              </ArchivePasswordsProvider>
-            </IgnoreListProvider>
-          </OfflineProvider>
-        </AuthProvider>
-      </MotionConfig>
-    </StrictMode>,
-  );
+                                  <Route path="*" element={<NotFound />} />
+                                </Routes>
+                              </Suspense>
+                            </GamepadProvider>
+                          </BrowserRouter>
+                        </UmuProvider>
+                      </AppUpdaterProvider>
+                    </AlertDialogProvider>
+                  </DownloadProvider>
+                </ArchivePasswordsProvider>
+              </IgnoreListProvider>
+            </OfflineProvider>
+          </AuthProvider>
+        </MotionConfig>
+      </StrictMode>,
+    );
+
+  // Warm the translation cache and hide the app before the first paint when
+  // interface translation is active, so the initial screen is not English.
+  void prepareInterfaceTranslation()
+    .catch(() => undefined)
+    .then(renderApp);
 }

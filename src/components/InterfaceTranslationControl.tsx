@@ -16,6 +16,7 @@ import {
   writeInterfaceTranslationLanguage,
   type InterfaceTranslationLanguage,
 } from "@/utils/interfaceTranslation";
+import { clearTranslationCache } from "@/utils/translationCache";
 
 type ModelState = "unknown" | "missing" | "downloading" | "ready";
 
@@ -128,6 +129,8 @@ export default function InterfaceTranslationControl() {
     if (language === INTERFACE_TRANSLATION_OFF) return;
     await applyInterfaceTranslation(INTERFACE_TRANSLATION_OFF);
     await writeInterfaceTranslationLanguage(INTERFACE_TRANSLATION_OFF);
+    // The cache lives next to the model; drop it together with the archives.
+    await clearTranslationCache(language);
     await deleteBergamotModel(language);
     setLanguage(INTERFACE_TRANSLATION_OFF);
     setModelState("missing");

@@ -43,6 +43,9 @@ struct DownloadProgress {
 
 const PLAN_FILE: &str = "plan.json";
 const REGISTRY_FILE: &str = "registry.json";
+const TRANSLATIONS_FILE: &str = "translations.json";
+/// Upper bound for the persisted translation cache (JSON, UTF-8 bytes).
+const MAX_TRANSLATIONS_BYTES: usize = 32 * 1024 * 1024;
 const REGISTRY_URL: &str =
   "https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/db/models.json";
 
@@ -191,6 +194,50 @@ pub(crate) async fn read_bergamot_model_file(
   let file = archive_name(&name)?;
   let bytes = std::fs::read(dir.join(file)).map_err(|error| error.to_string())?;
   Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Cached English→target translations for the interface, as JSON.
+///
+/// Stored next to the model so the DOM translator can apply known strings
+/// synchronously, before the browser paints.
+#[tauri::command]
+pub(crate) async fn read_interface_translation_cache(
+  app: tauri::AppHandle,
+  language: String,
+) -> Result<Option<String>, String> {
+  let dir = language_dir(&app, &language)?;
+  match std::fs::read_to_string(dir.join(TRANSLATIONS_FILE)) {
+    Ok(text) if !text.trim().is_empty() => Ok(Some(text)),
+    _ => Ok(None),
+  }
+}
+
+#[tauri::command]
+pub(crate) async fn write_interface_translation_cache(
+  app: tauri::AppHandle,
+  language: String,
+  json: String,
+) -> Result<(), String> {
+  if json.len() > MAX_TRANSLATIONS_BYTES {
+    return Err("Translation cache is too large".to_string());
+  }
+  let dir = language_dir(&app, &language)?;
+  std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+  std::fs::write(dir.join(TRANSLATIONS_FILE), json.as_bytes())
+    .map_err(|error| format!("Failed to write translation cache: {error}"))
+}
+
+#[tauri::command]
+pub(crate) async fn clear_interface_translation_cache(
+  app: tauri::AppHandle,
+  language: String,
+) -> Result<(), String> {
+  let dir = language_dir(&app, &language)?;
+  match std::fs::remove_file(dir.join(TRANSLATIONS_FILE)) {
+    Ok(()) => Ok(()),
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    Err(error) => Err(format!("Failed to remove translation cache: {error}")),
+  }
 }
 
 #[tauri::command]
