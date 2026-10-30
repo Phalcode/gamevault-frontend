@@ -17,9 +17,12 @@
     "test:cov": "vitest run --coverage",
     "lint": "prettier --write . && eslint .",
     "licenses": "node scripts/generate-third-party-licenses.mjs",
-    "postinstall": "node scripts/ensure-api-client.mjs"
+    "postinstall": "node scripts/ensure-api-client.mjs",
+    "predev": "node scripts/copy-bergamot-engine.mjs",
+    "prebuild": "node scripts/copy-bergamot-engine.mjs"
   },
   "dependencies": {
+    "@browsermt/bergamot-translator": "0.4.9",
     "@dicebear/collection": "^9.4.2",
     "@dicebear/core": "^9.4.3",
     "@headlessui/react": "^2.2.10",

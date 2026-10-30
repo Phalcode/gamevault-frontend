@@ -6,6 +6,8 @@ import { Media } from "@/components/Media";
 import MediaSlider from "@/components/MediaSlider";
 import MarkdownContent from "@/components/MarkdownContent";
 import BackButton from "@/components/BackButton";
+import { useInterfaceTranslationLanguage } from "@/hooks/useInterfaceTranslationLanguage";
+import { translateTextOnDemand } from "@/utils/domTranslation";
 import { Spinner } from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
@@ -51,6 +53,7 @@ import {
   CalendarDaysIcon,
   GlobeAltIcon,
   HashtagIcon,
+  LanguageIcon,
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
 import {
@@ -242,6 +245,56 @@ export default function GameView() {
   const [detailsTab, setDetailsTab] = useState<
     "description" | "notes" | "tags"
   >("description");
+
+  // On-demand translation of the game description/notes. Those are content,
+  // not interface copy, so the interface translator never touches them; the
+  // user asks for them explicitly. Only offered while the desktop app is
+  // translating its interface.
+  const interfaceTranslationLanguage = useInterfaceTranslationLanguage();
+  const [translatedDetails, setTranslatedDetails] = useState<
+    Record<string, string>
+  >({});
+  const [translatingDetailsTab, setTranslatingDetailsTab] = useState<
+    string | null
+  >(null);
+  const detailsText =
+    detailsTab === "description"
+      ? description
+      : detailsTab === "notes"
+        ? notes
+        : null;
+  const translatedDetailsText = translatedDetails[detailsTab];
+  const canTranslateDetails =
+    !!interfaceTranslationLanguage && !!detailsText && detailsTab !== "tags";
+
+  useEffect(() => {
+    setTranslatedDetails({});
+    setTranslatingDetailsTab(null);
+  }, [game?.id]);
+
+  const handleTranslateDetails = async () => {
+    if (!interfaceTranslationLanguage || !detailsText) return;
+    if (translatedDetailsText) {
+      setTranslatedDetails((prev) => {
+        const next = { ...prev };
+        delete next[detailsTab];
+        return next;
+      });
+      return;
+    }
+    setTranslatingDetailsTab(detailsTab);
+    try {
+      const translated = await translateTextOnDemand(
+        detailsText,
+        interfaceTranslationLanguage,
+      );
+      setTranslatedDetails((prev) => ({ ...prev, [detailsTab]: translated }));
+    } catch {
+      // Leave the original text in place when the engine is unavailable.
+    } finally {
+      setTranslatingDetailsTab(null);
+    }
+  };
   const mediaSliderRef = useRef<HTMLDivElement | null>(null);
   const detailsCardRef = useRef<HTMLDivElement | null>(null);
   const [mediaHeight, setMediaHeight] = useState<number | null>(null);
@@ -837,7 +890,10 @@ export default function GameView() {
                 )}
               </div>
               <div className="flex-1 min-w-0 flex flex-col gap-3">
-                <div className="text-xl font-semibold leading-tight truncate pr-2">
+                <div
+                  className="text-xl font-semibold leading-tight truncate pr-2"
+                  translate="no"
+                >
                   {title}
                 </div>
                 {updateAvailable && (
@@ -1141,6 +1197,26 @@ export default function GameView() {
                           />
                         )}
                       </button>
+                      {canTranslateDetails && (
+                        <button
+                          type="button"
+                          onClick={() => void handleTranslateDetails()}
+                          disabled={translatingDetailsTab === detailsTab}
+                          title={
+                            translatedDetailsText
+                              ? "Show the original text"
+                              : "Translate this text"
+                          }
+                          className="mb-1 ml-auto inline-flex items-center gap-1 self-start rounded-md px-1.5 py-1 text-[11px] font-medium text-gv-muted transition hover:text-gv-text disabled:opacity-60"
+                        >
+                          <LanguageIcon className="size-3.5" />
+                          {translatingDetailsTab === detailsTab
+                            ? "Translating…"
+                            : translatedDetailsText
+                              ? "Original"
+                              : "Translate"}
+                        </button>
+                      )}
                     </div>
                   </LayoutGroup>
                   <motion.div
@@ -1151,22 +1227,35 @@ export default function GameView() {
                     className="text-sm leading-relaxed space-y-4 min-h-45 text-gv-text"
                   >
                     {detailsTab === "description" &&
-                      (description ? (
-                        <MarkdownContent content={description} />
+                      ((translatedDetails.description ?? description) ? (
+                        <div translate="no">
+                          <MarkdownContent
+                            content={
+                              translatedDetails.description ??
+                              (description as string)
+                            }
+                          />
+                        </div>
                       ) : (
                         <p className="italic text-gv-muted">
                           No description available.
                         </p>
                       ))}
                     {detailsTab === "notes" &&
-                      (notes ? (
-                        <MarkdownContent content={notes} />
+                      ((translatedDetails.notes ?? notes) ? (
+                        <div translate="no">
+                          <MarkdownContent
+                            content={
+                              translatedDetails.notes ?? (notes as string)
+                            }
+                          />
+                        </div>
                       ) : (
                         <p className="italic text-gv-muted">No notes.</p>
                       ))}
                     {detailsTab === "tags" &&
                       (tags && tags.length ? (
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2" translate="no">
                           {tags.map((t) => (
                             <span
                               key={t}

@@ -338,6 +338,7 @@ export function DownloadCard({
               <h3
                 className="truncate text-base font-semibold tracking-[-0.02em] text-gv-text"
                 title={download.gameTitle || download.filename}
+                translate="no"
               >
                 {download.gameTitle || download.filename}
               </h3>

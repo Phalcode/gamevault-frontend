@@ -48,6 +48,7 @@ import {
 } from "@/utils/analytics";
 import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
 import { clearImageCache } from "@/utils/mediaCache";
+import InterfaceTranslationControl from "@/components/InterfaceTranslationControl";
 import {
   formatCpuMemoryLabel,
   formatDisplayLabel,
@@ -301,6 +302,24 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
       "placeholder",
       "hotkey",
     ],
+  },
+  {
+    id: "appearance-translation",
+    title: "Interface translation",
+    description: "Translate the interface into another language",
+    category: "appearance",
+    keywords: [
+      "language",
+      "translate",
+      "translation",
+      "locale",
+      "german",
+      "deutsch",
+      "offline",
+      "bergamot",
+      "mozilla",
+    ],
+    desktopOnly: true,
   },
   // Sound
   {
@@ -2459,6 +2478,21 @@ export default function Settings() {
                         </div>
                       </SettingsRow>
                     </SettingsGroup>
+
+                    {isTauri && (
+                      <SettingsGroup
+                        id="setting-appearance-translation"
+                        className={rowHighlight("appearance-translation")}
+                      >
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Interface translation"
+                            description="Translates the interface with Mozilla's local translation engine. The language model is downloaded once, then everything runs offline. Game titles, tags, descriptions and names stay untranslated. The web UI uses the browser's own translation instead."
+                          />
+                          <InterfaceTranslationControl />
+                        </SettingsRow>
+                      </SettingsGroup>
+                    )}
 
                     {webkitSupported && renderingDiagnostics?.webkit && (
                       <SettingsGroup

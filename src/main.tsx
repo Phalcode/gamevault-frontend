@@ -5,6 +5,7 @@ import { MotionConfig } from "motion/react";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
 import DeepLinkHandler from "./components/DeepLinkHandler";
+import InterfaceTranslationBoot from "./components/InterfaceTranslationBoot";
 import { PageLoader } from "./components/PageLoader";
 import { PrereleaseNotice } from "./components/PrereleaseNotice";
 import { ServerVersionNotice } from "./components/ServerVersionNotice";
@@ -88,12 +89,11 @@ if (isLaunchLogWindow) {
   void applyZoom(getStoredZoom());
   void startMediaCacheMaintenance();
 
-  // Reflect the user's locale on <html> so native form controls (e.g. the
-  // <input type="date"> filters) render dates in the locale the computer uses
-  // instead of the statically-declared "en".
-  if (typeof document !== "undefined" && typeof navigator !== "undefined") {
-    document.documentElement.lang = navigator.language || "en";
-  }
+  // Keep `<html lang="en" translate="yes">` as declared in index.html. The UI
+  // is English, and pretending to be the system language stops browsers from
+  // offering their built-in translation. Dates and numbers are formatted with
+  // the runtime locale via `toLocale*`, which does not depend on this
+  // attribute.
 
   (window as any).global = window;
 
@@ -145,6 +145,7 @@ if (isLaunchLogWindow) {
                         <ServerVersionNotice />
                         <BrowserRouter>
                           <DeepLinkHandler />
+                          <InterfaceTranslationBoot />
                           <GamepadProvider>
                             <Suspense fallback={<PageLoader />}>
                               <Routes>

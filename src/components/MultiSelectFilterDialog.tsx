@@ -284,7 +284,7 @@ export default function MultiSelectFilterDialog({
                   color={badgeColor}
                   className="cursor-pointer flex items-center gap-1"
                 >
-                  {item.name}
+                  <span translate="no">{item.name}</span>
                   <button
                     type="button"
                     onClick={() => removeItem(item)}
@@ -340,7 +340,7 @@ export default function MultiSelectFilterDialog({
                     }`}
                   >
                     <span className="flex items-center justify-between">
-                      {item.name}
+                      <span translate="no">{item.name}</span>
                       {isSelected(item) && (
                         <svg
                           className={`h-4 w-4 ${colors.check}`}

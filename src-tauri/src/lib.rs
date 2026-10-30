@@ -17,6 +17,7 @@ mod fs_commands;
 mod time_tracker;
 mod cache;
 mod settings;
+mod bergamot_models;
 mod secure_store;
 mod net;
 mod youtube;
@@ -683,6 +684,13 @@ pub fn run() {
       settings::set_default_wine_prefix,
       settings::get_prerelease_notice_channel,
       settings::set_prerelease_notice_channel,
+      settings::get_interface_translation_language,
+      settings::set_interface_translation_language,
+      bergamot_models::bergamot_model_status,
+      bergamot_models::read_bergamot_model_plan,
+      bergamot_models::read_bergamot_model_file,
+      bergamot_models::download_bergamot_model,
+      bergamot_models::delete_bergamot_model,
       settings::get_always_show_launch_logs,
       settings::set_always_show_launch_logs,
       settings::get_diagnostics_verbose,

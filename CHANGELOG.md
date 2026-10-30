@@ -1,5 +1,16 @@
 # GameVault Frontend Changelog
 
+## 17.2.0
+
+### Changes
+
+- [#154](https://github.com/Phalcode/gamevault-app/issues/154) The desktop app can translate its interface locally under Settings → Appearance → Interface translation, using Mozilla's translation engine. A language model is downloaded once, then everything works offline and no text leaves the computer. Game titles, tags, descriptions and user names stay untranslated, and descriptions and notes get a small translate button.
+- The web UI now declares itself as English and translatable, so browsers offer their own translation again instead of assuming the page already matches the system language.
+
+### Thanks
+
+- @RJSkudra
+
 ## 17.1.1
 
 ### Changes

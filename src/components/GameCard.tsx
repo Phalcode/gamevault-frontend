@@ -633,6 +633,7 @@ const GameCard = memo(function GameCard({
             <h3
               className="truncate text-sm font-semibold tracking-[-0.02em] text-gv-text"
               title={localGame.metadata?.title || localGame.title}
+              translate="no"
             >
               {localGame.metadata?.title || localGame.title}
             </h3>

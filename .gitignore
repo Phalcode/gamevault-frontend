@@ -34,3 +34,6 @@ src-tauri/tauri.release.generated.json
 # React Router
 /.react-router/
 /build/
+
+# Generated Bergamot engine (scripts/copy-bergamot-engine.mjs)
+public/bergamot-engine/

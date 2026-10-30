@@ -64,6 +64,11 @@ pub(crate) struct AppSettings {
   /// reloaded (the frozen UI cannot report it) and read once on the next boot.
   #[serde(default)]
   pub watchdog_recovery_at: Option<u64>,
+  /// Language the desktop interface is machine-translated into (`None` = off,
+  /// English). Kept here instead of the webview's localStorage because the
+  /// installer clears that folder on updates.
+  #[serde(default)]
+  pub interface_translation_language: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -270,10 +275,31 @@ pub(crate) async fn set_prerelease_notice_channel(
   save_settings(&app, &settings)
 }
 
+/// Language the desktop interface is translated into, or `None` when the
+/// translation is off.
+#[tauri::command]
+pub(crate) async fn get_interface_translation_language(app: tauri::AppHandle) -> Option<String> {
+  load_settings(&app).interface_translation_language
+}
+/// Stores the interface translation language. `None` and `"off"` both disable
+/// the translation and are stored as `None`.
+#[tauri::command]
+pub(crate) async fn set_interface_translation_language(
+  app: tauri::AppHandle,
+  language: Option<String>,
+) -> Result<(), String> {
+  let mut settings = load_settings(&app);
+  settings.interface_translation_language = language
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty() && value != "off");
+  save_settings(&app, &settings)
+}
+
 #[tauri::command]
 pub(crate) async fn get_default_wine_prefix(app: tauri::AppHandle) -> Option<String> {
   load_settings(&app).default_wine_prefix
 }
+
 #[tauri::command]
 pub(crate) async fn set_default_wine_prefix(
   app: tauri::AppHandle,
