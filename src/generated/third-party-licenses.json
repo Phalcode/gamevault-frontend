@@ -1,9 +1,281 @@
 {
-  "generatedAt": "2026-08-23T14:50:45.012Z",
+  "generatedAt": "2026-10-30T14:55:56.016Z",
   "packages": [
     {
+      "name": "@browsermt/bergamot-translator",
+      "version": "0.4.9",
+      "licenses": "MPL-2.0",
+      "repository": "https://github.com/browsermt/bergamot-translator",
+      "url": null,
+      "licenseText": "# Installation\n\n```bash\nnpm install @browsermt/bergamot-translator\n```\n\n# Quick start\n\n```js\nimport {BatchTranslator} from \"@browsermt/bergamot-translator/translator.js\";\n\nconst translator = new BatchTranslator();\n\nconst response = await translator.translate({\n  from: \"en\",\n  to: \"es\",\n  text: \"Hello <em>world</em>!\",\n  html: true\n});\n\nconsole.log(response.target.text);\n\n// Stops worker threads\ntranslator.delete();\n```\n\n# Throughput vs Latency\n\nThis package comes with two translator implementations:\n\n- [LatencyOptimisedTranslator](#latencyoptimisedtranslator) is more useful for an interactive session, say like Google Translate, where you're only working on translating one input at a time.\n- [BatchTranslator](#batchtranslator) is optimised for processing a large number of translations as fast as possible (but individual translations might take some time), e.g. translating a large number of strings or all paragraphs in a document.\n\n## LantencyOptimisedTranslator\n\nTranslator best suited for interactive usage. Runs with a single worker thread and a batch-size of 1 to give you a response as quickly as possible. It will cancel any pending translations that aren't currently being processed if you submit a new one.\n\n```js\nconst translator = new LatencyOptimisedTranslator({\n  pivotLanguage?: string?,\n  registryUrl?: string,\n  workerUrl?: string,\n  downloadTimeout?: number,\n  cacheSize?: number,\n  useNativeIntGemm?: boolean,\n})\n```\n\n- `pivotLanguage` - language code for the language to use as an intermediate if there is no direct translation model available. Defaults to `\"en\"`. Set to `null` to disable pivoting.\n- `registryUrl` - url to a list of models and their paths. Defaults to `https://storage.googleapis.com/bergamot-models-sandbox/0.3.3/registry.json`.\n- `workerUrl` - url to `translator-worker.js`. Defaults to `\"worker/translator-worker.js\"` relative to the path of `translator.js`.\n- `downloadTimeout` - Maximum time we're attempting to download model files before failing. Defaults to `60000` or 60 seconds. Set to `0` to disable.\n- `cacheSize` - Maximum number of sentences in kept translation cache (per worker, workers do not share their cache). This is an ideal maximum as it is a hash-map, in practice about 1/3th is occupied. If set to `0`, translation cache is disabled (the default).\n- `useNativeIntGemm` - Try to link to native IntGEMM implementation when loading the WASM binary. This is only implemented in the privileged extension context of Firefox Nightly. If it fails, it will always fall back to the included implementation. Defaults to `false`.\n\n### translate()\n\n```js\nconst {request, target: {text:string}} = await translator.translate({\n  from: string,\n  to: string,\n  text: string,\n  html?: boolean,\n  qualityScores?: boolean\n})\n```\n\nSubmits a translation request. Multiple of these are processed in a batch. A batch will be started the next tick (if there is a worker available).\n\n- `from` - language code of the source language, e.g. `\"de\"`\n- `to` - language code of the target language, e.g. `\"en\"`\n- `text` - string of text to translate, e.g. `\"Hallo Welt!\"`\n- `html` - boolean indicating whether `text` contains just plain text or HTML\n- `qualityScores` - whether to calculate quality scores. Not all models support this, and you need to load a separate quality scores model file for it. Quality scores are returned as `<font x-bergamot-sentence-quality=\"\">` and `<font x-bergamot-word-quality=\"\">` wrapped around sentences and words in the output. When enabled, the output is always HTML, regardless of whether the input was.\n\nReturns:\n\nA promise to a translation response object, with `target.text` being the text or HTML of the translated output, and `request` a reference to the original translation request.\n\n### delete()\n\n```js\ntranslator.delete()\n```\n\nCancels all pending requests with a `CancelledError` and terminates the worker immediately. This will free all the resources used.\n\nIn a nodejs context you'll need to call this, otherwise your script won't exit because the translator will still be listening for messages from the worker.\n\n## BatchTranslator\n\n```js\nconst translator = new BatchTranslator({\n  pivotLanguage?: string?,\n  registryUrl?: string,\n  workerUrl?: string,\n  downloadTimeout?: number,\n  cacheSize?: number,\n  useNativeIntGemm?: boolean,\n  workers?: number,\n  batchSize?: number,\n})\n```\n\nGeneral translator options:\n\nSee [LatencyOptimisedTranslator](#latencyoptimisedtranslator).\n\nBatchTranslator-specific options:\n\n- `workers` - Number of worker threads. These are full-on instances of the translator, with their own copy of the model loaded. This is an upper bound. If not that many workers can be fed, it won't create new ones. Minimally 1. Default is `1`.\n- `batchSize` - Number of translation requests per batch. All sentences from all translation requests are packed into a bunch of matrix operations. With a larger batch size the translator has more material to find ideal sets of sentences for filling the matrix. However, you'll only get the results for each of the requests in a batch once the whole batch is finished. Defaults to 8.\n\n### translate()\n\n```js\nconst {target: {text:string}} = await translator.translate({\n  from: string,\n  to: string,\n  text: string,\n  html?: boolean,\n  qualityScores?: boolean,\n  priority?: number\n})\n```\n\nSubmits a translation request. Multiple of these are processed in a batch. A batch will be started the next tick (if there is a worker available).\n\n- (See [LatencyOptimisedTranslator.translate()](#translate) for most options)\n- `priority` - When grouping translation requests into batches to give to workers, requests with a lower number are considered first. For example, if you're translating a web page, you can give requests of parts that are in the current frame a lower number to make sure they're processed first.\n\n### remove()\n\n```js\ntranslator.remove(request => {\n  // true deletes the request from the queue.\n  return true;\n})\n```\n\nRemoves requests from the translation queue, i.e. only when they haven't been sent to a worker yet.\n\nThe filter function should return true-ish for each request that should be cancelled. Their promises are rejected with a `CancelledError` error.\n\n\n### delete()\n\n```js\ntranslator.delete()\n```\n\nCancels all pending requests with a `CancelledError` and terminates all workers immediately. This will free all the resources used.\n\n\n# Models\n\nBoth translators accept a `backing` option, which tells it where to get model data and the translation engine implementation from. They default to using `BergamotTranslator` which gets its models from the same repository as [firefox-translations](https://github.com/mozilla/firefox-translations).\n\nTo customize the model, reimplement the `loadModelRegistry` and `loadTranslationModel` methods.\n\n`loadModelRegistry()` has the hard requirement to return a promise to a list that looks like `{from: string, to: string, ...}[]`. The `from` and `to` keys are used as key for model selection.\n\n`loadTranslationModel()` should return a promise with ArrayBuffers for `model`, `shortlist`, `vocabs`, and optionally `qualityModel`. It can include a `config` object as well.\n\nExample of an alternative implementation that loads models from data.statmt.org, i.e. the same as [translateLocally](https://translateLocally.com):\n\n```js\nclass CustomBacking extends TranslatorBacking {\n    async loadModelRegistery() {\n        const response = await fetch('https://translatelocally.com/models.json');\n        const {models} = await response.json();\n\n        // Add 'from' and 'to' keys for each model. Since theoretically a model\n        // can have multiple froms keys in TranslateLocally, we do a little\n        // product here.\n        return models.reduce((list, model) => {\n            try {\n                const to = first(Intl.getCanonicalLocales(model.trgTag));\n                for (let from of Intl.getCanonicalLocales(Object.keys(model.srcTags))) {\n                    list.push({from, to, model});\n                }\n            } catch (err) {\n                console.log('Skipped model', model, 'because', err);\n            }\n\n            return list;\n        }, []);\n    }\n\n    async loadTranslationModel({from, to}) {\n        // Find that model in the registry which will tell us about its files\n        const entries = (await this.registry).filter(model => model.from === from && model.to === to);\n\n        // Prefer tiny models above non-tiny ones\n        entries.sort(({model: a}, {model: b}) => (a.shortName.indexOf('tiny') === -1 ? 1 : 0) - (b.shortName.indexOf('tiny') === -1 ? 1 : 0));\n\n        if (!entries)\n            throw new Error(`No model for '${from}' -> '${to}'`);\n\n        const entry = entries[0].model;\n\n        const response = await fetch(entry.url, {\n            integrity: `sha256-${entry.checksum}`\n        });\n\n        // pako from https://www.npmjs.com/package/pako\n        const archive = pako.inflate(await response.arrayBuffer());\n\n        // untar from https://www.npmjs.com/package/js-untar\n        const files = await untar(archive.buffer);\n\n        const find = (filename) => {\n            const found = files.find(file => file.name.match(/(?:^|\\/)([^\\/]+)$/)[1] === filename)\n            if (found === undefined)\n                throw new Error(`Could not find '${filename}' in model archive`);\n            return found;\n        };\n\n        // YAML.parse is found in worker/translator-worker.js\n        const config = YAML.parse(find('config.intgemm8bitalpha.yml').readAsString());\n\n        const model = find(config.models[0]).buffer;\n\n        const vocabs = config.vocabs.map(vocab => find(vocab).buffer);\n\n        const shortlist = find(config.shortlist[0]).buffer;\n\n        // Return the buffers\n        return {model, vocabs, shortlist, config};\n    }\n}\n\nconst translator = new BatchTranslator(options, new CustomBacking(options));\n```\n\n# Supported languages\n\nSee https://github.com/mozilla/firefox-translations-models#currently-supported-languages. You may need to set the `registryUrl` option to point to the latest release."
+    },
+    {
+      "name": "@dicebear/adventurer",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Adventurer (https://www.figma.com/community/file/1184595184137881796)\nDesigner: Lisa Wischofsky (https://www.instagram.com/lischi_art/)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/adventurer-neutral",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Adventurer Neutral (https://www.figma.com/community/file/1184595184137881796)\nDesigner: Lisa Wischofsky (https://www.instagram.com/lischi_art/)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/avataaars",
+      "version": "9.4.2",
+      "licenses": "MIT*",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Avataaars (https://avataaars.com/)\nDesigner: Pablo Stanley (https://twitter.com/pablostanley)\nLicense: Free for personal and commercial use (https://avataaars.com/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/avataaars-neutral",
+      "version": "9.4.2",
+      "licenses": "MIT*",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Avataaars (https://avataaars.com/)\nDesigner: Pablo Stanley (https://twitter.com/pablostanley)\nLicense: Free for personal and commercial use. (https://avataaars.com/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/big-ears",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Face Generator (https://www.figma.com/community/file/986078800058673824)\nDesigner: The Visual Team (https://thevisual.team/)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/big-ears-neutral",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Face Generator (https://www.figma.com/community/file/986078800058673824)\nDesigner: The Visual Team (https://thevisual.team/)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/big-smile",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Custom Avatar (https://www.figma.com/community/file/881358461963645496)\nDesigner: Ashley Seo (http://www.ashleyseo.com/)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/bottts",
+      "version": "9.4.2",
+      "licenses": "MIT*",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Bottts (https://bottts.com/)\nDesigner: Pablo Stanley (https://twitter.com/pablostanley)\nLicense: Free for personal and commercial use (https://bottts.com/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/bottts-neutral",
+      "version": "9.4.2",
+      "licenses": "MIT*",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Bottts (https://bottts.com/)\nDesigner: Pablo Stanley (https://twitter.com/pablostanley)\nLicense: Free for personal and commercial use (https://bottts.com/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/collection",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "MIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/core",
+      "version": "9.4.3",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "MIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/croodles",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Croodles - Doodle your face (https://www.figma.com/community/file/966199982810283152)\nDesigner: vijay verma (https://vjy.me/)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/croodles-neutral",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Croodles - Doodle your face (https://www.figma.com/community/file/966199982810283152)\nDesigner: vijay verma (https://vjy.me/)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/dylan",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Dylan! The Avatar Generator (https://www.figma.com/community/file/1356575240759683500)\nDesigner: Natalia Spivak (https://nataspvk.tilda.ws/)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/fun-emoji",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Fun Emoji Set (https://www.figma.com/community/file/968125295144990435)\nDesigner: Davis Uche (https://www.instagram.com/davedirect3/)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/glass",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Glass (https://www.dicebear.com)\nDesigner: DiceBear (https://www.dicebear.com)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/icons",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "MIT License\n\nCopyright (c) 2024 Florian Körner\nCopyright (c) 2019-2024 The Bootstrap Authors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/identicon",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Identicon (https://www.dicebear.com)\nDesigner: DiceBear (https://www.dicebear.com)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/initials",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "MIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/lorelei",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Lorelei (https://www.figma.com/community/file/1198749693280469639)\nDesigner: Lisa Wischofsky (https://www.instagram.com/lischi_art/)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/lorelei-neutral",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Lorelei Neutral (https://www.figma.com/community/file/1198749693280469639)\nDesigner: Lisa Wischofsky (https://www.instagram.com/lischi_art/)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/micah",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Avatar Illustration System (https://www.figma.com/community/file/829741575478342595)\nDesigner: Micah Lanier (https://dribbble.com/micahlanier)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/miniavs",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Miniavs - Free Avatar Creator (https://www.figma.com/community/file/923211396597067458)\nDesigner: Webpixels (https://webpixels.io/)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/notionists",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Notionists (https://heyzoish.gumroad.com/l/notionists)\nDesigner: Zoish (https://bio.link/heyzoish)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/notionists-neutral",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Notionists (https://heyzoish.gumroad.com/l/notionists)\nDesigner: Zoish (https://bio.link/heyzoish)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/open-peeps",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Open Peeps (https://www.openpeeps.com/)\nDesigner: Pablo Stanley (https://twitter.com/pablostanley)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/personas",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Personas by Draftbit (https://personas.draftbit.com/)\nDesigner: Draftbit - draftbit.com (https://draftbit.com/)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/pixel-art",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Pixel Art (https://www.figma.com/community/file/1198754108850888330)\nDesigner: DiceBear (https://www.dicebear.com)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/pixel-art-neutral",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Pixel Art Neutral (https://www.figma.com/community/file/1198754108850888330)\nDesigner: DiceBear (https://www.dicebear.com)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/rings",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Rings (https://www.dicebear.com)\nDesigner: DiceBear (https://www.dicebear.com)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/shapes",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Shapes (https://www.dicebear.com)\nDesigner: DiceBear (https://www.dicebear.com)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/thumbs",
+      "version": "9.4.2",
+      "licenses": "MIT",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: Thumbs (https://www.dicebear.com)\nDesigner: DiceBear (https://www.dicebear.com)\nLicense: CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2024 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "name": "@dicebear/toon-head",
+      "version": "9.4.2",
+      "licenses": "(MIT AND CC-BY-4.0)",
+      "repository": "https://github.com/dicebear/dicebear",
+      "url": null,
+      "licenseText": "Licenses\n--------\n\n# Design\nApplies to all design files in this package.\n\nSource: ToonHead (https://www.figma.com/community/file/1589627891082866389)\nDesigner: Johan Melin (https://www.johanmelin.com)\nLicense: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)\n\n# Code\nApplies to all non-design files in this package.\n\nMIT License\n\nCopyright (c) 2026 Florian Körner\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
       "name": "@floating-ui/core",
-      "version": "1.7.5",
+      "version": "1.8.0",
       "licenses": "MIT",
       "repository": "https://github.com/floating-ui/floating-ui",
       "url": null,
@@ -11,7 +283,7 @@
     },
     {
       "name": "@floating-ui/dom",
-      "version": "1.7.6",
+      "version": "1.8.0",
       "licenses": "MIT",
       "repository": "https://github.com/floating-ui/floating-ui",
       "url": null,
@@ -27,7 +299,7 @@
     },
     {
       "name": "@floating-ui/react-dom",
-      "version": "2.1.8",
+      "version": "2.1.9",
       "licenses": "MIT",
       "repository": "https://github.com/floating-ui/floating-ui",
       "url": null,
@@ -35,7 +307,7 @@
     },
     {
       "name": "@floating-ui/utils",
-      "version": "0.2.11",
+      "version": "0.2.12",
       "licenses": "MIT",
       "repository": "https://github.com/floating-ui/floating-ui",
       "url": null,
@@ -59,7 +331,7 @@
     },
     {
       "name": "@internationalized/date",
-      "version": "3.12.1",
+      "version": "3.12.4",
       "licenses": "Apache-2.0",
       "repository": "https://github.com/adobe/react-spectrum.git#main",
       "url": null,
@@ -67,7 +339,7 @@
     },
     {
       "name": "@internationalized/number",
-      "version": "3.6.6",
+      "version": "3.6.8",
       "licenses": "Apache-2.0",
       "repository": "https://github.com/adobe/react-spectrum",
       "url": null,
@@ -75,7 +347,7 @@
     },
     {
       "name": "@internationalized/string",
-      "version": "3.2.8",
+      "version": "3.2.10",
       "licenses": "Apache-2.0",
       "repository": "https://github.com/adobe/react-spectrum",
       "url": null,
@@ -107,7 +379,7 @@
     },
     {
       "name": "@jridgewell/sourcemap-codec",
-      "version": "1.5.5",
+      "version": "1.6.0",
       "licenses": "MIT",
       "repository": "https://github.com/jridgewell/sourcemaps",
       "url": null,
@@ -123,7 +395,7 @@
     },
     {
       "name": "@oxc-project/types",
-      "version": "0.146.0",
+      "version": "0.148.0",
       "licenses": "MIT",
       "repository": "https://github.com/oxc-project/oxc",
       "url": null,
@@ -131,7 +403,7 @@
     },
     {
       "name": "@react-aria/focus",
-      "version": "3.22.0",
+      "version": "3.22.1",
       "licenses": "Apache-2.0",
       "repository": "https://github.com/adobe/react-spectrum",
       "url": null,
@@ -139,7 +411,7 @@
     },
     {
       "name": "@react-aria/interactions",
-      "version": "3.28.0",
+      "version": "3.28.1",
       "licenses": "Apache-2.0",
       "repository": "https://github.com/adobe/react-spectrum",
       "url": null,
@@ -147,7 +419,7 @@
     },
     {
       "name": "@react-types/shared",
-      "version": "3.34.0",
+      "version": "3.36.1",
       "licenses": "Apache-2.0",
       "repository": "https://github.com/adobe/react-spectrum",
       "url": null,
@@ -187,7 +459,7 @@
     },
     {
       "name": "@swc/helpers",
-      "version": "0.5.21",
+      "version": "0.5.23",
       "licenses": "Apache-2.0",
       "repository": "https://github.com/swc-project/swc",
       "url": null,
@@ -219,7 +491,7 @@
     },
     {
       "name": "@tanstack/react-virtual",
-      "version": "3.13.24",
+      "version": "3.14.10",
       "licenses": "MIT",
       "repository": "https://github.com/TanStack/virtual",
       "url": null,
@@ -227,7 +499,7 @@
     },
     {
       "name": "@tanstack/virtual-core",
-      "version": "3.14.0",
+      "version": "3.17.8",
       "licenses": "MIT",
       "repository": "https://github.com/TanStack/virtual",
       "url": null,
@@ -235,15 +507,23 @@
     },
     {
       "name": "@tauri-apps/api",
-      "version": "2.11.1",
+      "version": "2.12.4",
       "licenses": "Apache-2.0 OR MIT",
       "repository": "https://github.com/tauri-apps/tauri",
       "url": null,
-      "licenseText": "# @tauri-apps/api\n\n <img align=\"right\" src=\"https://github.com/tauri-apps/tauri/raw/dev/.github/icon.png\" height=\"128\" width=\"128\">\n\n[![status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/tauri-apps/tauri/tree/dev)\n[![License](https://img.shields.io/badge/License-MIT%20or%20Apache%202-green.svg)](https://opencollective.com/tauri)\n[![lint js](https://img.shields.io/github/actions/workflow/status/tauri-apps/tauri/lint-js.yml?label=lint%20js&logo=github)](https://github.com/tauri-apps/tauri/actions/workflows/lint-js.yml)\n[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftauri-apps%2Ftauri.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftauri-apps%2Ftauri?ref=badge_shield)\n[![Chat Server](https://img.shields.io/badge/chat-discord-7289da.svg)](https://discord.gg/SpmNs4S)\n[![website](https://img.shields.io/badge/website-tauri.app-purple.svg)](https://tauri.app)\n[![https://good-labs.github.io/greater-good-affirmation/assets/images/badge.svg](https://good-labs.github.io/greater-good-affirmation/assets/images/badge.svg)](https://good-labs.github.io/greater-good-affirmation)\n[![support](https://img.shields.io/badge/sponsor-Open%20Collective-blue.svg)](https://opencollective.com/tauri)\n\n| Component       | Version                                               |\n| --------------- | ----------------------------------------------------- |\n| @tauri-apps/api | ![](https://img.shields.io/npm/v/@tauri-apps/api.svg) |\n\n## About Tauri\n\nTauri is a polyglot and generic system that is very composable and allows engineers to make a wide variety of applications. It is used for building applications for Desktop Computers using a combination of Rust tools and HTML rendered in a Webview. Apps built with Tauri can ship with any number of pieces of an optional JS API / Rust API so that webviews can control the system via message passing. In fact, developers can extend the default API with their own functionality and bridge the Webview and Rust-based backend easily.\n\nTauri apps can have custom menus and have tray-type interfaces. They can be updated, and are managed by the user's operating system as expected. They are very small, because they use the system's webview. They do not ship a runtime, since the final binary is compiled from rust. This makes the reversing of Tauri apps not a trivial task.\n\n## This module\n\nThis is a typescript library that creates `cjs` and `esm` JavaScript endpoints for you to import into your Frontend framework so that the Webview can call and listen to backend activity. We also ship the pure typescript, because for some frameworks this is more optimal. It uses the message passing of webviews to their hosts.\n\nTo learn more about the details of how all of these pieces fit together, please consult this [ARCHITECTURE.md](https://github.com/tauri-apps/tauri/blob/dev/ARCHITECTURE.md) document.\n\n## Installation\n\nThe preferred method is to install this module locally as a dependency:\n\n```\n$ pnpm add @tauri-apps/api\n$ yarn add @tauri-apps/api\n$ npm add @tauri-apps/api\n```\n\n## Semver\n\n**tauri** is following [Semantic Versioning 2.0](https://semver.org/).\n\n## Licenses\n\nCode: (c) 2019 - 2021 - The Tauri Programme within The Commons Conservancy.\n\nMIT or MIT/Apache 2.0 where applicable.\n\nLogo: CC-BY-NC-ND\n\n- Original Tauri Logo Designs by [Daniel Thompson-Yvetot](https://github.com/nothingismagick) and [Guillaume Chau](https://github.com/akryum)\n"
+      "licenseText": "SPDXVersion: SPDX-2.1\nDataLicense: CC0-1.0\nPackageName: tauri\nDataFormat: SPDXRef-1\nPackageSupplier: Organization: The Tauri Programme in the Commons Conservancy\nPackageHomePage: https://tauri.app\nPackageLicenseDeclared: Apache-2.0\nPackageLicenseDeclared: MIT\nPackageCopyrightText: 2019-2025, The Tauri Programme in the Commons Conservancy\nPackageSummary: <text>Tauri is a rust project that enables developers to make secure\nand small desktop applications using a web frontend.\n                </text>\nPackageComment: <text>The package includes the following libraries; see\nRelationship information.\n                </text>\nCreated: 2019-05-20T09:00:00Z\nPackageDownloadLocation: git://github.com/tauri-apps/tauri\nPackageDownloadLocation: git+https://github.com/tauri-apps/tauri.git\nPackageDownloadLocation: git+ssh://github.com/tauri-apps/tauri.git\nCreator: Person: Daniel Thompson-Yvetot\n"
     },
     {
       "name": "@tauri-apps/plugin-autostart",
-      "version": "2.5.1",
+      "version": "2.7.0",
+      "licenses": "MIT OR Apache-2.0",
+      "repository": "https://github.com/tauri-apps/plugins-workspace",
+      "url": null,
+      "licenseText": "SPDXVersion: SPDX-2.1\nDataLicense: CC0-1.0\nPackageName: tauri\nDataFormat: SPDXRef-1\nPackageSupplier: Organization: The Tauri Programme in the Commons Conservancy\nPackageHomePage: https://tauri.app\nPackageLicenseDeclared: Apache-2.0\nPackageLicenseDeclared: MIT\nPackageCopyrightText: 2019-2022, The Tauri Programme in the Commons Conservancy\nPackageSummary: <text>Tauri is a rust project that enables developers to make secure\nand small desktop applications using a web frontend.\n                </text>\nPackageComment: <text>The package includes the following libraries; see\nRelationship information.\n                </text>\nCreated: 2019-05-20T09:00:00Z\nPackageDownloadLocation: git://github.com/tauri-apps/tauri\nPackageDownloadLocation: git+https://github.com/tauri-apps/tauri.git\nPackageDownloadLocation: git+ssh://github.com/tauri-apps/tauri.git\nCreator: Person: Daniel Thompson-Yvetot"
+    },
+    {
+      "name": "@tauri-apps/plugin-deep-link",
+      "version": "2.6.2",
       "licenses": "MIT OR Apache-2.0",
       "repository": "https://github.com/tauri-apps/plugins-workspace",
       "url": null,
@@ -251,7 +531,7 @@
     },
     {
       "name": "@tauri-apps/plugin-dialog",
-      "version": "2.7.2",
+      "version": "2.8.3",
       "licenses": "MIT OR Apache-2.0",
       "repository": "https://github.com/tauri-apps/plugins-workspace",
       "url": null,
@@ -259,7 +539,15 @@
     },
     {
       "name": "@tauri-apps/plugin-fs",
-      "version": "2.5.1",
+      "version": "2.7.1",
+      "licenses": "MIT OR Apache-2.0",
+      "repository": "https://github.com/tauri-apps/plugins-workspace",
+      "url": null,
+      "licenseText": "SPDXVersion: SPDX-2.1\nDataLicense: CC0-1.0\nPackageName: tauri\nDataFormat: SPDXRef-1\nPackageSupplier: Organization: The Tauri Programme in the Commons Conservancy\nPackageHomePage: https://tauri.app\nPackageLicenseDeclared: Apache-2.0\nPackageLicenseDeclared: MIT\nPackageCopyrightText: 2019-2022, The Tauri Programme in the Commons Conservancy\nPackageSummary: <text>Tauri is a rust project that enables developers to make secure\nand small desktop applications using a web frontend.\n                </text>\nPackageComment: <text>The package includes the following libraries; see\nRelationship information.\n                </text>\nCreated: 2019-05-20T09:00:00Z\nPackageDownloadLocation: git://github.com/tauri-apps/tauri\nPackageDownloadLocation: git+https://github.com/tauri-apps/tauri.git\nPackageDownloadLocation: git+ssh://github.com/tauri-apps/tauri.git\nCreator: Person: Daniel Thompson-Yvetot"
+    },
+    {
+      "name": "@tauri-apps/plugin-stronghold",
+      "version": "2.4.0",
       "licenses": "MIT OR Apache-2.0",
       "repository": "https://github.com/tauri-apps/plugins-workspace",
       "url": null,
@@ -267,7 +555,7 @@
     },
     {
       "name": "@tauri-apps/plugin-updater",
-      "version": "2.10.1",
+      "version": "2.14.0",
       "licenses": "MIT OR Apache-2.0",
       "repository": "https://github.com/tauri-apps/plugins-workspace",
       "url": null,
@@ -291,7 +579,7 @@
     },
     {
       "name": "@types/estree",
-      "version": "1.0.8",
+      "version": "1.0.9",
       "licenses": "MIT",
       "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped",
       "url": null,
@@ -307,7 +595,15 @@
     },
     {
       "name": "@types/hast",
-      "version": "3.0.4",
+      "version": "3.0.5",
+      "licenses": "MIT",
+      "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped",
+      "url": null,
+      "licenseText": "    MIT License\n\n    Copyright (c) Microsoft Corporation.\n\n    Permission is hereby granted, free of charge, to any person obtaining a copy\n    of this software and associated documentation files (the \"Software\"), to deal\n    in the Software without restriction, including without limitation the rights\n    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n    copies of the Software, and to permit persons to whom the Software is\n    furnished to do so, subject to the following conditions:\n\n    The above copyright notice and this permission notice shall be included in all\n    copies or substantial portions of the Software.\n\n    THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n    SOFTWARE\n"
+    },
+    {
+      "name": "@types/json-schema",
+      "version": "7.0.15",
       "licenses": "MIT",
       "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped",
       "url": null,
@@ -331,7 +627,7 @@
     },
     {
       "name": "@types/node",
-      "version": "20.19.39",
+      "version": "20.19.43",
       "licenses": "MIT",
       "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped",
       "url": null,
@@ -363,7 +659,7 @@
     },
     {
       "name": "@ungap/structured-clone",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "licenses": "ISC",
       "repository": "https://github.com/ungap/structured-clone",
       "url": null,
@@ -563,7 +859,7 @@
     },
     {
       "name": "framer-motion",
-      "version": "13.1.1",
+      "version": "13.2.0",
       "licenses": "MIT",
       "repository": "https://github.com/motiondivision/motion",
       "url": null,
@@ -571,7 +867,7 @@
     },
     {
       "name": "gamevault-frontend",
-      "version": "17.0.0",
+      "version": "17.2.0",
       "licenses": "UNLICENSED",
       "repository": null,
       "url": null,
@@ -947,7 +1243,7 @@
     },
     {
       "name": "motion",
-      "version": "13.1.1",
+      "version": "13.2.0",
       "licenses": "MIT",
       "repository": "https://github.com/motiondivision/motion",
       "url": null,
@@ -955,7 +1251,7 @@
     },
     {
       "name": "motion-dom",
-      "version": "13.1.1",
+      "version": "13.2.0",
       "licenses": "MIT",
       "repository": "https://github.com/motiondivision/motion",
       "url": null,
@@ -976,14 +1272,6 @@
       "repository": "https://github.com/vercel/ms",
       "url": null,
       "licenseText": "The MIT License (MIT)\n\nCopyright (c) 2020 Vercel, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
-    },
-    {
-      "name": "nanoid",
-      "version": "3.3.12",
-      "licenses": "MIT",
-      "repository": "https://github.com/ai/nanoid",
-      "url": null,
-      "licenseText": "The MIT License (MIT)\n\nCopyright 2017 Andrey Sitnik <andrey@sitnik.ru>\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of\nthis software and associated documentation files (the \"Software\"), to deal in\nthe Software without restriction, including without limitation the rights to\nuse, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software is furnished to do so,\nsubject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS\nFOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR\nCOPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER\nIN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN\nCONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n"
     },
     {
       "name": "nanoid",
@@ -1011,7 +1299,7 @@
     },
     {
       "name": "picomatch",
-      "version": "4.0.5",
+      "version": "4.0.7",
       "licenses": "MIT",
       "repository": "https://github.com/micromatch/picomatch",
       "url": null,
@@ -1019,15 +1307,7 @@
     },
     {
       "name": "postcss",
-      "version": "8.5.13",
-      "licenses": "MIT",
-      "repository": "https://github.com/postcss/postcss",
-      "url": null,
-      "licenseText": "The MIT License (MIT)\n\nCopyright 2013 Andrey Sitnik <andrey@sitnik.es>\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of\nthis software and associated documentation files (the \"Software\"), to deal in\nthe Software without restriction, including without limitation the rights to\nuse, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software is furnished to do so,\nsubject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS\nFOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR\nCOPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER\nIN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN\nCONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n"
-    },
-    {
-      "name": "postcss",
-      "version": "8.5.26",
+      "version": "8.5.28",
       "licenses": "MIT",
       "repository": "https://github.com/postcss/postcss",
       "url": null,
@@ -1035,7 +1315,7 @@
     },
     {
       "name": "property-information",
-      "version": "7.1.0",
+      "version": "7.2.0",
       "licenses": "MIT",
       "repository": "https://github.com/wooorm/property-information",
       "url": null,
@@ -1051,7 +1331,7 @@
     },
     {
       "name": "react-aria",
-      "version": "3.48.0",
+      "version": "3.52.1",
       "licenses": "Apache-2.0",
       "repository": "https://github.com/adobe/react-spectrum",
       "url": null,
@@ -1075,7 +1355,7 @@
     },
     {
       "name": "react-router",
-      "version": "8.3.0",
+      "version": "8.3.1",
       "licenses": "MIT",
       "repository": "https://github.com/remix-run/react-router",
       "url": null,
@@ -1083,7 +1363,7 @@
     },
     {
       "name": "react-stately",
-      "version": "3.46.0",
+      "version": "3.50.0",
       "licenses": "Apache-2.0",
       "repository": "https://github.com/adobe/react-spectrum",
       "url": null,
@@ -1107,7 +1387,7 @@
     },
     {
       "name": "rolldown",
-      "version": "1.2.5",
+      "version": "1.2.7",
       "licenses": "MIT",
       "repository": "https://github.com/rolldown/rolldown",
       "url": null,
@@ -1187,7 +1467,7 @@
     },
     {
       "name": "swetrix",
-      "version": "4.5.0",
+      "version": "4.6.1",
       "licenses": "MIT",
       "repository": "https://github.com/Swetrix/swetrix",
       "url": null,
@@ -1195,7 +1475,7 @@
     },
     {
       "name": "tabbable",
-      "version": "6.4.0",
+      "version": "6.5.0",
       "licenses": "MIT",
       "repository": "https://github.com/focus-trap/tabbable",
       "url": null,
@@ -1264,6 +1544,14 @@
       "repository": "https://github.com/unifiedjs/unified",
       "url": null,
       "licenseText": "(The MIT License)\n\nCopyright (c) 2015 Titus Wormer <tituswormer@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n"
+    },
+    {
+      "name": "unique-names-generator",
+      "version": "4.7.1",
+      "licenses": "MIT",
+      "repository": "https://github.com/andreasonny83/unique-names-generator",
+      "url": null,
+      "licenseText": "MIT License\n\nCopyright (c) 2018-2022 AndreaSonny <andreasonny83@gmail.com> (https://github.com/andreasonny83)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n"
     },
     {
       "name": "unist-util-is",
