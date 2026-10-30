@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useAuth } from "./AuthContext";
 import { useOnlineStatus } from "./OfflineContext";
+import { useArchivePasswords } from "./ArchivePasswordsContext";
 import { useServerStatus } from "@/hooks/useServerStatus";
 import { isTauriApp } from "@/utils/tauri";
 import {
@@ -34,6 +35,7 @@ import {
 } from "@/utils/downloadFormat";
 import { pickPreferredInstaller } from "@/components/downloads/install-utils";
 import { mergeLaunchDefaults } from "@/components/downloads/launch-defaults";
+import { buildArchivePasswordCandidates } from "@/utils/archivePasswords";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import type { GameMetadata } from "@/api/models/GameMetadata";
 import type {
@@ -147,7 +149,12 @@ interface DownloadContextValue {
   deleteDownloadCard: (gameId: number) => Promise<void>;
   retryDownload: (gameId: number) => void;
   openDownloadFolder: (gameId: number) => Promise<void>;
-  extractArchive: (gameId: number, password?: string) => Promise<void>;
+  /**
+   * Extracts a downloaded archive. `password` is the one the user typed on the
+   * card and is tried first; the saved default passwords follow. Resolves to
+   * `true` when the archive was extracted successfully.
+   */
+  extractArchive: (gameId: number, password?: string) => Promise<boolean>;
   listInstallExecutables: (gameId: number) => Promise<string[]>;
   copyInstallationFiles: (gameId: number) => Promise<void>;
   launchInstallationExecutable: (
@@ -190,6 +197,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const { serverUrl, authFetch, auth, getAccessToken } = useAuth();
   const { isOnline } = useOnlineStatus();
   const { info: serverInfo } = useServerStatus();
+  const { passwords: savedArchivePasswords } = useArchivePasswords();
   const [downloads, setDownloads] = useState<Record<number, ActiveDownload>>(
     {},
   );
@@ -767,7 +775,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const tauriInstallCopyUnlistenRef = useRef<Record<number, () => void>>({});
   const tauriInstallerUnlistenRef = useRef<Record<number, () => void>>({});
   const extractArchiveRef = useRef<
-    ((gameId: number, password?: string) => Promise<void>) | null
+    ((gameId: number, password?: string) => Promise<boolean>) | null
   >(null);
   const copyInstallationFilesRef = useRef<
     ((gameId: number) => Promise<void>) | null
@@ -1775,17 +1783,25 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
   const extractArchive = useCallback(
     async (gameId: number, password?: string) => {
-      if (!isTauriApp()) return;
+      if (!isTauriApp()) return false;
       const d = downloads[gameId];
-      if (!d?.downloadedFilePath || !d.extractionDirectory) return;
+      if (!d?.downloadedFilePath || !d.extractionDirectory) return false;
 
       // An extraction started earlier may still be running in the backend (the
       // page may have been reloaded with F5 mid-extraction). Re-sync with it
       // instead of starting a second task over the same files.
       if (await isExtractionRunning(gameId)) {
         await reconcileBackgroundStatesRef.current?.({ [gameId]: d });
-        return;
+        return false;
       }
+
+      // A password typed on the card is tried first, then the saved defaults in
+      // their configured order. The backend stops at the first one that opens
+      // the archive.
+      const passwords = buildArchivePasswordCandidates(
+        password,
+        savedArchivePasswords,
+      );
 
       extractionCompletionHandledRef.current.delete(gameId);
 
@@ -1799,7 +1815,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       trackEvent("extraction_started", {
         gameType: d.gameType,
         size: sizeBucket(d.total),
-        password: Boolean(password),
+        password: passwords.length > 0,
       });
 
       try {
@@ -1814,12 +1830,12 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           gameId,
           archivePath: d.downloadedFilePath,
           destinationPath: d.extractionDirectory,
-          password: password?.trim() || null,
+          passwords,
         });
 
         if (result.success) {
           await handleExtractionCompleted(gameId);
-          return;
+          return true;
         }
 
         if (result.needsPassword) {
@@ -1829,19 +1845,20 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             extractionPasswordRequired: true,
             extractionError: result.message || "Archive password required.",
           });
-          return;
+          return false;
         }
 
         // The backend refuses to extract the same game twice at once. That is
         // not a failure of this call: the running extraction reports its own
         // outcome through the still-attached listener.
-        if (await isExtractionRunning(gameId)) return;
+        if (await isExtractionRunning(gameId)) return false;
 
         updateDownload(gameId, {
           extractionStatus: "error",
           extractionProgress: null,
           extractionError: result.message || "Extraction failed.",
         });
+        return false;
       } catch (err) {
         const stop = tauriExtractUnlistenRef.current[gameId];
         if (stop) {
@@ -1853,6 +1870,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           extractionProgress: null,
           extractionError: String(err),
         });
+        return false;
       }
     },
     [
@@ -1860,6 +1878,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       downloads,
       handleExtractionCompleted,
       isExtractionRunning,
+      savedArchivePasswords,
       updateDownload,
     ],
   );

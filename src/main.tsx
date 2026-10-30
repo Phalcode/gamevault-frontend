@@ -7,6 +7,7 @@ import { Register } from "./components/Register";
 import DeepLinkHandler from "./components/DeepLinkHandler";
 import { PageLoader } from "./components/PageLoader";
 import { PrereleaseNotice } from "./components/PrereleaseNotice";
+import { ServerVersionNotice } from "./components/ServerVersionNotice";
 import {
   AlertDialogProvider,
   GlobalAlertDialogBridge,
@@ -16,6 +17,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { DownloadProvider } from "./context/DownloadContext";
 import { GamepadProvider } from "./context/GamepadContext";
 import { IgnoreListProvider } from "./context/IgnoreListContext";
+import { ArchivePasswordsProvider } from "./context/ArchivePasswordsContext";
 import { OfflineProvider } from "./context/OfflineContext";
 import { UmuProvider } from "./context/UmuContext";
 import "./index.css";
@@ -133,67 +135,76 @@ if (isLaunchLogWindow) {
         <AuthProvider>
           <OfflineProvider>
             <IgnoreListProvider>
-              <DownloadProvider>
-                <AlertDialogProvider>
-                  <AppUpdaterProvider>
-                    <UmuProvider>
-                      <GlobalAlertDialogBridge />
-                      <PrereleaseNotice />
-                      <BrowserRouter>
-                        <DeepLinkHandler />
-                        <GamepadProvider>
-                          <Suspense fallback={<PageLoader />}>
-                            <Routes>
-                              <Route element={<FullscreenLayout />}>
-                                <Route index element={<Login />} />
-                                <Route path="register" element={<Register />} />
-                              </Route>
+              <ArchivePasswordsProvider>
+                <DownloadProvider>
+                  <AlertDialogProvider>
+                    <AppUpdaterProvider>
+                      <UmuProvider>
+                        <GlobalAlertDialogBridge />
+                        <PrereleaseNotice />
+                        <ServerVersionNotice />
+                        <BrowserRouter>
+                          <DeepLinkHandler />
+                          <GamepadProvider>
+                            <Suspense fallback={<PageLoader />}>
+                              <Routes>
+                                <Route element={<FullscreenLayout />}>
+                                  <Route index element={<Login />} />
+                                  <Route
+                                    path="register"
+                                    element={<Register />}
+                                  />
+                                </Route>
 
-                              <Route element={<DashboardLayout />}>
-                                <Route
-                                  index
-                                  path="library"
-                                  element={<Library />}
-                                />
-                                <Route
-                                  path="library/:id"
-                                  element={<GameView />}
-                                />
-                                <Route
-                                  path="downloads"
-                                  element={<Downloads />}
-                                />
-                                <Route
-                                  path="community"
-                                  element={<Community />}
-                                />
-                                <Route
-                                  path="community/:id"
-                                  element={<UserProfile />}
-                                />
-                                <Route path="settings" element={<Settings />} />
-                                <Route
-                                  path="admin"
-                                  element={
-                                    <ProtectedRoute
-                                      guarded
-                                      requiredRole={GamevaultUserRoleEnum._3}
-                                    >
-                                      <Administration />
-                                    </ProtectedRoute>
-                                  }
-                                />
-                              </Route>
+                                <Route element={<DashboardLayout />}>
+                                  <Route
+                                    index
+                                    path="library"
+                                    element={<Library />}
+                                  />
+                                  <Route
+                                    path="library/:id"
+                                    element={<GameView />}
+                                  />
+                                  <Route
+                                    path="downloads"
+                                    element={<Downloads />}
+                                  />
+                                  <Route
+                                    path="community"
+                                    element={<Community />}
+                                  />
+                                  <Route
+                                    path="community/:id"
+                                    element={<UserProfile />}
+                                  />
+                                  <Route
+                                    path="settings"
+                                    element={<Settings />}
+                                  />
+                                  <Route
+                                    path="admin"
+                                    element={
+                                      <ProtectedRoute
+                                        guarded
+                                        requiredRole={GamevaultUserRoleEnum._3}
+                                      >
+                                        <Administration />
+                                      </ProtectedRoute>
+                                    }
+                                  />
+                                </Route>
 
-                              <Route path="*" element={<NotFound />} />
-                            </Routes>
-                          </Suspense>
-                        </GamepadProvider>
-                      </BrowserRouter>
-                    </UmuProvider>
-                  </AppUpdaterProvider>
-                </AlertDialogProvider>
-              </DownloadProvider>
+                                <Route path="*" element={<NotFound />} />
+                              </Routes>
+                            </Suspense>
+                          </GamepadProvider>
+                        </BrowserRouter>
+                      </UmuProvider>
+                    </AppUpdaterProvider>
+                  </AlertDialogProvider>
+                </DownloadProvider>
+              </ArchivePasswordsProvider>
             </IgnoreListProvider>
           </OfflineProvider>
         </AuthProvider>

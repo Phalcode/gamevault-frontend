@@ -1,6 +1,7 @@
 import { useState, type ComponentType, type ReactNode } from "react";
 import { useDownloads, type ActiveDownload } from "@/context/DownloadContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
+import { useArchivePasswords } from "@/context/ArchivePasswordsContext";
 import { Button } from "@/components/tailwind/button";
 import { Badge } from "@/components/tailwind/badge";
 import {
@@ -122,8 +123,10 @@ export function DownloadCard({
     formatSpeed,
   } = useDownloads();
   const { showAlert } = useAlertDialog();
+  const { addPassword } = useArchivePasswords();
   const isTauri = isTauriApp();
   const [password, setPassword] = useState("");
+  const [rememberPassword, setRememberPassword] = useState(false);
   const {
     installState,
     openInstallFlow,
@@ -151,7 +154,16 @@ export function DownloadCard({
   const installViewOpen = installState !== null;
 
   const handleExtract = async () => {
-    await extractArchive(download.gameId, password);
+    const typedPassword = password.trim();
+    const extracted = await extractArchive(
+      download.gameId,
+      typedPassword || undefined,
+    );
+    // Only remember a password that actually opened the archive, so a typo
+    // cannot end up in the saved list.
+    if (!extracted || !rememberPassword || !typedPassword) return;
+    await addPassword(typedPassword);
+    setRememberPassword(false);
   };
 
   const handleDeleteCard = async () => {
@@ -366,6 +378,8 @@ export function DownloadCard({
           isTauri={isTauri}
           password={password}
           onPasswordChange={setPassword}
+          rememberPassword={rememberPassword}
+          onRememberPasswordChange={setRememberPassword}
           installState={installState}
           onUpdateInstallState={updateInstallState}
           onCloseInstallView={closeInstallView}

@@ -8,6 +8,7 @@ import {
   type SimulatedDownloadKind,
 } from "@/context/DownloadContext";
 import { useIgnoreList } from "@/context/IgnoreListContext";
+import { useArchivePasswords } from "@/context/ArchivePasswordsContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { useAppUpdater } from "@/context/AppUpdaterContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
@@ -75,6 +76,8 @@ import {
   ExclamationTriangleIcon,
   WrenchIcon,
   EyeSlashIcon,
+  EyeIcon,
+  KeyIcon,
   InformationCircleIcon,
   ChevronRightIcon,
   ClipboardDocumentIcon,
@@ -243,6 +246,23 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
       "Clean up downloaded and extracted files after installation to free space",
     category: "downloads",
     keywords: ["delete", "cleanup", "space", "source", "files"],
+    desktopOnly: true,
+  },
+  {
+    id: "downloads-archive-passwords",
+    title: "Archive passwords",
+    description:
+      "Default passwords tried in order when an archive is password protected",
+    category: "downloads",
+    keywords: [
+      "password",
+      "archive",
+      "extract",
+      "encrypted",
+      "zip",
+      "rar",
+      "7z",
+    ],
     desktopOnly: true,
   },
   {
@@ -752,6 +772,11 @@ export default function Settings() {
     navigator.userAgent.includes("Linux");
   const systemInfo = collectSystemInfo(isTauri);
   const { ignoreList, setIgnoreList } = useIgnoreList();
+  const {
+    passwords: archivePasswords,
+    addPassword: addArchivePassword,
+    removePassword: removeArchivePassword,
+  } = useArchivePasswords();
   const [winePrefixBase, setWinePrefixBase] = useState<string | null>(null);
   const { forceOffline, setForceOffline } = useOnlineStatus();
   const { showAlert } = useAlertDialog();
@@ -769,6 +794,11 @@ export default function Settings() {
   } = useAppUpdater();
   const [newIgnore, setNewIgnore] = useState("");
   const [ignoreSearch, setIgnoreSearch] = useState("");
+  const [newArchivePassword, setNewArchivePassword] = useState("");
+  const [archivePasswordSearch, setArchivePasswordSearch] = useState("");
+  const [revealedArchivePasswords, setRevealedArchivePasswords] = useState<
+    string[]
+  >([]);
   // Deep-link support: `/settings?section=downloads` opens a specific section.
   const [searchParams] = useSearchParams();
   // `null` shows the master list of settings areas; a value drills into it.
@@ -1212,6 +1242,28 @@ export default function Settings() {
     await setIgnoreList(ignoreList.filter((existing) => existing !== name));
   };
 
+  const handleAddArchivePassword = async () => {
+    const password = newArchivePassword.trim();
+    if (!password) return;
+    await addArchivePassword(password);
+    setNewArchivePassword("");
+  };
+
+  const handleRemoveArchivePassword = async (password: string) => {
+    await removeArchivePassword(password);
+    setRevealedArchivePasswords((previous) =>
+      previous.filter((entry) => entry !== password),
+    );
+  };
+
+  const toggleArchivePasswordReveal = (password: string) => {
+    setRevealedArchivePasswords((previous) =>
+      previous.includes(password)
+        ? previous.filter((entry) => entry !== password)
+        : [...previous, password],
+    );
+  };
+
   const persistWinePrefix = async (value: string | null) => {
     if (!isTauri) return;
     try {
@@ -1435,6 +1487,13 @@ export default function Settings() {
   const filteredIgnoreList = ignoreQuery
     ? ignoreList.filter((name) => name.toLowerCase().includes(ignoreQuery))
     : ignoreList;
+
+  const archivePasswordQuery = archivePasswordSearch.trim().toLowerCase();
+  const filteredArchivePasswords = archivePasswordQuery
+    ? archivePasswords.filter((password) =>
+        password.toLowerCase().includes(archivePasswordQuery),
+      )
+    : archivePasswords;
 
   const openLicenses = async () => {
     if (!licenseData) {
@@ -1892,6 +1951,138 @@ export default function Settings() {
                             checked={autoDeleteSource}
                             onChange={(v: boolean) => setAutoDeleteSource(v)}
                           />
+                        </SettingsRow>
+                      </SettingsGroup>
+                    )}
+
+                    {isTauri && (
+                      <SettingsGroup
+                        id="setting-downloads-archive-passwords"
+                        className={rowHighlight("downloads-archive-passwords")}
+                        caption="Archive passwords"
+                        description="Tried in order when an archive is password protected. A password typed on a download card goes first; if none work, GameVault asks you for one. Stored encrypted on this device, separately for each server and account."
+                      >
+                        {archivePasswords.length === 0 && (
+                          <SettingsRow>
+                            <div className="flex items-center gap-2 text-sm text-gv-muted">
+                              <KeyIcon className="size-4 shrink-0" />
+                              No default passwords saved yet. Add one below.
+                            </div>
+                          </SettingsRow>
+                        )}
+                        {archivePasswords.length > 0 && (
+                          <SettingsRow>
+                            <div className="flex min-w-0 flex-1 items-center gap-3">
+                              <div className="min-w-0 flex-1">
+                                <InputGroup>
+                                  <MagnifyingGlassIcon data-slot="icon" />
+                                  <Input
+                                    type="search"
+                                    value={archivePasswordSearch}
+                                    onChange={(e: any) =>
+                                      setArchivePasswordSearch(e.target.value)
+                                    }
+                                    placeholder="Search saved passwords…"
+                                    aria-label="Search saved archive passwords"
+                                  />
+                                </InputGroup>
+                              </div>
+                              <span className="shrink-0 whitespace-nowrap text-xs text-gv-muted">
+                                {filteredArchivePasswords.length} of{" "}
+                                {archivePasswords.length}
+                              </span>
+                            </div>
+                          </SettingsRow>
+                        )}
+                        {filteredArchivePasswords.length === 0 &&
+                          archivePasswords.length > 0 && (
+                            <SettingsRow>
+                              <div className="flex items-center gap-2 text-sm text-gv-muted">
+                                <MagnifyingGlassIcon className="size-4 shrink-0" />
+                                No matches for “{archivePasswordSearch.trim()}”.
+                              </div>
+                            </SettingsRow>
+                          )}
+                        {filteredArchivePasswords.length > 0 && (
+                          <div className="max-h-80 divide-y divide-gv-line overflow-y-auto">
+                            {filteredArchivePasswords.map((password) => {
+                              const revealed =
+                                revealedArchivePasswords.includes(password);
+                              const position =
+                                archivePasswords.indexOf(password) + 1;
+                              return (
+                                <SettingsRow key={password}>
+                                  <span className="w-6 shrink-0 tabular-nums text-xs text-gv-muted">
+                                    {position}.
+                                  </span>
+                                  <span className="min-w-0 flex-1 truncate font-mono text-sm text-gv-text">
+                                    {revealed
+                                      ? password
+                                      : "•".repeat(
+                                          Math.min(password.length, 16),
+                                        )}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      toggleArchivePasswordReveal(password)
+                                    }
+                                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-gv-panel-soft hover:text-gv-text cursor-pointer"
+                                    aria-label={
+                                      revealed
+                                        ? `Hide password ${position}`
+                                        : `Show password ${position}`
+                                    }
+                                  >
+                                    {revealed ? (
+                                      <EyeSlashIcon className="size-4" />
+                                    ) : (
+                                      <EyeIcon className="size-4" />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void handleRemoveArchivePassword(password)
+                                    }
+                                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                                    aria-label={`Remove password ${position}`}
+                                  >
+                                    <XMarkIcon className="size-4" />
+                                  </button>
+                                </SettingsRow>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <SettingsRow>
+                          <div className="flex min-w-0 flex-1 items-center gap-2">
+                            <Input
+                              type="password"
+                              value={newArchivePassword}
+                              onChange={(e: any) =>
+                                setNewArchivePassword(e.target.value)
+                              }
+                              onKeyDown={(e: any) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void handleAddArchivePassword();
+                                }
+                              }}
+                              placeholder="Add an archive password"
+                              className="min-w-0 flex-1"
+                              aria-label="Archive password to save"
+                            />
+                            <Button
+                              type="button"
+                              color="indigo"
+                              className="shrink-0 px-3"
+                              onClick={() => void handleAddArchivePassword()}
+                            >
+                              <PlusIcon className="size-4" />
+                              Add
+                            </Button>
+                          </div>
                         </SettingsRow>
                       </SettingsGroup>
                     )}

@@ -1,7 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
-import { appDataDir } from "@tauri-apps/api/path";
 import { isTauriApp } from "@/utils/tauri";
 import { AUTH_REFRESH_STORAGE_KEY } from "@/utils/authConfig";
+import {
+  readVaultSecret,
+  removeVaultSecret,
+  writeVaultSecret,
+} from "@/utils/secretVault";
 
 /**
  * Token storage abstraction.
@@ -18,43 +21,9 @@ import { AUTH_REFRESH_STORAGE_KEY } from "@/utils/authConfig";
  * writes update the cache immediately and persist in the background (still
  * awaited by callers so a close right after login doesn't lose the token).
  */
-interface VaultHandle {
-  store: import("@tauri-apps/plugin-stronghold").Store;
-  stronghold: import("@tauri-apps/plugin-stronghold").Stronghold;
-}
-
-const VAULT_PATH = "vault.hold";
-const CLIENT_NAME = "gamevault";
-
 let cachedRefreshToken: string | null = null;
 let cacheLoaded = false;
 let initPromise: Promise<void> | null = null;
-let vaultReady: Promise<VaultHandle> | null = null;
-
-async function ensureVault(): Promise<VaultHandle> {
-  if (!vaultReady) {
-    vaultReady = (async () => {
-      const { Stronghold } = await import("@tauri-apps/plugin-stronghold");
-      const dir = await appDataDir();
-      const vaultPath = `${dir}/${VAULT_PATH}`;
-      const password = await invoke<string>("get_or_create_vault_password");
-      const stronghold = await Stronghold.load(vaultPath, password);
-      let client;
-      try {
-        client = await stronghold.loadClient(CLIENT_NAME);
-      } catch {
-        client = await stronghold.createClient(CLIENT_NAME);
-      }
-      return { store: client.getStore(), stronghold };
-    })();
-    // If the vault can't be initialised, drop the cached promise so a later
-    // call can retry.
-    vaultReady.catch(() => {
-      vaultReady = null;
-    });
-  }
-  return vaultReady;
-}
 
 function readLocal() {
   try {
@@ -89,11 +58,8 @@ export function initTokenStorage(): Promise<void> {
     if (cacheLoaded) return;
     try {
       if (isTauriApp()) {
-        const { store } = await ensureVault();
-        const data = await store.get(AUTH_REFRESH_STORAGE_KEY);
-        cachedRefreshToken = data
-          ? new TextDecoder().decode(data)
-          : readLocal();
+        cachedRefreshToken =
+          (await readVaultSecret(AUTH_REFRESH_STORAGE_KEY)) ?? readLocal();
       } else {
         cachedRefreshToken = readLocal();
       }
@@ -116,17 +82,15 @@ export async function setRefreshToken(token: string): Promise<void> {
   cachedRefreshToken = token;
   try {
     if (isTauriApp()) {
-      const { store, stronghold } = await ensureVault();
-      await store.insert(
-        AUTH_REFRESH_STORAGE_KEY,
-        Array.from(new TextEncoder().encode(token)),
-      );
-      await stronghold.save();
+      await writeVaultSecret(AUTH_REFRESH_STORAGE_KEY, token);
     } else {
       writeLocal(token);
     }
   } catch (e) {
-    console.warn("[tokenStorage] persist failed, falling back to localStorage", e);
+    console.warn(
+      "[tokenStorage] persist failed, falling back to localStorage",
+      e,
+    );
     // Keep the session working even if secure storage is unavailable.
     writeLocal(token);
   }
@@ -137,9 +101,7 @@ export async function removeRefreshToken(): Promise<void> {
   cachedRefreshToken = null;
   try {
     if (isTauriApp()) {
-      const { store, stronghold } = await ensureVault();
-      await store.remove(AUTH_REFRESH_STORAGE_KEY);
-      await stronghold.save();
+      await removeVaultSecret(AUTH_REFRESH_STORAGE_KEY);
     } else {
       clearLocal();
     }

@@ -1,5 +1,7 @@
 import { Badge } from "@/components/tailwind/badge";
 import { Input } from "@tw/input";
+import { Checkbox, CheckboxField } from "@tw/checkbox";
+import { Label } from "@tw/fieldset";
 import type { ActiveDownload } from "@/context/DownloadContext";
 import { ProgressBar } from "@/components/tailwind/progress";
 import { InstallFlow } from "./InstallFlow";
@@ -17,6 +19,8 @@ type PhaseDetailProps = {
   isTauri: boolean;
   password: string;
   onPasswordChange: (value: string) => void;
+  rememberPassword: boolean;
+  onRememberPasswordChange: (value: boolean) => void;
   installState: InstallCardState | null;
   onUpdateInstallState: (patch: Partial<InstallCardState>) => void;
   onCloseInstallView: () => void;
@@ -41,6 +45,8 @@ export function PhaseDetail({
   isTauri,
   password,
   onPasswordChange,
+  rememberPassword,
+  onRememberPasswordChange,
   installState,
   onUpdateInstallState,
   onCloseInstallView,
@@ -49,8 +55,7 @@ export function PhaseDetail({
 }: Readonly<PhaseDetailProps>) {
   const isDownloadingOrPaused =
     download.status === "downloading" || download.status === "paused";
-  const isFailed =
-    download.status === "error" || download.status === "aborted";
+  const isFailed = download.status === "error" || download.status === "aborted";
   const isExtracting = download.extractionStatus === "extracting";
   const needsPassword =
     download.extractionStatus === "needs-password" ||
@@ -124,9 +129,7 @@ export function PhaseDetail({
                 {download.extractionStatus === "completed" && (
                   <Badge color="green">Extracted</Badge>
                 )}
-                {needsPassword && (
-                  <Badge color="amber">Password needed</Badge>
-                )}
+                {needsPassword && <Badge color="amber">Password needed</Badge>}
               </div>
             </div>
 
@@ -146,6 +149,27 @@ export function PhaseDetail({
                   onChange={(event) => onPasswordChange(event.target.value)}
                   placeholder="Enter archive password"
                 />
+                <CheckboxField className="cursor-pointer select-none">
+                  <Checkbox
+                    id={`archive-password-remember-${download.gameId}`}
+                    name="rememberArchivePassword"
+                    color="indigo"
+                    className="cursor-pointer"
+                    checked={rememberPassword}
+                    onChange={(checked: boolean) =>
+                      onRememberPasswordChange(!!checked)
+                    }
+                  />
+                  <Label
+                    htmlFor={`archive-password-remember-${download.gameId}`}
+                    className="cursor-pointer"
+                  >
+                    Save this password for future downloads
+                  </Label>
+                </CheckboxField>
+                <p className="text-xs text-gv-muted">
+                  Your saved passwords were tried first. This one is used next.
+                </p>
               </div>
             )}
 
@@ -226,7 +250,10 @@ export function PhaseDetail({
 
               {download.installationStatus === "completed" &&
                 download.installationDirectory && (
-                  <p className="truncate text-xs text-gv-muted" title={download.installationDirectory}>
+                  <p
+                    className="truncate text-xs text-gv-muted"
+                    title={download.installationDirectory}
+                  >
                     Installed to {download.installationDirectory}.
                   </p>
                 )}

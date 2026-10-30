@@ -1,9 +1,10 @@
 # GameVault Frontend Changelog
 
-## 17.1.1
+## 17.2.0
 
 ### Changes
 
+- [#61](https://github.com/Phalcode/gamevault-frontend/issues/61) Added default extraction passwords in Settings → Downloads. GameVault tries the saved passwords in order when an archive is protected, so auto-extract can unpack encrypted downloads unattended, and a download card can remember a password that worked. The typed password is always tried first, and the prompt stays for archives none of them open.
 - [#57](https://github.com/Phalcode/gamevault-frontend/issues/57) Added a random game button to the library toolbar, like GameVault 1 had. It picks from the whole library and ignores the active filters.
 - [#571](https://github.com/Phalcode/gamevault-app/issues/571) Fixed login failing with a wrong-password error when the password contains characters like `ä`, `ö`, `ü`, `ß` or an emoji. Signing up worked because it sends JSON, only the login encoded the credentials in the wrong character set.
 - The desktop app now handles `gamevault://show?gameid=<id>` links on Windows, Linux and macOS: the link opens the game, the request is remembered until login, and unknown ids or malformed links fall back to the library or are ignored.
@@ -17,12 +18,14 @@
 - Opening the library after visiting a game is fast again. Installed games are scanned once and shared between the library, the game page and the tray menu, the offline playtime check no longer walks every installed game's files, and a recently loaded game list is reused instead of being fetched and rebuilt on every visit.
 - Added a "Most Recent" sort to the library. Installed games are ordered by last played or installed, while the server list shows the newest additions first.
 - Switching between a game and the library no longer rebuilds the grid. The library stays loaded in memory while a game is open, so going back keeps the loaded pages, the active filters and the scroll position, and appears instantly instead of after a long empty screen.
+- The client now warns when the connected server runs an older major version than the client. The warning is shown once per server version, names both versions and asks to update the server.
 
 ### Thanks
 
 - @editon96
 - @KairuByte
 - @utlilb
+- @Markovski
 
 ## 17.1.0
 
