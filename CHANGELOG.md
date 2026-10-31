@@ -8,6 +8,7 @@
 - The web UI now declares itself as English and translatable, so browsers offer their own translation again instead of assuming the page already matches the system language.
 - The library sort option "Most Recent" is now called "Recent".
 - Interface translation now shows the first screen already translated and reuses cached translations, so switching pages or opening dialogs no longer flashes the English text before the translated one.
+- Gamepad navigation now works like a console UI: the focus ring follows an accelerated D-pad and analog stick, LB/RB switch sections, LT/RT page, X opens a game card's actions, Start jumps between sidebar and content, the cursor hides while the controller is in use, and a control hint bar appears while playing with a gamepad.
 
 ### Thanks
 

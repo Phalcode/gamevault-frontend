@@ -360,6 +360,7 @@ const GameCard = memo(function GameCard({
           box-shadow swap forces a repaint at the hover instant, flashing the
           1px bottom seam when the card sits on a fractional scroll position. */}
       <div
+        data-gamepad-group="game-card"
         className={clsx(
           "group/card relative rounded-3xl shadow-(--shadow-card)",
           "transform-gpu will-change-transform backface-hidden",

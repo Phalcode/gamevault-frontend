@@ -97,7 +97,7 @@ export function Sidebar() {
         <SidebarHeader>
           <Logo variant="sidebar" height="h-4" />
         </SidebarHeader>
-        <SidebarBody>
+        <SidebarBody data-gamepad-tabs="">
           <SidebarSection>
             <SidebarItem
               href="/library"

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import {
+  pulseGamepad,
   subscribeGamepadInput,
   type GamepadDirection,
   type GamepadFrame,
@@ -17,7 +18,11 @@ const FOCUSABLE_SELECTOR = [
 ].join(", ");
 
 const GAMEPAD_FOCUS_CLASS = "gv-gamepad-focus";
-const SCROLL_PX_PER_FRAME = 28;
+const GAMEPAD_MODE_CLASS = "gv-gamepad-mode";
+const GROUP_SELECTOR = "[data-gamepad-group]";
+// Right-stick scrolling is per second, not per frame, so a 120 Hz display does
+// not scroll twice as fast as a 60 Hz one.
+const SCROLL_PX_PER_SECOND = 1500;
 const PAGE_SCROLL_FRACTION = 0.8;
 
 const OPEN_POPOVER_SELECTOR = [
@@ -58,14 +63,84 @@ function isVisible(element: Element): boolean {
   return true;
 }
 
+/**
+ * Collect the focus stops the D-pad may land on.
+ *
+ * A `[data-gamepad-group]` (a game card, for example) counts as ONE stop: the
+ * card itself. Its inner buttons are overlay actions that only appear on focus;
+ * putting them into the spatial grid would make the ring jump onto a 44px star
+ * button between two cards. They stay reachable through the X action instead
+ * (see `cycleGroupActions`).
+ */
 function collectFocusables(scope: HTMLElement | Document): HTMLElement[] {
   const focusables: HTMLElement[] = [];
+  const seenGroups = new Set<HTMLElement>();
   scope.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR).forEach((element) => {
-    if (isVisible(element) && !element.closest('[aria-hidden="true"]')) {
-      focusables.push(element);
+    if (!isVisible(element) || element.closest('[aria-hidden="true"]')) return;
+    if (!isAppElement(element)) return;
+    const group = element.closest<HTMLElement>(GROUP_SELECTOR);
+    if (group) {
+      if (seenGroups.has(group)) return;
+      seenGroups.add(group);
+      const primary = getGroupPrimary(group);
+      if (primary) focusables.push(primary);
+      return;
     }
+    focusables.push(element);
   });
   return focusables;
+}
+
+/** All usable focus targets inside one grouped component, in DOM order. */
+function getGroupFocusables(group: HTMLElement): HTMLElement[] {
+  return Array.from(
+    group.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+  ).filter(
+    (element) =>
+      isVisible(element) &&
+      !element.closest('[aria-hidden="true"]') &&
+      isAppElement(element),
+  );
+}
+
+/** The group's main target (the card link), which is always its first stop. */
+function getGroupPrimary(group: HTMLElement): HTMLElement | null {
+  return getGroupFocusables(group)[0] ?? null;
+}
+
+/** Whether the element is one of a group's overlay actions, not its main target. */
+function isSecondaryFocusable(element: HTMLElement): boolean {
+  const group = element.closest<HTMLElement>(GROUP_SELECTOR);
+  if (!group) return false;
+  const primary = getGroupPrimary(group);
+  return primary !== null && primary !== element;
+}
+
+/** Text fields need a keyboard; they are poor automatic focus targets. */
+function isTextEntry(element: HTMLElement): boolean {
+  return (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLSelectElement ||
+    element.isContentEditable
+  );
+}
+
+/** Elements the gamepad ring may be drawn around. */
+function isNavigationTarget(element: HTMLElement): boolean {
+  if (element.matches(FOCUSABLE_SELECTOR)) return true;
+  const role = element.getAttribute("role");
+  return role === "menuitem" || role === "option";
+}
+
+function scrollBehavior(): ScrollBehavior {
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth";
+  } catch {
+    return "auto";
+  }
 }
 
 /**
@@ -160,6 +235,7 @@ function pickSpatial(
   const fromRect = from.getBoundingClientRect();
   const fromCenterX = fromRect.left + fromRect.width / 2;
   const fromCenterY = fromRect.top + fromRect.height / 2;
+  const horizontal = direction === "left" || direction === "right";
 
   let best: HTMLElement | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
@@ -177,17 +253,26 @@ function pickSpatial(
     if (direction === "up" && dy >= 0) continue;
     if (direction === "down" && dy <= 0) continue;
 
-    const horizontal = direction === "left" || direction === "right";
     const primary = horizontal ? Math.abs(dx) : Math.abs(dy);
     const secondary = horizontal ? Math.abs(dy) : Math.abs(dx);
-    if (!relaxed) {
-      const band = horizontal
-        ? Math.max(fromRect.height, rect.height)
-        : Math.max(fromRect.width, rect.width);
-      if (secondary > band) continue;
-    }
+    const distance = Math.hypot(dx, dy) || primary;
 
-    const score = primary + secondary * 2;
+    // Overlap on the perpendicular axis: cards in the same row/column overlap
+    // fully. Together with the alignment ratio this keeps the ring inside the
+    // grid instead of drifting diagonally into a neighbouring column.
+    const overlap = horizontal
+      ? overlapLength(fromRect.top, fromRect.bottom, rect.top, rect.bottom)
+      : overlapLength(fromRect.left, fromRect.right, rect.left, rect.right);
+    const alignment = primary / distance;
+    const band = horizontal
+      ? Math.min(fromRect.height, rect.height)
+      : Math.min(fromRect.width, rect.width);
+    if (!relaxed && overlap === 0 && secondary > band) continue;
+
+    // Prefer close, aligned targets; a full perpendicular overlap is the
+    // strongest signal that the target is the intended neighbour.
+    const score =
+      distance * (1 + (1 - alignment) * 1.8) - Math.min(overlap, band) * 0.6;
     if (score < bestScore) {
       bestScore = score;
       best = candidate;
@@ -195,6 +280,15 @@ function pickSpatial(
   }
 
   return best;
+}
+
+function overlapLength(
+  aStart: number,
+  aEnd: number,
+  bStart: number,
+  bEnd: number,
+): number {
+  return Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
 }
 
 function fallbackDocumentOrder(
@@ -225,28 +319,75 @@ export default function GamepadNavigator() {
   const gamepadFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    // The gamepad focus ring follows the element we focused; remove it as
-    // soon as that element loses focus (mouse click elsewhere, blur, removal).
-    // Exception: when an external overlay (password-manager autofill popup,
-    // devtools, etc.) steals focus into a non-app element, the ring is kept as
-    // the navigation anchor so the gamepad doesn't silently reset.
+    // Where the ring was last parked on each route, so returning from a game
+    // page lands on the card that was opened instead of the first item.
+    const focusMemory = new Map<string, HTMLElement>();
+    let lastPath = window.location.pathname;
+
+    const clearRing = () => {
+      gamepadFocusRef.current?.classList.remove(GAMEPAD_FOCUS_CLASS);
+      gamepadFocusRef.current = null;
+    };
+
+    // Console mode hides the mouse cursor while the controller is the active
+    // input device. Any real mouse/trackpad movement brings it back.
+    const enterGamepadMode = () => {
+      document.documentElement.classList.add(GAMEPAD_MODE_CLASS);
+    };
+    const exitGamepadMode = () => {
+      document.documentElement.classList.remove(GAMEPAD_MODE_CLASS);
+    };
+    let lastPointerX = 0;
+    let lastPointerY = 0;
+    const handlePointerMove = (event: MouseEvent) => {
+      const moved =
+        Math.abs(event.clientX - lastPointerX) +
+        Math.abs(event.clientY - lastPointerY);
+      lastPointerX = event.clientX;
+      lastPointerY = event.clientY;
+      if (moved > 4) exitGamepadMode();
+    };
+    window.addEventListener("pointerdown", exitGamepadMode, true);
+    window.addEventListener("mousemove", handlePointerMove, true);
+
+    // The ring follows the real focus, not only the element the D-pad moved
+    // to. Dialogs, HeadlessUI popovers and browser-driven focus changes then
+    // keep exactly one ring on screen, and focus returning to a trigger after
+    // a menu closes is highlighted again without another button press.
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (!document.documentElement.classList.contains(GAMEPAD_MODE_CLASS)) {
+        return;
+      }
+      if (!isAppElement(target) || !isNavigationTarget(target)) return;
+      const previous = gamepadFocusRef.current;
+      if (previous && previous !== target) {
+        previous.classList.remove(GAMEPAD_FOCUS_CLASS);
+      }
+      target.classList.add(GAMEPAD_FOCUS_CLASS);
+      gamepadFocusRef.current = target;
+    };
+    window.addEventListener("focusin", handleFocusIn, true);
+
     const handleFocusOut = (event: FocusEvent) => {
       const current = gamepadFocusRef.current;
       if (!current || event.target !== current) return;
       const next = event.relatedTarget;
-      const movedWithinApp = next instanceof Element && isAppElement(next);
+      if (next instanceof Element && isAppElement(next)) {
+        // Focus moved within the app: `handleFocusIn` moves the ring.
+        return;
+      }
       const movedToBody =
         next === null ||
         next === document.body ||
         next === document.documentElement;
-      if (movedWithinApp || movedToBody) {
-        current.classList.remove(GAMEPAD_FOCUS_CLASS);
-        gamepadFocusRef.current = null;
+      if (movedToBody) {
+        clearRing();
         return;
       }
       // Focus stolen by a non-app element: keep the ring as the anchor. The
-      // next D-pad press / A will reclaim focus and resume from here.
-      gamepadFocusRef.current = current;
+      // next D-pad press / A reclaims focus and resumes from here.
     };
     window.addEventListener("focusout", handleFocusOut, true);
 
@@ -281,12 +422,66 @@ export default function GamepadNavigator() {
       );
     }
 
+    function rememberFocus(element: HTMLElement): void {
+      // Dialog and popover contents are transient; remembering one of their
+      // buttons would become the return target when the page is revisited.
+      if (
+        element.closest(
+          '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]',
+        )
+      ) {
+        return;
+      }
+      focusMemory.set(lastPath, element);
+    }
+
     function setGamepadFocus(element: HTMLElement): void {
-      gamepadFocusRef.current?.classList.remove(GAMEPAD_FOCUS_CLASS);
+      if (element !== gamepadFocusRef.current) {
+        gamepadFocusRef.current?.classList.remove(GAMEPAD_FOCUS_CLASS);
+      }
       element.focus({ preventScroll: true });
       element.classList.add(GAMEPAD_FOCUS_CLASS);
       gamepadFocusRef.current = element;
-      element.scrollIntoView({ block: "nearest", inline: "nearest" });
+      rememberFocus(element);
+      element.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+        behavior: scrollBehavior(),
+      });
+    }
+
+    /**
+     * Follow a route change. A tab switch keeps the ring on the still-visible
+     * sidebar item; leaving a page (a card opened, B pressed) restores the
+     * remembered focus target on the next interaction, so going back to the
+     * library continues where the user was.
+     */
+    function syncRoute(): void {
+      const path = window.location.pathname;
+      if (path === lastPath) return;
+      lastPath = path;
+
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        isAppElement(active) &&
+        isVisible(active) &&
+        !active.closest("[inert]")
+      ) {
+        return;
+      }
+
+      const remembered = focusMemory.get(path);
+      if (
+        remembered &&
+        remembered.isConnected &&
+        isVisible(remembered) &&
+        !isSecondaryFocusable(remembered)
+      ) {
+        setGamepadFocus(remembered);
+        return;
+      }
+      clearRing();
     }
 
     function adoptInitialFocus(scope: Scope): void {
@@ -295,26 +490,37 @@ export default function GamepadNavigator() {
       const current = document.activeElement;
       if (current instanceof HTMLElement && candidates.includes(current))
         return;
-      const defaultElement =
+
+      const explicit =
         scope.root instanceof Document
           ? document.querySelector<HTMLElement>("[data-gamepad-default]")
-          : null;
-      let target =
-        defaultElement && candidates.includes(defaultElement)
-          ? defaultElement
-          : null;
-      if (!target && scope.root instanceof Document) {
+          : (scope.root as HTMLElement).querySelector<HTMLElement>(
+              "[data-gamepad-default]",
+            );
+
+      let pool = candidates;
+      if (scope.root instanceof Document) {
         // The first press should land in the page content, not on chrome
         // like the logo link sitting before `<main>` in the DOM. Pages can
         // still opt into an explicit target via [data-gamepad-default].
         const main = document.querySelector<HTMLElement>("main");
         const mainCandidates = main ? collectFocusables(main) : [];
-        if (mainCandidates.length > 0) target = mainCandidates[0];
+        if (mainCandidates.length > 0) pool = mainCandidates;
       }
-      setGamepadFocus(target ?? candidates[0]);
+
+      // Text fields need a keyboard and cannot be "activated" with A, so the
+      // first press starts on the first real control instead.
+      const target =
+        (explicit && candidates.includes(explicit) ? explicit : null) ??
+        pool.find((element) => !isTextEntry(element)) ??
+        pool[0] ??
+        candidates.find((element) => !isTextEntry(element)) ??
+        candidates[0];
+      if (target) setGamepadFocus(target);
     }
 
     function moveFocus(direction: GamepadDirection): void {
+      syncRoute();
       const scope = detectScope();
 
       if (scope.kind === "popover") {
@@ -352,13 +558,23 @@ export default function GamepadNavigator() {
 
       let anchor: HTMLElement | null = null;
       const current = document.activeElement;
+      if (current instanceof HTMLElement && isSecondaryFocusable(current)) {
+        // The ring is on a card's overlay action (opened with X). Directional
+        // navigation continues from the card itself, not from the 44px button.
+        const group = current.closest<HTMLElement>(GROUP_SELECTOR);
+        const primary = group ? getGroupPrimary(group) : null;
+        if (primary && candidates.includes(primary)) anchor = primary;
+      }
       if (
+        !anchor &&
         current instanceof HTMLElement &&
         candidates.includes(current) &&
         isAppElement(current)
       ) {
         anchor = current;
-      } else if (
+      }
+      if (
+        !anchor &&
         gamepadFocusRef.current &&
         candidates.includes(gamepadFocusRef.current)
       ) {
@@ -381,6 +597,7 @@ export default function GamepadNavigator() {
     }
 
     function activateFocused(): void {
+      syncRoute();
       const scope = detectScope();
 
       if (scope.kind === "popover") {
@@ -492,21 +709,33 @@ export default function GamepadNavigator() {
       return element;
     }
 
-    function scrollFocusedContainer(scrollX: number, scrollY: number): void {
+    function scrollFocusedContainer(
+      scrollX: number,
+      scrollY: number,
+      deltaMs: number,
+    ): void {
       if (scrollX === 0 && scrollY === 0) return;
       const container = findScrollContainerCached();
+      const seconds = Math.min(64, Math.max(1, deltaMs)) / 1000;
       container?.scrollBy({
-        top: scrollY * SCROLL_PX_PER_FRAME,
-        left: scrollX * SCROLL_PX_PER_FRAME,
+        top: scrollY * SCROLL_PX_PER_SECOND * seconds,
+        left: scrollX * SCROLL_PX_PER_SECOND * seconds,
       });
     }
 
     function pageScroll(directionSign: 1 | -1): void {
-      const container = findScrollContainer();
+      // Triggers always page the main content, even when the ring currently
+      // sits in the sidebar (whose own list would be the nearest scrollable).
+      const scope = detectScope();
+      const container =
+        scope.kind === "document"
+          ? (document.querySelector<HTMLElement>("[data-scroll-container]") ??
+            findScrollContainer())
+          : findScrollContainer();
       if (!container) return;
       container.scrollBy({
         top: directionSign * container.clientHeight * PAGE_SCROLL_FRACTION,
-        behavior: "smooth",
+        behavior: scrollBehavior(),
       });
     }
 
@@ -520,12 +749,31 @@ export default function GamepadNavigator() {
       }
 
       const active = document.activeElement;
+      if (active instanceof HTMLElement && isSecondaryFocusable(active)) {
+        // B leaves the card's action overlay and returns to the card.
+        const group = active.closest<HTMLElement>(GROUP_SELECTOR);
+        const primary = group ? getGroupPrimary(group) : null;
+        if (primary) {
+          setGamepadFocus(primary);
+          return;
+        }
+      }
       if (
         active instanceof HTMLInputElement ||
-        active instanceof HTMLTextAreaElement
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement
       ) {
         // Escape cancels inline editing (Settings rename, GameSettings, ...).
         dispatchKey("Escape");
+        // Some pages focus a text field on load (login). Escape there is a
+        // no-op, so the field would swallow B forever; leave it instead, so
+        // the next B can navigate back.
+        window.setTimeout(() => {
+          if (document.activeElement === active && active.isConnected) {
+            active.blur();
+            adoptInitialFocus({ kind: "document", root: document });
+          }
+        }, 0);
         return;
       }
 
@@ -539,6 +787,115 @@ export default function GamepadNavigator() {
       // Top of the history stack: jump back to the first focusable element.
       const first = collectFocusables(document)[0];
       if (first) setGamepadFocus(first);
+    }
+
+    // A card is one focus stop; X cycles through its overlay actions (bookmark,
+    // settings, play/download) instead of scattering them into the grid.
+    function cycleGroupActions(): void {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement)) return;
+      const group = active.closest<HTMLElement>(GROUP_SELECTOR);
+      if (!group) return;
+      const items = getGroupFocusables(group);
+      if (items.length < 2) return;
+      const index = items.indexOf(active);
+      // Entering the group always starts with its first action.
+      const nextIndex = index <= 0 ? 1 : (index + 1) % items.length;
+      pulseGamepad(0.16, 10);
+      setGamepadFocus(items[nextIndex] ?? items[1]);
+    }
+
+    function pathOfAnchor(anchor: HTMLElement): string | null {
+      const href = anchor.getAttribute("href");
+      if (!href || href === "#" || href.startsWith("http")) return null;
+      try {
+        return new URL(href, window.location.origin).pathname;
+      } catch {
+        return null;
+      }
+    }
+
+    function getNavTabs(): HTMLElement[] {
+      for (const root of document.querySelectorAll<HTMLElement>(
+        "[data-gamepad-tabs]",
+      )) {
+        const tabs = Array.from(
+          root.querySelectorAll<HTMLElement>("a[href]"),
+        ).filter(
+          (element) =>
+            isVisible(element) &&
+            isAppElement(element) &&
+            pathOfAnchor(element) !== null,
+        );
+        // The layout renders the sidebar twice (desktop + mobile drawer);
+        // only the one on screen is a valid tab strip.
+        if (tabs.length > 0) return tabs;
+      }
+      return [];
+    }
+
+    function activeTabIndex(tabs: HTMLElement[]): number {
+      const path = window.location.pathname;
+      let bestIndex = -1;
+      let bestLength = -1;
+      tabs.forEach((tab, index) => {
+        const tabPath = pathOfAnchor(tab);
+        if (!tabPath) return;
+        // /library/123 belongs to the Library tab (/library).
+        if (path === tabPath || path.startsWith(`${tabPath}/`)) {
+          if (tabPath.length > bestLength) {
+            bestLength = tabPath.length;
+            bestIndex = index;
+          }
+        }
+      });
+      return bestIndex;
+    }
+
+    function switchTab(delta: 1 | -1): void {
+      // Only the page itself has tabs; a dialog or open menu owns the buttons.
+      if (detectScope().kind !== "document") return;
+      const tabs = getNavTabs();
+      if (tabs.length === 0) return;
+      const index = activeTabIndex(tabs);
+      const nextIndex =
+        index === -1
+          ? delta > 0
+            ? 0
+            : tabs.length - 1
+          : (index + delta + tabs.length) % tabs.length;
+      const next = tabs[nextIndex];
+      if (!next) return;
+      // Keep the ring on the tab so LB/RB can keep cycling, like a console's
+      // shoulder-button tab strip.
+      setGamepadFocus(next);
+      next.click();
+    }
+
+    function toggleNavFocus(): void {
+      if (detectScope().kind !== "document") return;
+      const active = document.activeElement;
+      const navRoot = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-gamepad-tabs]"),
+      ).find(
+        (root) =>
+          active instanceof HTMLElement &&
+          root.contains(active) &&
+          isVisible(root),
+      );
+      if (navRoot) {
+        // Back into the page content.
+        const main = document.querySelector<HTMLElement>("main");
+        const candidates = main ? collectFocusables(main) : [];
+        const target =
+          candidates.find((element) => !isTextEntry(element)) ?? candidates[0];
+        if (target) setGamepadFocus(target);
+        return;
+      }
+      const tabs = getNavTabs();
+      if (tabs.length === 0) return;
+      const index = activeTabIndex(tabs);
+      setGamepadFocus(tabs[index === -1 ? 0 : index] ?? tabs[0]);
     }
 
     // One event per session: whether gamepad navigation is used at all is the
@@ -555,9 +912,18 @@ export default function GamepadNavigator() {
     }
 
     function handleFrame(frame: GamepadFrame): void {
+      const hasActivity =
+        frame.direction !== null ||
+        frame.justPressed.size > 0 ||
+        frame.scrollX !== 0 ||
+        frame.scrollY !== 0;
+      if (!hasActivity) return;
+
+      enterGamepadMode();
+
       if (frame.scrollX !== 0 || frame.scrollY !== 0) {
         reportGamepadUse("scroll");
-        scrollFocusedContainer(frame.scrollX, frame.scrollY);
+        scrollFocusedContainer(frame.scrollX, frame.scrollY, frame.deltaMs);
       }
 
       for (const action of frame.justPressed) {
@@ -565,17 +931,32 @@ export default function GamepadNavigator() {
         switch (action) {
           case "a":
             activateFocused();
+            pulseGamepad(0.22, 12);
             break;
           case "b":
             goBack();
+            pulseGamepad(0.3, 14);
+            break;
+          case "x":
+            cycleGroupActions();
             break;
           case "lb":
-            pageScroll(-1);
+            switchTab(-1);
             break;
           case "rb":
+            switchTab(1);
+            break;
+          case "lt":
+            pageScroll(-1);
+            break;
+          case "rt":
             pageScroll(1);
             break;
-          // x, y, select, start: reserved for future use.
+          case "start":
+            toggleNavFocus();
+            pulseGamepad(0.25, 12);
+            break;
+          // y, select: reserved for future use.
           default:
             break;
         }
@@ -590,10 +971,13 @@ export default function GamepadNavigator() {
     const unsubscribe = subscribeGamepadInput(handleFrame);
     return () => {
       unsubscribe();
+      window.removeEventListener("focusin", handleFocusIn, true);
       window.removeEventListener("focusout", handleFocusOut, true);
+      window.removeEventListener("pointerdown", exitGamepadMode, true);
+      window.removeEventListener("mousemove", handlePointerMove, true);
       window.removeEventListener("keydown", handleKeyDownCapture, true);
-      gamepadFocusRef.current?.classList.remove(GAMEPAD_FOCUS_CLASS);
-      gamepadFocusRef.current = null;
+      clearRing();
+      document.documentElement.classList.remove(GAMEPAD_MODE_CLASS);
     };
   }, []);
 

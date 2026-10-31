@@ -289,10 +289,24 @@
 
   /* Gamepad-driven focus ring. Unlayered + important so it wins over any
      component utility class (e.g. focus:outline-none, focus:outline-hidden)
-     — without it the ring silently disappears on cards and buttons. */
+     — without it the ring silently disappears on cards and buttons. The
+     double ring plus glow reads as a console selection cursor rather than a
+     keyboard focus outline. */
   .gv-gamepad-focus {
-    outline: 2px solid var(--color-gv-accent) !important;
-    outline-offset: 2px !important;
+    outline: none !important;
+    box-shadow:
+      0 0 0 2px var(--color-gv-bg),
+      0 0 0 4px var(--color-gv-accent),
+      0 0 26px color-mix(in srgb, var(--color-gv-accent) 38%, transparent) !important;
+    scroll-margin-block: 5rem;
+  }
+
+  /* While a controller is the active input device, hide the mouse cursor:
+     a console UI has no pointer. Real mouse/trackpad movement or a click
+     removes the class again (see GamepadNavigator). */
+  html.gv-gamepad-mode,
+  html.gv-gamepad-mode * {
+    cursor: none !important;
   }
 
   ::selection {
