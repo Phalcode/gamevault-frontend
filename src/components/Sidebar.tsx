@@ -227,11 +227,17 @@ export function Sidebar() {
                   seed={userAvatarSeed}
                 />
                 <span className="min-w-0">
-                  <span className="block truncate text-sm/5 font-medium text-gv-text">
+                  <span
+                    translate="no"
+                    className="block truncate text-sm/5 font-medium text-gv-text"
+                  >
                     {username}
                   </span>
                   {email && (
-                    <span className="block truncate text-xs/5 font-normal text-gv-muted">
+                    <span
+                      translate="no"
+                      className="block truncate text-xs/5 font-normal text-gv-muted"
+                    >
                       {email}
                     </span>
                   )}

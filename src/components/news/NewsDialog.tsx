@@ -7,8 +7,11 @@ import {
 } from "@/components/tailwind/dialog";
 import { Textarea } from "@/components/tailwind/textarea";
 import { useAuth } from "@/context/AuthContext";
+import { useInterfaceTranslationLanguage } from "@/hooks/useInterfaceTranslationLanguage";
+import { translateTextOnDemand } from "@/utils/domTranslation";
 import MarkdownContent from "@/components/MarkdownContent";
 import { Button } from "@tw/button";
+import { LanguageIcon } from "@heroicons/react/24/outline";
 import { useEffect, useState } from "react";
 import { useNews } from "../../hooks/useNews";
 
@@ -35,6 +38,52 @@ export function NewsDialog({ onClose }: NewsDialogProps) {
   const isAdmin = Number(user?.role) >= Number(GamevaultUserRoleEnum._3);
   const canEditServerNews = Boolean(serverUrl) && isAdmin && tab === "server";
   const showEditor = canEditServerNews && isEditingServerNews;
+
+  // News is user-written content, like a game description: the interface
+  // translator leaves it alone and the user asks for a translation here.
+  // Only offered while the desktop app is translating its interface.
+  const interfaceTranslationLanguage = useInterfaceTranslationLanguage();
+  const [translatedNews, setTranslatedNews] = useState<
+    Partial<Record<TabKey, string>>
+  >({});
+  const [translatingTab, setTranslatingTab] = useState<TabKey | null>(null);
+  const newsContent = tab === "gv" ? gvNews?.content : serverNews?.content;
+  const translatedNewsContent = translatedNews[tab];
+  const canTranslateNews =
+    !showEditor &&
+    Boolean(interfaceTranslationLanguage) &&
+    Boolean(newsContent && newsContent.trim().length > 0);
+
+  useEffect(() => {
+    // A saved edit or a refreshed feed invalidates what was translated.
+    setTranslatedNews({});
+    setTranslatingTab(null);
+  }, [gvNews?.content, serverNews?.content]);
+
+  const handleTranslateNews = async () => {
+    if (!interfaceTranslationLanguage || !newsContent) return;
+    if (translatedNewsContent) {
+      setTranslatedNews((prev) => {
+        const next = { ...prev };
+        delete next[tab];
+        return next;
+      });
+      return;
+    }
+    const targetTab = tab;
+    setTranslatingTab(targetTab);
+    try {
+      const translated = await translateTextOnDemand(
+        newsContent,
+        interfaceTranslationLanguage,
+      );
+      setTranslatedNews((prev) => ({ ...prev, [targetTab]: translated }));
+    } catch {
+      // Leave the original text in place when the engine is unavailable.
+    } finally {
+      setTranslatingTab((current) => (current === targetTab ? null : current));
+    }
+  };
 
   useEffect(() => {
     markNewsAsRead();
@@ -80,7 +129,12 @@ export function NewsDialog({ onClose }: NewsDialogProps) {
   };
 
   return (
-    <Dialog open onClose={onClose} size="3xl" className="!h-[min(85vh,850px)] flex flex-col">
+    <Dialog
+      open
+      onClose={onClose}
+      size="3xl"
+      className="!h-[min(85vh,850px)] flex flex-col"
+    >
       <DialogTitle className="flex items-center justify-between gap-4 pb-1">
         <span>News</span>
         <button
@@ -126,6 +180,26 @@ export function NewsDialog({ onClose }: NewsDialogProps) {
             Server News
           </button>
         </div>
+        {canTranslateNews && (
+          <button
+            type="button"
+            onClick={() => void handleTranslateNews()}
+            disabled={translatingTab === tab}
+            title={
+              translatedNewsContent
+                ? "Show the original text"
+                : "Translate this text"
+            }
+            className="mb-1 ml-auto inline-flex items-center gap-1 self-start rounded-md px-1.5 py-1 text-[11px] font-medium text-gv-muted transition hover:text-gv-text disabled:opacity-60"
+          >
+            <LanguageIcon className="size-3.5" />
+            {translatingTab === tab
+              ? "Translating…"
+              : translatedNewsContent
+                ? "Original"
+                : "Translate"}
+          </button>
+        )}
       </div>
       <DialogBody className="pt-4 overflow-y-auto flex-1 min-h-0">
         {!showEditor && hasErr && (
@@ -151,7 +225,9 @@ export function NewsDialog({ onClose }: NewsDialogProps) {
             />
           </div>
         ) : (
-          <MarkdownContent content={content} />
+          <div translate="no">
+            <MarkdownContent content={translatedNewsContent ?? content} />
+          </div>
         )}
       </DialogBody>
       <DialogActions>

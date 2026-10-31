@@ -67,6 +67,9 @@ export default function CoverPlaceholder({
 
   return (
     <div
+      // The placeholder repeats the game title and its initials: game content,
+      // never interface copy.
+      translate="no"
       className={clsx(
         "flex h-full w-full flex-col items-center justify-center rounded-[inherit] border text-center",
         sizeClasses[size].padding,

@@ -344,7 +344,10 @@ function NetworkUserCard({
               />
               <div className="min-w-0 space-y-2">
                 <div className="flex min-w-0 items-center gap-2">
-                  <h3 className="min-w-0 truncate text-lg font-semibold tracking-[-0.02em] text-gv-text">
+                  <h3
+                    translate="no"
+                    className="min-w-0 truncate text-lg font-semibold tracking-[-0.02em] text-gv-text"
+                  >
                     {displayName}
                   </h3>
                   {isCurrentUser && (
@@ -359,7 +362,9 @@ function NetworkUserCard({
                     {getRoleLabel(Number(user.role))}
                   </Badge>
                 </div>
-                <div className="truncate text-sm text-gv-muted">@{handle}</div>
+                <div translate="no" className="truncate text-sm text-gv-muted">
+                  @{handle}
+                </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gv-muted">
                   <span
                     title={formatFullDateTime(stats.lastPlayed) ?? undefined}

@@ -632,10 +632,13 @@ export default function UserProfile() {
                   {!user.activated && <Badge color="rose">Inactive</Badge>}
                 </div>
                 <div>
-                  <h2 className="truncate text-3xl font-bold tracking-[-0.04em] text-white">
+                  <h2
+                    translate="no"
+                    className="truncate text-3xl font-bold tracking-[-0.04em] text-white"
+                  >
                     {masked?.displayName ?? getDisplayName(user)}
                   </h2>
-                  <p className="mt-1 text-base text-white/80">
+                  <p translate="no" className="mt-1 text-base text-white/80">
                     @{masked?.handle ?? getUserHandle(user)}
                   </p>
                 </div>
@@ -756,7 +759,9 @@ export default function UserProfile() {
                 value={progressFilter}
                 onChange={(value: any) => {
                   setProgressFilter(String(value));
-                  trackEvent("community_filter_changed", { filter: "progress" });
+                  trackEvent("community_filter_changed", {
+                    filter: "progress",
+                  });
                 }}
               >
                 {PROFILE_FILTER_OPTIONS.map((option) => (

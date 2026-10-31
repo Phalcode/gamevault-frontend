@@ -1470,7 +1470,10 @@ export default function GameView() {
                             />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="font-medium truncate text-gv-text">
+                                <span
+                                  translate="no"
+                                  className="font-medium truncate text-gv-text"
+                                >
                                   {uname}
                                 </span>
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-gv-panel-soft text-gv-muted font-medium">
