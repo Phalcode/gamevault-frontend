@@ -4,38 +4,29 @@
 
 ### Changes
 
-- [#154](https://github.com/Phalcode/gamevault-app/issues/154) The desktop app can translate its interface locally under Settings → Appearance → Interface translation, using Mozilla's translation engine. A language model is downloaded once, then everything works offline and no text leaves the computer. Game titles, tags, descriptions and user names stay untranslated, and descriptions and notes get a small translate button.
-- The web UI now declares itself as English and translatable, so browsers offer their own translation again instead of assuming the page already matches the system language.
-- The library sort option "Most Recent" is now called "Recent".
-- Interface translation now shows the first screen already translated and reuses cached translations, so switching pages or opening dialogs no longer flashes the English text before the translated one.
-- Gamepad navigation now works like a console UI: the focus ring follows an accelerated D-pad and analog stick, LB/RB switch sections, LT/RT page, X opens a game card's actions, Start jumps between sidebar and content, the cursor hides while the controller is in use, and a control hint bar appears while playing with a gamepad.
-
-### Thanks
-
-- @RJSkudra
-
-## 17.1.1
-
-### Changes
-
-- [#57](https://github.com/Phalcode/gamevault-frontend/issues/57) Added a random game button to the library toolbar, like GameVault 1 had. It picks from the whole library and ignores the active filters.
 - [#571](https://github.com/Phalcode/gamevault-app/issues/571) Fixed login failing with a wrong-password error when the password contains characters like `ä`, `ö`, `ü`, `ß` or an emoji. Signing up worked because it sends JSON, only the login encoded the credentials in the wrong character set.
+- Fixed the desktop app freezing when the launch log window opened after a failed game launch. The window is now created off the main thread, can be closed with the Close button, Escape or Ctrl/Cmd+W, and no longer blocks quitting or other actions.
+- Opening the library after visiting a game is fast again. Installed games are scanned once and shared between the library, the game page and the tray menu, the offline playtime check no longer walks every installed game's files, and a recently loaded game list is reused instead of being fetched and rebuilt on every visit.
+- [#154](https://github.com/Phalcode/gamevault-app/issues/154) The desktop app can translate its interface locally under Settings → Appearance → Interface translation, using Mozilla's translation engine. A language model is downloaded once, then everything works offline and no text leaves the computer. Game titles, tags, descriptions and user names stay untranslated, and descriptions and notes get a small translate button.
+- Interface translation now shows the first screen already translated and reuses cached translations, so switching pages or opening dialogs no longer flashes the English text before the translated one.
+- [#61](https://github.com/Phalcode/gamevault-frontend/issues/61) Added default extraction passwords under Settings → Downloads. Saved passwords are tried in order when an archive is protected, so auto-extract can unpack encrypted downloads unattended, and a download card can remember a password that worked. A typed password is always tried first, and GameVault still asks when none of them open the archive.
+- [#398](https://github.com/Phalcode/gamevault-app/issues/398) Usage analytics now report feature usage, errors and sampled session replays with masked text, so the client can be improved without guessing. The privacy toggle applies immediately and survives app updates.
+- [#447](https://github.com/Phalcode/gamevault-app/issues/447) The installed games list now uses the library's search, filters and sorting, and it keeps working offline from the cached game data.
+- [#57](https://github.com/Phalcode/gamevault-frontend/issues/57) Added a random game button to the library toolbar, like GameVault 1 had. It picks from the whole library and ignores the active filters.
 - The desktop app now handles `gamevault://show?gameid=<id>` links on Windows, Linux and macOS: the link opens the game, the request is remembered until login, and unknown ids or malformed links fall back to the library or are ignored.
 - `gamevault://start?gameid=<id>` links launch an installed game directly. Links for games that are not installed, have no launch executable configured, or are malformed are ignored.
-- Fixed the desktop app freezing when the launch log window opened after a failed game launch. The window is now created off the main thread, can be closed with the Close button, Escape or Ctrl/Cmd+W, and no longer blocks quitting or other actions.
 - Game Settings → Launch Options now has a "Create Desktop Shortcut" button. It creates a shortcut that starts the game, using the selected executable's icon (or the game cover when the executable has no icon) on Windows, Linux and macOS.
 - Uninstalling a game now also removes its desktop shortcut(s) once no installed version is left.
 - [#348](https://github.com/Phalcode/gamevault-app/issues/348) GameVault stays in the system tray only when the computer starts it. Launching the app yourself always opens the window again, even with "start minimized" enabled.
-- [#398](https://github.com/Phalcode/gamevault-app/issues/398) Usage analytics now report feature usage, errors and sampled session replays with masked text, so the client can be improved without guessing. The privacy toggle applies immediately and survives app updates.
-- [#447](https://github.com/Phalcode/gamevault-app/issues/447) The installed games list now uses the library's search, filters and sorting, and it keeps working offline from the cached game data.
-- Opening the library after visiting a game is fast again. Installed games are scanned once and shared between the library, the game page and the tray menu, the offline playtime check no longer walks every installed game's files, and a recently loaded game list is reused instead of being fetched and rebuilt on every visit.
-- The library now opens sorted by "Most Recent": installed games by when they were last played or installed, the server list by newest additions. Other sorts can still be picked and are remembered.
+- The library now opens sorted by "Recent": installed games by when they were last played or installed, the server list by newest additions. Other sorts can still be picked and are remembered.
+- The web UI now declares itself as English and translatable, so browsers offer their own translation again instead of assuming the page already matches the system language.
 
 ### Thanks
 
 - @editon96
 - @KairuByte
 - @utlilb
+- @RJSkudra
 
 ## 17.1.0
 
