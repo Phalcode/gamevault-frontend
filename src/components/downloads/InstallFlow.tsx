@@ -69,8 +69,7 @@ export function InstallFlow({
   // directory must be a Windows path (drive X: maps to $HOME). Resolve it so
   // the user pastes a path the installer can actually use.
   const isLinux =
-    typeof navigator !== "undefined" &&
-    navigator.userAgent.includes("Linux");
+    typeof navigator !== "undefined" && navigator.userAgent.includes("Linux");
   const [windowsInstallPath, setWindowsInstallPath] = useState("");
   const windowsPathResolvedRef = useRef(false);
 
@@ -156,7 +155,9 @@ export function InstallFlow({
           >
             {installState.installerOptions.map((option) => (
               <ListboxOption key={option} value={option}>
-                <ListboxLabel>{option}</ListboxLabel>
+                <ListboxLabel>
+                  <span translate="no">{option}</span>
+                </ListboxLabel>
               </ListboxOption>
             ))}
           </Listbox>
@@ -168,7 +169,8 @@ export function InstallFlow({
             <li>Hit the 'Install' button to launch the game's installer.</li>
             <li>Go through the game's setup process.</li>
             <li>
-              If not already set, make sure to select this folder as the installer's destination:
+              If not already set, make sure to select this folder as the
+              installer's destination:
             </li>
           </ol>
 
@@ -182,12 +184,15 @@ export function InstallFlow({
                   <p
                     className="min-w-0 flex-1 truncate font-mono text-sm text-gv-text"
                     title={windowsInstallPath}
+                    translate="no"
                   >
                     {windowsInstallPath}
                   </p>
                   <Button
                     color="indigo"
-                    onClick={() => void handleCopyInstallPath(windowsInstallPath)}
+                    onClick={() =>
+                      void handleCopyInstallPath(windowsInstallPath)
+                    }
                   >
                     <ClipboardDocumentIcon
                       className="h-4 w-4"
@@ -199,6 +204,7 @@ export function InstallFlow({
                 <p
                   className="truncate font-mono text-xs text-gv-muted"
                   title={download.installationDirectory}
+                  translate="no"
                 >
                   On disk: {download.installationDirectory}
                 </p>

@@ -345,6 +345,7 @@ export function DownloadCard({
               <p
                 className="mt-1 truncate font-mono text-sm text-gv-muted"
                 title={download.filename}
+                translate="no"
               >
                 {download.filename}
               </p>

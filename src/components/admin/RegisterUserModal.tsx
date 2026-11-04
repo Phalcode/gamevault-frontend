@@ -265,6 +265,7 @@ export function RegisterUserModal({ onClose, onRegistered }: Props) {
               autoComplete="new-password"
               value={form.password ?? ""}
               onChange={onInput}
+              translate="no"
               className={
                 isInvalid("password") ? "ring-1 ring-rose-500" : undefined
               }
@@ -285,6 +286,7 @@ export function RegisterUserModal({ onClose, onRegistered }: Props) {
               autoComplete="new-password"
               value={form.repeat_password ?? ""}
               onChange={onInput}
+              translate="no"
               className={
                 isInvalid("repeat_password") ||
                 (touched.repeat_password &&

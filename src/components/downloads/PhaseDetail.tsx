@@ -148,6 +148,7 @@ export function PhaseDetail({
                   value={password}
                   onChange={(event) => onPasswordChange(event.target.value)}
                   placeholder="Enter archive password"
+                  translate="no"
                 />
                 <CheckboxField className="cursor-pointer select-none">
                   <Checkbox

@@ -2918,6 +2918,7 @@ export function GameSettings({
                                       <div
                                         className="font-mono text-xs leading-relaxed text-gv-text break-all"
                                         title={workingGame.file_path || "N/A"}
+                                        translate="no"
                                       >
                                         {workingGame.file_path || "N/A"}
                                       </div>
@@ -4219,7 +4220,9 @@ export function GameSettings({
                                 </ListboxOption>
                                 {launchExecutables.map((exe) => (
                                   <ListboxOption key={exe} value={exe}>
-                                    <ListboxLabel>{exe}</ListboxLabel>
+                                    <ListboxLabel>
+                                      <span translate="no">{exe}</span>
+                                    </ListboxLabel>
                                   </ListboxOption>
                                 ))}
                               </Listbox>
@@ -4445,7 +4448,10 @@ export function GameSettings({
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                   <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <span className="font-medium text-gv-text">
+                                      <span
+                                        className="font-medium text-gv-text"
+                                        translate="no"
+                                      >
                                         {versionLabel}
                                       </span>
                                       {version.early_access && (
@@ -4457,6 +4463,7 @@ export function GameSettings({
                                     <div
                                       className="mt-1 break-all font-mono text-xs text-gv-muted"
                                       title={filePath}
+                                      translate="no"
                                     >
                                       {filePath}
                                     </div>

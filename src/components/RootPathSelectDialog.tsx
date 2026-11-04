@@ -42,7 +42,7 @@ export function RootPathSelectDialog({
         <div>
           <DialogTitle>Select Download Location</DialogTitle>
           <DialogDescription>
-            Choose where to save <strong>{gameTitle}</strong>.
+            Choose where to save <strong translate="no">{gameTitle}</strong>.
           </DialogDescription>
         </div>
         <button
@@ -68,7 +68,7 @@ export function RootPathSelectDialog({
               className="flex w-full items-center gap-3 rounded-xl border border-gv-line bg-gv-panel p-4 text-left transition-colors hover:border-gv-accent hover:bg-gv-panel-soft cursor-pointer"
             >
               <FolderIcon className="h-6 w-6 shrink-0 text-gv-accent" />
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1" translate="no">
                 <div className="truncate text-sm font-medium text-gv-text">
                   {root.label || displayPath(root.path)}
                 </div>

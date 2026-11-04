@@ -457,7 +457,10 @@ function ProfileProgressCard({ progress }: { progress: Progress }) {
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-start gap-3">
-              <h3 className="line-clamp-2 min-w-0 flex-1 text-base font-semibold tracking-[-0.02em] text-gv-text">
+              <h3
+                className="line-clamp-2 min-w-0 flex-1 text-base font-semibold tracking-[-0.02em] text-gv-text"
+                translate="no"
+              >
                 {title}
               </h3>
               <Badge color={meta.chip} className="shrink-0 self-start">

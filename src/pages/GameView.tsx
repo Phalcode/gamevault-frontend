@@ -1026,7 +1026,10 @@ export default function GameView() {
                 (game as any)?.metadata?.early_access ? (
                   <div className="flex flex-wrap gap-1 pt-1 items-center">
                     {game?.type && game.type !== "UNDETECTABLE" && (
-                      <span className="px-2 py-0.5 rounded-full bg-gv-accent/15 text-gv-accent-strong text-[10px] font-medium">
+                      <span
+                        className="px-2 py-0.5 rounded-full bg-gv-accent/15 text-gv-accent-strong text-[10px] font-medium"
+                        translate="no"
+                      >
                         {game.type
                           .replace(/_/g, " ")
                           .toLowerCase()
@@ -1043,6 +1046,7 @@ export default function GameView() {
                       <span
                         key={g}
                         className="px-2 py-0.5 rounded-full bg-gv-panel-strong text-[10px] font-medium text-gv-muted"
+                        translate="no"
                       >
                         {g}
                       </span>
@@ -1290,6 +1294,7 @@ export default function GameView() {
                       <div
                         className="font-medium whitespace-nowrap truncate"
                         title={(releaseYear || "—") + ""}
+                        translate="no"
                       >
                         {releaseYear || "—"}
                       </div>
@@ -1318,6 +1323,7 @@ export default function GameView() {
                       <div
                         className="font-medium whitespace-nowrap truncate"
                         title={versionTag || "—"}
+                        translate="no"
                       >
                         {versionTag || "—"}
                       </div>
@@ -1342,6 +1348,7 @@ export default function GameView() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="underline hover:text-gv-accent-cool"
+                                translate="no"
                               >
                                 {website.replace(/^https?:\/\//, "")}
                               </a>
@@ -1372,6 +1379,7 @@ export default function GameView() {
                       <div
                         className="font-medium whitespace-nowrap truncate"
                         title={devNames.length ? devNames.join(", ") : "—"}
+                        translate="no"
                       >
                         {devNames.length ? devNames.join(", ") : "—"}
                       </div>
@@ -1390,6 +1398,7 @@ export default function GameView() {
                             ? publisherNames.join(", ")
                             : "—"
                         }
+                        translate="no"
                       >
                         {publisherNames.length
                           ? publisherNames.join(", ")
@@ -1406,6 +1415,7 @@ export default function GameView() {
                       <div
                         className="font-medium whitespace-nowrap"
                         title={ageRating ?? "—"}
+                        translate="no"
                       >
                         {ageRating ?? "—"}
                       </div>

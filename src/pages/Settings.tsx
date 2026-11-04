@@ -687,7 +687,9 @@ function AboutLinkRow({
     >
       <SettingsLabel title={title} />
       <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-sm font-medium text-gv-accent">
-        <span className="truncate">{value}</span>
+        <span className="truncate" translate="no">
+          {value}
+        </span>
         <ChevronRightIcon className="size-3.5 shrink-0 text-gv-muted" />
       </span>
     </a>
@@ -1841,7 +1843,10 @@ export default function Settings() {
                                   />
                                 ) : (
                                   <div className="flex min-w-0 items-center gap-1.5">
-                                    <span className="min-w-0 truncate text-sm font-medium text-gv-text">
+                                    <span
+                                      className="min-w-0 truncate text-sm font-medium text-gv-text"
+                                      translate="no"
+                                    >
                                       {displayLabel}
                                     </span>
                                     <button
@@ -1857,6 +1862,7 @@ export default function Settings() {
                                 <p
                                   className="mt-0.5 truncate text-xs text-gv-muted"
                                   title={root.path}
+                                  translate="no"
                                 >
                                   {root.path}
                                 </p>
@@ -2034,7 +2040,10 @@ export default function Settings() {
                                   <span className="w-6 shrink-0 tabular-nums text-xs text-gv-muted">
                                     {position}.
                                   </span>
-                                  <span className="min-w-0 flex-1 truncate font-mono text-sm text-gv-text">
+                                  <span
+                                    className="min-w-0 flex-1 truncate font-mono text-sm text-gv-text"
+                                    translate="no"
+                                  >
                                     {revealed
                                       ? password
                                       : "•".repeat(
@@ -2082,6 +2091,7 @@ export default function Settings() {
                               onChange={(e: any) =>
                                 setNewArchivePassword(e.target.value)
                               }
+                              translate="no"
                               onKeyDown={(e: any) => {
                                 if (e.key === "Enter") {
                                   e.preventDefault();
@@ -2379,7 +2389,10 @@ export default function Settings() {
                         {winePrefixBase && (
                           <SettingsRow>
                             <div className="flex min-w-0 flex-1 items-center gap-2">
-                              <span className="min-w-0 flex-1 truncate text-sm text-gv-muted">
+                              <span
+                                className="min-w-0 flex-1 truncate text-sm text-gv-muted"
+                                translate="no"
+                              >
                                 {winePrefixBase}
                               </span>
                               <button
@@ -2764,19 +2777,28 @@ export default function Settings() {
                       >
                         <SettingsRow>
                           <SettingsLabel title="Version" />
-                          <span className="shrink-0 font-mono text-xs text-gv-text">
+                          <span
+                            className="shrink-0 font-mono text-xs text-gv-text"
+                            translate="no"
+                          >
                             {__APP_VERSION__}
                           </span>
                         </SettingsRow>
                         <SettingsRow>
                           <SettingsLabel title="Channel" />
-                          <span className="shrink-0 font-mono text-xs text-gv-muted">
+                          <span
+                            className="shrink-0 font-mono text-xs text-gv-muted"
+                            translate="no"
+                          >
                             {__BUILD_CHANNEL__}
                           </span>
                         </SettingsRow>
                         <SettingsRow>
                           <SettingsLabel title="Environment" />
-                          <span className="shrink-0 font-mono text-xs text-gv-muted">
+                          <span
+                            className="shrink-0 font-mono text-xs text-gv-muted"
+                            translate="no"
+                          >
                             {import.meta.env.MODE} ·{" "}
                             {isTauri ? "desktop" : "web"}
                           </span>
@@ -2926,7 +2948,10 @@ export default function Settings() {
                           title="Operating System"
                           description="OS, version and architecture"
                         />
-                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {osLabel}
                         </span>
                       </SettingsRow>
@@ -2935,7 +2960,10 @@ export default function Settings() {
                           title="Display"
                           description="Screen the window is on: panel resolution, scale factor and colour depth"
                         />
-                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word">
+                        <span
+                          className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word"
+                          translate="no"
+                        >
                           {displayLabel}
                         </span>
                       </SettingsRow>
@@ -2944,7 +2972,10 @@ export default function Settings() {
                           title="Monitors"
                           description="Physical resolution and scale factor of every connected monitor"
                         />
-                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {monitorsLabel}
                         </span>
                       </SettingsRow>
@@ -2953,13 +2984,19 @@ export default function Settings() {
                           title="GPU (WebGL)"
                           description="GPU renderer reported by the WebGL context"
                         />
-                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {gpuLabel}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
                         <SettingsLabel title="WebGPU" />
-                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {webgpuLabel}
                         </span>
                       </SettingsRow>
@@ -2968,25 +3005,37 @@ export default function Settings() {
                           title="CPU / Memory"
                           description="Processor and installed memory reported by the operating system"
                         />
-                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word">
+                        <span
+                          className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word"
+                          translate="no"
+                        >
                           {cpuMemoryLabel}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
                         <SettingsLabel title="Platform" />
-                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {systemInfo.platform}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
                         <SettingsLabel title="Language" />
-                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {systemInfo.language}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
                         <SettingsLabel title="User Agent" />
-                        <span className="min-w-0 max-w-[55%] break-all text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 max-w-[55%] break-all text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {systemInfo.userAgent}
                         </span>
                       </SettingsRow>
@@ -3165,10 +3214,16 @@ export default function Settings() {
                       className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-gv-panel-soft"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-mono text-sm text-gv-text">
+                        <span
+                          className="block truncate font-mono text-sm text-gv-text"
+                          translate="no"
+                        >
                           {pkg.name}
                         </span>
-                        <span className="block text-xs text-gv-muted">
+                        <span
+                          className="block text-xs text-gv-muted"
+                          translate="no"
+                        >
                           v{pkg.version}
                         </span>
                       </span>

@@ -20,6 +20,7 @@
 - [#348](https://github.com/Phalcode/gamevault-app/issues/348) GameVault stays in the system tray only when the computer starts it. Launching the app yourself always opens the window again, even with "start minimized" enabled.
 - The library now opens sorted by "Recent": installed games by when they were last played or installed, the server list by newest additions. Other sorts can still be picked and are remembered.
 - The web UI now declares itself as English and translatable, so browsers offer their own translation again instead of assuming the page already matches the system language.
+- Passwords, server addresses, file paths, versions and other technical details are no longer touched by interface or browser translation.
 
 ### Thanks
 

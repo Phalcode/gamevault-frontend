@@ -102,6 +102,7 @@ export default function Administration() {
                   <Link
                     href={streamerMode ? maskUrl(serverUrl) : serverUrl}
                     target="_blank"
+                    translate="no"
                   >
                     {streamerMode ? maskUrl(serverUrl) : serverUrl}
                   </Link>
@@ -115,6 +116,7 @@ export default function Administration() {
                   <Link
                     href={`https://github.com/Phalcode/gamevault-backend/releases/tag/${version}`}
                     target="_blank"
+                    translate="no"
                   >
                     {version}
                   </Link>

@@ -741,6 +741,7 @@ export function UserEditorModal({
                 placeholder="new password"
                 value={form.password}
                 onChange={onInput}
+                translate="no"
               />
             </Field>
             <Field className="sm:col-span-1">
