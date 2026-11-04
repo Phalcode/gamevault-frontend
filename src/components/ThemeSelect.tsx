@@ -1,4 +1,5 @@
 import { getStoredTheme, applyTheme, type ThemeMode } from "@/utils/theme";
+import { trackEvent } from "@/utils/analytics";
 import {
   ComputerDesktopIcon,
   MoonIcon,
@@ -7,7 +8,11 @@ import {
 import { Listbox, ListboxLabel, ListboxOption } from "@tw/listbox";
 import { useCallback, useEffect, useState } from "react";
 
-const THEME_OPTIONS: { value: ThemeMode; label: string; icon: typeof SunIcon }[] = [
+const THEME_OPTIONS: {
+  value: ThemeMode;
+  label: string;
+  icon: typeof SunIcon;
+}[] = [
   { value: "system", label: "System", icon: ComputerDesktopIcon },
   { value: "light", label: "Light", icon: SunIcon },
   { value: "dark", label: "Dark", icon: MoonIcon },
@@ -28,6 +33,7 @@ export default function ThemeSelect({ className }: { className?: string }) {
   const handleChange = useCallback((val: ThemeMode) => {
     setTheme(val);
     applyTheme(val);
+    trackEvent("setting_changed", { key: "theme", value: val });
   }, []);
 
   return (

@@ -652,6 +652,107 @@ fn read_magic(path: &PathBuf) -> Result<[u8; 8], String> {
   Ok(magic)
 }
 
+/// Turns the raw outcome of a format-specific extractor into the command
+/// response.
+fn into_response(outcome: Result<(), (bool, String)>) -> ExtractArchiveResponse {
+  match outcome {
+    Ok(()) => ExtractArchiveResponse {
+      success: true,
+      needs_password: false,
+      message: None,
+    },
+    Err((needs_password, msg)) => ExtractArchiveResponse {
+      success: false,
+      needs_password,
+      message: Some(msg),
+    },
+  }
+}
+
+/// Ordered list of passwords to try: trimmed, deduplicated, and `None` (no
+/// password at all) when the list is empty, so an unprotected archive is still
+/// detected as such.
+fn password_candidates(passwords: Vec<String>) -> Vec<Option<String>> {
+  let mut candidates: Vec<Option<String>> = Vec::new();
+  for password in passwords {
+    let trimmed = password.trim();
+    if trimmed.is_empty() {
+      continue;
+    }
+    if !candidates
+      .iter()
+      .any(|existing| existing.as_deref() == Some(trimmed))
+    {
+      candidates.push(Some(trimmed.to_string()));
+    }
+  }
+  if candidates.is_empty() {
+    candidates.push(None);
+  }
+  candidates
+}
+
+/// Extracts a password-protected format, trying each password in order.
+///
+/// A wrong password fails while opening the archive, before the extraction
+/// writes anything meaningful, so trying the next candidate is cheap. Errors
+/// that are not about the password abort the loop immediately.
+fn run_password_aware_extraction(
+  app: &tauri::AppHandle,
+  game_id: i64,
+  archive: &PathBuf,
+  destination: &PathBuf,
+  passwords: Vec<String>,
+  is_zip: bool,
+  is_rar: bool,
+) -> Result<ExtractArchiveResponse, String> {
+  let mut last_password_error: Option<String> = None;
+
+  for password in password_candidates(passwords) {
+    let attempt = if is_zip {
+      extract_zip_archive(app, game_id, archive, destination, password.as_deref())
+    } else if is_rar {
+      extract_rar_archive(app, game_id, archive, destination, password.as_deref())
+    } else {
+      extract_7z_archive(app, game_id, archive, destination, password.as_deref())
+    };
+
+    match attempt {
+      Ok(()) => {
+        return Ok(ExtractArchiveResponse {
+          success: true,
+          needs_password: false,
+          message: None,
+        });
+      }
+      Err((needs_password, message)) => {
+        if !needs_password {
+          return Ok(ExtractArchiveResponse {
+            success: false,
+            needs_password: false,
+            message: Some(message),
+          });
+        }
+        last_password_error = Some(message);
+      }
+    }
+  }
+
+  // Every candidate failed because the password was wrong or missing. The raw
+  // 7z error text is not user friendly, so it keeps the generic message.
+  let message = if is_zip || is_rar {
+    last_password_error.unwrap_or_else(|| "Archive is password protected.".to_string())
+  } else {
+    "Archive is password protected.".to_string()
+  };
+
+  Ok(ExtractArchiveResponse {
+    success: false,
+    needs_password: true,
+    message: Some(message),
+  })
+}
+
 /// Runs the actual synchronous extraction work off the main thread.
 ///
 /// The heavy decompression and file I/O are blocking, so they must not run on
@@ -662,7 +763,7 @@ fn run_extraction(
   game_id: i64,
   archive: PathBuf,
   destination: PathBuf,
-  password: Option<String>,
+  passwords: Vec<String>,
 ) -> Result<ExtractArchiveResponse, String> {
   if !archive.exists() {
     return Err("Archive does not exist".to_string());
@@ -706,101 +807,39 @@ fn run_extraction(
     && magic[4] == 0x27
     && magic[5] == 0x1C;
 
-  if is_zip {
-    return match extract_zip_archive(&app, game_id, &archive, &destination, password.as_deref()) {
-      Ok(_) => Ok(ExtractArchiveResponse {
-        success: true,
-        needs_password: false,
-        message: None,
-      }),
-      Err((needs_password, msg)) => Ok(ExtractArchiveResponse {
-        success: false,
-        needs_password,
-        message: Some(msg),
-      }),
-    };
-  }
-
-  if is_rar {
-    return match extract_rar_archive(&app, game_id, &archive, &destination, password.as_deref()) {
-      Ok(_) => Ok(ExtractArchiveResponse {
-        success: true,
-        needs_password: false,
-        message: None,
-      }),
-      Err((needs_password, msg)) => Ok(ExtractArchiveResponse {
-        success: false,
-        needs_password,
-        message: Some(msg),
-      }),
-    };
+  if is_zip || is_rar || is_7z {
+    return run_password_aware_extraction(
+      &app,
+      game_id,
+      &archive,
+      &destination,
+      passwords,
+      is_zip,
+      is_rar,
+    );
   }
 
   if is_optical_image(&archive) {
-    return match extract_optical_image(&app, game_id, &archive, &destination) {
-      Ok(_) => Ok(ExtractArchiveResponse {
-        success: true,
-        needs_password: false,
-        message: None,
-      }),
-      Err((needs_password, msg)) => Ok(ExtractArchiveResponse {
-        success: false,
-        needs_password,
-        message: Some(msg),
-      }),
-    };
+    return Ok(into_response(extract_optical_image(
+      &app,
+      game_id,
+      &archive,
+      &destination,
+    )));
   }
 
-  if let Some(result) = extract_other_supported_archive(&app, game_id, &archive, &destination) {
-    return match result {
-      Ok(_) => Ok(ExtractArchiveResponse {
-        success: true,
-        needs_password: false,
-        message: None,
-      }),
-      Err((needs_password, msg)) => Ok(ExtractArchiveResponse {
-        success: false,
-        needs_password,
-        message: Some(msg),
-      }),
-    };
+  if let Some(outcome) = extract_other_supported_archive(&app, game_id, &archive, &destination) {
+    return Ok(into_response(outcome));
   }
 
-  if !is_7z {
-    return Ok(ExtractArchiveResponse {
-      success: false,
-      needs_password: false,
-      message: Some(
-        "Unsupported archive format for built-in extractor. Supported formats include ZIP, RAR, 7z, ISO 9660/UDF disc images, TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ2, TAR.XZ/TXZ, TAR.ZST/TZST, and single-file GZ/BZ2/XZ/ZST."
-          .to_string(),
-      ),
-    });
-  }
-
-  let run_result = extract_7z_archive(&app, game_id, &archive, &destination, password.as_deref());
-
-  match run_result {
-    Ok(_) => Ok(ExtractArchiveResponse {
-      success: true,
-      needs_password: false,
-      message: None,
-    }),
-    Err((needs_password, msg)) => {
-      if needs_password {
-        Ok(ExtractArchiveResponse {
-          success: false,
-          needs_password: true,
-          message: Some("Archive is password protected.".to_string()),
-        })
-      } else {
-        Ok(ExtractArchiveResponse {
-          success: false,
-          needs_password: false,
-          message: Some(msg),
-        })
-      }
-    }
-  }
+  Ok(ExtractArchiveResponse {
+    success: false,
+    needs_password: false,
+    message: Some(
+      "Unsupported archive format for built-in extractor. Supported formats include ZIP, RAR, 7z, ISO 9660/UDF disc images, TAR, TAR.GZ/TGZ, TAR.BZ2/TBZ2, TAR.XZ/TXZ, TAR.ZST/TZST, and single-file GZ/BZ2/XZ/ZST."
+        .to_string(),
+    ),
+  })
 }
 
 /// Publishes the final state of an extraction.
@@ -852,10 +891,11 @@ pub(crate) async fn extract_archive(
   game_id: i64,
   archive_path: String,
   destination_path: String,
-  password: Option<String>,
+  passwords: Option<Vec<String>>,
 ) -> Result<ExtractArchiveResponse, String> {
   let archive = PathBuf::from(archive_path);
   let destination = PathBuf::from(destination_path);
+  let passwords = passwords.unwrap_or_default();
 
   // Two extractions writing into the same directory would corrupt the result.
   // This can happen when the page is reloaded (F5) mid-extraction and the user
@@ -882,7 +922,7 @@ pub(crate) async fn extract_archive(
       game_id,
       archive,
       destination,
-      password,
+      passwords,
     );
     finish_extraction(&blocking_app, game_id, &outcome);
     outcome

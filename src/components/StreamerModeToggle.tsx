@@ -1,4 +1,5 @@
 import { setStreamerMode, useStreamerMode } from "@/utils/streamerMode";
+import { trackEvent } from "@/utils/analytics";
 import { Switch, SwitchField, SwitchGroup } from "@tw/switch";
 
 export default function StreamerModeToggle({
@@ -14,7 +15,10 @@ export default function StreamerModeToggle({
         <Switch
           aria-label="Streamer / OPSEC Mode"
           checked={streamerMode}
-          onChange={setStreamerMode}
+          onChange={(value: boolean) => {
+            setStreamerMode(value);
+            trackEvent("streamer_mode_changed", { enabled: value });
+          }}
           color="dark/zinc"
           className="cursor-pointer"
         />

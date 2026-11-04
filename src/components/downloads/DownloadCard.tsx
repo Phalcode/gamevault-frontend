@@ -1,6 +1,7 @@
 import { useState, type ComponentType, type ReactNode } from "react";
 import { useDownloads, type ActiveDownload } from "@/context/DownloadContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
+import { useArchivePasswords } from "@/context/ArchivePasswordsContext";
 import { Button } from "@/components/tailwind/button";
 import { Badge } from "@/components/tailwind/badge";
 import {
@@ -122,8 +123,10 @@ export function DownloadCard({
     formatSpeed,
   } = useDownloads();
   const { showAlert } = useAlertDialog();
+  const { addPassword } = useArchivePasswords();
   const isTauri = isTauriApp();
   const [password, setPassword] = useState("");
+  const [rememberPassword, setRememberPassword] = useState(false);
   const {
     installState,
     openInstallFlow,
@@ -151,7 +154,16 @@ export function DownloadCard({
   const installViewOpen = installState !== null;
 
   const handleExtract = async () => {
-    await extractArchive(download.gameId, password);
+    const typedPassword = password.trim();
+    const extracted = await extractArchive(
+      download.gameId,
+      typedPassword || undefined,
+    );
+    // Only remember a password that actually opened the archive, so a typo
+    // cannot end up in the saved list.
+    if (!extracted || !rememberPassword || !typedPassword) return;
+    await addPassword(typedPassword);
+    setRememberPassword(false);
   };
 
   const handleDeleteCard = async () => {
@@ -205,7 +217,11 @@ export function DownloadCard({
 
     if (download.status === "downloading") {
       return (
-        <Button color="amber" onClick={() => pauseDownload(download.gameId)}>
+        <Button
+          color="amber"
+          data-analytics-id="download.pause"
+          onClick={() => pauseDownload(download.gameId)}
+        >
           <PauseIcon className="h-4 w-4" aria-hidden="true" />
           Pause
         </Button>
@@ -213,7 +229,11 @@ export function DownloadCard({
     }
     if (download.status === "paused") {
       return (
-        <Button color="indigo" onClick={() => resumeDownload(download.gameId)}>
+        <Button
+          color="indigo"
+          data-analytics-id="download.resume"
+          onClick={() => resumeDownload(download.gameId)}
+        >
           <PlayIcon className="h-4 w-4" aria-hidden="true" />
           Resume
         </Button>
@@ -221,7 +241,11 @@ export function DownloadCard({
     }
     if (isFailed) {
       return (
-        <Button color="indigo" onClick={() => retryDownload(download.gameId)}>
+        <Button
+          color="indigo"
+          data-analytics-id="download.retry"
+          onClick={() => retryDownload(download.gameId)}
+        >
           <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
           Try Again
         </Button>
@@ -314,12 +338,14 @@ export function DownloadCard({
               <h3
                 className="truncate text-base font-semibold tracking-[-0.02em] text-gv-text"
                 title={download.gameTitle || download.filename}
+                translate="no"
               >
                 {download.gameTitle || download.filename}
               </h3>
               <p
                 className="mt-1 truncate font-mono text-sm text-gv-muted"
                 title={download.filename}
+                translate="no"
               >
                 {download.filename}
               </p>
@@ -354,6 +380,8 @@ export function DownloadCard({
           isTauri={isTauri}
           password={password}
           onPasswordChange={setPassword}
+          rememberPassword={rememberPassword}
+          onRememberPasswordChange={setRememberPassword}
           installState={installState}
           onUpdateInstallState={updateInstallState}
           onCloseInstallView={closeInstallView}

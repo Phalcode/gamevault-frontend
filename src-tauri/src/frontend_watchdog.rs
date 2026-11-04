@@ -281,6 +281,8 @@ fn attempt_recovery(app: &tauri::AppHandle) {
     log::warn!("[watchdog] recovery skipped: main webview window not found");
     return;
   };
+  // Written before the reload: the next boot reports it as an analytics event.
+  crate::settings::mark_watchdog_recovery(app);
   match window.reload() {
     Ok(()) => log::warn!("[watchdog] reloading the main webview to recover the UI"),
     Err(error) => log::warn!("[watchdog] recovery reload failed: {error}"),

@@ -1,3 +1,5 @@
+import { trackEvent } from "./analytics";
+
 /**
  * Register the F5 hotkey to reload the app.
  * Only wired up in the Tauri desktop app — regular browsers already handle
@@ -13,6 +15,7 @@ export function registerReloadHotkey(): () => void {
       return;
     }
     event.preventDefault();
+    trackEvent("hotkey_used", { hotkey: "reload" });
     window.location.reload();
   };
 

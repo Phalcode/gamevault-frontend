@@ -19,7 +19,8 @@
         "resizable": true,
         "fullscreen": false,
         "decorations": false,
-        "devtools": true
+        "devtools": true,
+        "visible": false
       }
     ],
     "security": {
@@ -62,6 +63,11 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["gamevault"]
+      }
+    },
     "updater": {
       "endpoints": [
         "https://github.com/Phalcode/gamevault-frontend/releases/latest/download/latest.json"

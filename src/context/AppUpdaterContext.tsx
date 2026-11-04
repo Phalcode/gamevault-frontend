@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { isTauriApp } from "@/utils/tauri";
+import { trackEvent } from "@/utils/analytics";
 import {
   channelLabel,
   clearSkippedVersion,
@@ -434,6 +435,10 @@ export function AppUpdaterProvider({
         }
 
         setAvailableVersion(update.version);
+        trackEvent("app_update_prompt", {
+          channel: updateChannel,
+          manual,
+        });
 
         if (!manual && readSkippedVersion(updateChannel) === update.version) {
           setStatusText(
@@ -456,6 +461,7 @@ export function AppUpdaterProvider({
         if (!approved) {
           if (!manual) {
             writeSkippedVersion(updateChannel, update.version);
+            trackEvent("app_update_skipped", { channel: updateChannel });
           }
           setStatusText(
             `${channelLabel(updateChannel)} update v${update.version} is available.`,
@@ -508,6 +514,7 @@ export function AppUpdaterProvider({
         await invoke<string | null>("download_and_install_app_update", {
           channel: updateChannel,
         });
+        trackEvent("app_update_install_finished", { channel: updateChannel });
 
         setAvailableVersion(null);
         setStatusText("Update installed. Restart GameVault to finish.");
@@ -526,6 +533,10 @@ export function AppUpdaterProvider({
 
         const message = formatUpdateError(error);
         console.error("Update check failed:", error);
+        trackEvent("app_update_failed", {
+          channel: updateChannel,
+          reason: isMissingUpdaterFeedError(error) ? "feed_missing" : "error",
+        });
         setErrorText(message);
         setStatusText(null);
 

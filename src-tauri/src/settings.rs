@@ -7,8 +7,15 @@ use tauri::Manager;
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub(crate) struct AppSettings {
+  /// Keep the window in the tray when the login autostart entry starts the
+  /// app (`--minimized`). Manual launches always open the window.
   #[serde(default)]
   pub start_minimized: bool,
+  /// Set once the login autostart entry has been rewritten with the arguments
+  /// this build registers (`--minimized`). Entries written by older builds
+  /// carried none, so they would open the window at login.
+  #[serde(default)]
+  pub autostart_args_synced: bool,
   #[serde(default)]
   pub minimize_on_game_launch: bool,
   #[serde(default)]
@@ -46,6 +53,22 @@ pub(crate) struct AppSettings {
   /// automatic recovery reload stay active either way.
   #[serde(default)]
   pub diagnostics_verbose: bool,
+  /// Anonymous usage analytics consent. `None` means the user never chose, which
+  /// defaults to enabled (opt-out).
+  ///
+  /// Lives here instead of the webview's localStorage because the installer
+  /// clears that folder on updates, which would silently opt users back in.
+  #[serde(default)]
+  pub analytics_enabled: Option<bool>,
+  /// Unix timestamp of the last watchdog reload. Written before the webview is
+  /// reloaded (the frozen UI cannot report it) and read once on the next boot.
+  #[serde(default)]
+  pub watchdog_recovery_at: Option<u64>,
+  /// Language the desktop interface is machine-translated into (`None` = off,
+  /// English). Kept here instead of the webview's localStorage because the
+  /// installer clears that folder on updates.
+  #[serde(default)]
+  pub interface_translation_language: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -128,12 +151,64 @@ pub(crate) fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> R
 pub(crate) async fn get_start_minimized(app: tauri::AppHandle) -> bool {
   load_settings(&app).start_minimized
 }
-
 #[tauri::command]
 pub(crate) async fn set_start_minimized(app: tauri::AppHandle, minimized: bool) -> Result<(), String> {
   let mut settings = load_settings(&app);
   settings.start_minimized = minimized;
   save_settings(&app, &settings)
+}
+
+/// Whether the login autostart entry already carries `--minimized`.
+pub(crate) fn autostart_args_synced(app: &tauri::AppHandle) -> bool {
+  load_settings(app).autostart_args_synced
+}
+
+pub(crate) fn mark_autostart_args_synced(app: &tauri::AppHandle) -> Result<(), String> {
+  let mut settings = load_settings(app);
+  settings.autostart_args_synced = true;
+  save_settings(app, &settings)
+}
+
+/// Whether the user opted out of anonymous usage analytics. `None` until they
+/// chose for the first time, which counts as enabled.
+#[tauri::command]
+pub(crate) async fn get_analytics_enabled(app: tauri::AppHandle) -> Option<bool> {
+  load_settings(&app).analytics_enabled
+}
+
+#[tauri::command]
+pub(crate) async fn set_analytics_enabled(
+  app: tauri::AppHandle,
+  enabled: bool,
+) -> Result<(), String> {
+  let mut settings = load_settings(&app);
+  settings.analytics_enabled = Some(enabled);
+  save_settings(&app, &settings)
+}
+
+/// Records that the watchdog had to reload the webview to recover it.
+///
+/// The frozen UI cannot send this itself, so the marker is written before the
+/// reload and reported by the next frontend boot.
+pub(crate) fn mark_watchdog_recovery(app: &tauri::AppHandle) {
+  let mut settings = load_settings(app);
+  settings.watchdog_recovery_at = std::time::SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .ok()
+    .map(|duration| duration.as_secs());
+  let _ = save_settings(app, &settings);
+}
+
+/// Returns the timestamp of the last watchdog reload and clears the marker, so
+/// every recovery is reported exactly once.
+#[tauri::command]
+pub(crate) async fn take_watchdog_recovery(app: tauri::AppHandle) -> Option<u64> {
+  let mut settings = load_settings(&app);
+  let value = settings.watchdog_recovery_at.take();
+  if value.is_some() {
+    let _ = save_settings(&app, &settings);
+  }
+  value
 }
 
 #[tauri::command]
@@ -200,10 +275,31 @@ pub(crate) async fn set_prerelease_notice_channel(
   save_settings(&app, &settings)
 }
 
+/// Language the desktop interface is translated into, or `None` when the
+/// translation is off.
+#[tauri::command]
+pub(crate) async fn get_interface_translation_language(app: tauri::AppHandle) -> Option<String> {
+  load_settings(&app).interface_translation_language
+}
+/// Stores the interface translation language. `None` and `"off"` both disable
+/// the translation and are stored as `None`.
+#[tauri::command]
+pub(crate) async fn set_interface_translation_language(
+  app: tauri::AppHandle,
+  language: Option<String>,
+) -> Result<(), String> {
+  let mut settings = load_settings(&app);
+  settings.interface_translation_language = language
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty() && value != "off");
+  save_settings(&app, &settings)
+}
+
 #[tauri::command]
 pub(crate) async fn get_default_wine_prefix(app: tauri::AppHandle) -> Option<String> {
   load_settings(&app).default_wine_prefix
 }
+
 #[tauri::command]
 pub(crate) async fn set_default_wine_prefix(
   app: tauri::AppHandle,

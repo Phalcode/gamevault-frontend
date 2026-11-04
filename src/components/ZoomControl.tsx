@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/tailwind/button";
+import { trackEvent } from "@/utils/analytics";
 import { MinusIcon, PlusIcon } from "@heroicons/react/16/solid";
 import {
   MAX_ZOOM,
@@ -24,15 +25,19 @@ export default function ZoomControl({ className }: { className?: string }) {
       if (detail && Number.isFinite(detail.zoom)) setZoom(detail.zoom);
     };
     window.addEventListener(ZOOM_CHANGE_EVENT, handleZoomChange);
-    return () => window.removeEventListener(ZOOM_CHANGE_EVENT, handleZoomChange);
+    return () =>
+      window.removeEventListener(ZOOM_CHANGE_EVENT, handleZoomChange);
   }, []);
 
   const handleStep = useCallback((delta: number) => {
-    setZoom(adjustZoom(delta));
+    const next = adjustZoom(delta);
+    setZoom(next);
+    trackEvent("setting_changed", { key: "zoom", value: next });
   }, []);
 
   const handleReset = useCallback(() => {
     setZoom(resetZoomLevel());
+    trackEvent("setting_changed", { key: "zoom", value: "reset" });
   }, []);
 
   const pct = zoomPercent(zoom);

@@ -1617,34 +1617,58 @@ fn get_offline_time_files_blocking(
   Ok(results)
 }
 
-fn walk_offline_time_files(dir: &Path, results: &mut Vec<OfflineTimeFile>) -> std::io::Result<()> {
-  if !dir.exists() || !dir.is_dir() {
+/// Name of the file the tracker keeps uncredited minutes in.
+const OFFLINE_TIME_FILE: &str = ".gamevault.offline_time.json";
+
+/// Reads one offline time file, or returns `None` when it is unreadable or not
+/// a tracker file.
+fn read_offline_time_file(path: &Path) -> Option<OfflineTimeFile> {
+  let content = fs::read_to_string(path).ok()?;
+  let json = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+  Some(OfflineTimeFile {
+    path: path.to_string_lossy().to_string(),
+    user_id: json.get("user_id").and_then(|v| v.as_i64()).unwrap_or(0),
+    game_id: json.get("game_id").and_then(|v| v.as_i64()).unwrap_or(0),
+    accumulated_minutes: json
+      .get("accumulated_minutes")
+      .and_then(|v| v.as_i64())
+      .unwrap_or(0),
+    updated_at: json.get("updated_at").and_then(|v| v.as_i64()).unwrap_or(0),
+  })
+}
+
+/// Collects the offline time files below `base` (`<root>/GameVault` or `<root>`).
+///
+/// `save_offline_time` always writes the file into the version directory, so the
+/// layout is fixed: `<base>/<Title>/Versions/<Version>/.gamevault.offline_time.json`.
+/// Walking exactly those three levels is what keeps this cheap — the previous
+/// recursive walk descended into every installation folder and read hundreds of
+/// thousands of directory entries, which took seconds and stalled the disk for
+/// unrelated commands (listing installed games, reading cached metadata).
+fn walk_offline_time_files(base: &Path, results: &mut Vec<OfflineTimeFile>) -> std::io::Result<()> {
+  let Ok(games) = fs::read_dir(base) else {
     return Ok(());
-  }
-  for entry in fs::read_dir(dir)? {
-    let entry = entry?;
-    let path = entry.path();
-    if path.is_dir() {
-      let name = entry.file_name().to_string_lossy().to_string();
-      if name == ".cache" || name == "Download" || name == "Extraction" {
+  };
+
+  for game_entry in games.flatten() {
+    let game_path = game_entry.path();
+    if !game_path.is_dir() {
+      continue;
+    }
+    let Ok(versions) = fs::read_dir(game_path.join("Versions")) else {
+      continue;
+    };
+    for version_entry in versions.flatten() {
+      let version_path = version_entry.path();
+      if !version_path.is_dir() {
         continue;
       }
-      walk_offline_time_files(&path, results)?;
-    } else if entry.file_name() == ".gamevault.offline_time.json" {
-      if let Ok(content) = fs::read_to_string(&path) {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-          let user_id = json.get("user_id").and_then(|v| v.as_i64()).unwrap_or(0);
-          let game_id = json.get("game_id").and_then(|v| v.as_i64()).unwrap_or(0);
-          let accumulated_minutes = json.get("accumulated_minutes").and_then(|v| v.as_i64()).unwrap_or(0);
-          let updated_at = json.get("updated_at").and_then(|v| v.as_i64()).unwrap_or(0);
-          results.push(OfflineTimeFile {
-            path: path.to_string_lossy().to_string(),
-            user_id,
-            game_id,
-            accumulated_minutes,
-            updated_at,
-          });
-        }
+      let offline_file = version_path.join(OFFLINE_TIME_FILE);
+      if !offline_file.is_file() {
+        continue;
+      }
+      if let Some(file) = read_offline_time_file(&offline_file) {
+        results.push(file);
       }
     }
   }
@@ -2057,5 +2081,75 @@ mod tests {
     assert_eq!(retry_for(4), 900);
     // Stays capped: an hour-long rejection streak must not grow unbounded.
     assert_eq!(retry_for(60), 900);
+  }
+
+  /// Creates a throwaway directory tree for the offline-file scan tests.
+  fn scratch_root(name: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!(
+      "gamevault-offline-{name}-{}-{}",
+      std::process::id(),
+      tracker_log::now_ms()
+    ));
+    fs::create_dir_all(&root).expect("create scratch root");
+    root
+  }
+
+  fn write_offline_file(path: &Path, minutes: i64) {
+    fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
+    fs::write(
+      path,
+      format!(r#"{{"user_id": 1, "game_id": 42, "accumulated_minutes": {minutes}}}"#),
+    )
+    .expect("write offline file");
+  }
+
+  #[test]
+  fn finds_offline_time_files_in_version_directories() {
+    let root = scratch_root("find");
+    let version_dir = root.join("GameVault").join("Some Game").join("Versions").join("(v1.0)");
+    write_offline_file(&version_dir.join(OFFLINE_TIME_FILE), 7);
+
+    let files = get_offline_time_files_blocking(root.to_string_lossy().to_string())
+      .expect("scan succeeds");
+
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].game_id, 42);
+    assert_eq!(files[0].accumulated_minutes, 7);
+    assert_eq!(files[0].path, version_dir.join(OFFLINE_TIME_FILE).to_string_lossy());
+
+    fs::remove_dir_all(&root).ok();
+  }
+
+  #[test]
+  fn ignores_offline_files_outside_version_directories() {
+    // The tracker only ever writes into a version directory. Anything deeper
+    // (e.g. inside `Installation`) belongs to the game and must not be read:
+    // walking the whole installation tree is what made the scan take seconds.
+    let root = scratch_root("bounded");
+    let base = root.join("GameVault").join("Some Game").join("Versions");
+    write_offline_file(&base.join("(v1.0)").join(OFFLINE_TIME_FILE), 5);
+    write_offline_file(
+      &base.join("(v1.0)").join("Installation").join("deep").join(OFFLINE_TIME_FILE),
+      99,
+    );
+    write_offline_file(&root.join("GameVault").join("Loose Game").join(OFFLINE_TIME_FILE), 98);
+
+    let files = get_offline_time_files_blocking(root.to_string_lossy().to_string())
+      .expect("scan succeeds");
+
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].accumulated_minutes, 5);
+
+    fs::remove_dir_all(&root).ok();
+  }
+
+  #[test]
+  fn tolerates_a_missing_or_empty_root() {
+    let root = scratch_root("empty");
+    fs::remove_dir_all(&root).ok();
+
+    let files = get_offline_time_files_blocking(root.to_string_lossy().to_string())
+      .expect("a missing root is not an error");
+    assert!(files.is_empty());
   }
 }

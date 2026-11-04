@@ -1,6 +1,6 @@
 {
   "name": "gamevault-frontend",
-  "version": "17.1.0",
+  "version": "17.2.0",
   "description": "the self-hosted gaming platform for drm-free games",
   "author": "Alkan Alper, Schäfer Philip GbR / Phalcode",
   "private": true,
@@ -17,9 +17,12 @@
     "test:cov": "vitest run --coverage",
     "lint": "prettier --write . && eslint .",
     "licenses": "node scripts/generate-third-party-licenses.mjs",
-    "postinstall": "node scripts/ensure-api-client.mjs"
+    "postinstall": "node scripts/ensure-api-client.mjs",
+    "predev": "node scripts/copy-bergamot-engine.mjs",
+    "prebuild": "node scripts/copy-bergamot-engine.mjs"
   },
   "dependencies": {
+    "@browsermt/bergamot-translator": "0.4.9",
     "@dicebear/collection": "^9.4.2",
     "@dicebear/core": "^9.4.3",
     "@headlessui/react": "^2.2.10",
@@ -27,6 +30,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-autostart": "^2.7.0",
+    "@tauri-apps/plugin-deep-link": "^2.6.2",
     "@tauri-apps/plugin-dialog": "^2.8.3",
     "@tauri-apps/plugin-fs": "^2.7.1",
     "@tauri-apps/plugin-stronghold": "^2.4.0",

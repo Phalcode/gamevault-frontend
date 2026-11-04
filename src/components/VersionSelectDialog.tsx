@@ -77,13 +77,18 @@ export function VersionSelectDialog({
       let compareValue = 0;
 
       if (sortBy === "version") {
-        compareValue = (left.version || "").localeCompare(right.version || "", undefined, {
-          sensitivity: "base",
-          numeric: true,
-        });
+        compareValue = (left.version || "").localeCompare(
+          right.version || "",
+          undefined,
+          {
+            sensitivity: "base",
+            numeric: true,
+          },
+        );
       } else if (sortBy === "indexed_at") {
         compareValue =
-          new Date(left.indexed_at).getTime() - new Date(right.indexed_at).getTime();
+          new Date(left.indexed_at).getTime() -
+          new Date(right.indexed_at).getTime();
       } else if (sortBy === "type") {
         compareValue = left.type.localeCompare(right.type, undefined, {
           sensitivity: "base",
@@ -118,7 +123,8 @@ export function VersionSelectDialog({
     <Dialog open onClose={onClose} size="5xl">
       <DialogTitle>Select Version</DialogTitle>
       <DialogDescription>
-        Choose which version of {gameTitle} you want to download.
+        Choose which version of <span translate="no">{gameTitle}</span> you want
+        to download.
       </DialogDescription>
       <DialogBody className="pt-3">
         <Table className="[--gutter:--spacing(3)] max-h-[55vh] overflow-y-auto [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gv-panel [&::-webkit-scrollbar-thumb]:rounded-full [scrollbar-color:var(--color-gv-line)_transparent]">
@@ -182,6 +188,7 @@ export function VersionSelectDialog({
                   <span
                     className="block max-w-100 overflow-hidden text-ellipsis whitespace-nowrap"
                     title={`(${version.id}) ${version.version || "Unspecified"}`}
+                    translate="no"
                   >
                     {version.version || "Unspecified"}
                   </span>
@@ -190,7 +197,10 @@ export function VersionSelectDialog({
                 <TableCell>{formatGameType(version.type)}</TableCell>
                 <TableCell className="text-center">
                   {version.early_access ? (
-                    <span className="inline-flex items-center justify-center" title="Early Access">
+                    <span
+                      className="inline-flex items-center justify-center"
+                      title="Early Access"
+                    >
                       <CheckIcon className="h-4 w-4" />
                     </span>
                   ) : null}

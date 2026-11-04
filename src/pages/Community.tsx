@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useScrollRestoration } from "@/hooks/useScrollRestoration";
 import { maskUser, useStreamerMode } from "@/utils/streamerMode";
+import { countBucket, trackEvent } from "@/utils/analytics";
 import type { GamevaultGame, GamevaultUser, Progress } from "../api";
 
 type UserDetailsMap = Record<number, GamevaultUser>;
@@ -343,7 +344,10 @@ function NetworkUserCard({
               />
               <div className="min-w-0 space-y-2">
                 <div className="flex min-w-0 items-center gap-2">
-                  <h3 className="min-w-0 truncate text-lg font-semibold tracking-[-0.02em] text-gv-text">
+                  <h3
+                    translate="no"
+                    className="min-w-0 truncate text-lg font-semibold tracking-[-0.02em] text-gv-text"
+                  >
                     {displayName}
                   </h3>
                   {isCurrentUser && (
@@ -358,7 +362,9 @@ function NetworkUserCard({
                     {getRoleLabel(Number(user.role))}
                   </Badge>
                 </div>
-                <div className="truncate text-sm text-gv-muted">@{handle}</div>
+                <div translate="no" className="truncate text-sm text-gv-muted">
+                  @{handle}
+                </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gv-muted">
                   <span
                     title={formatFullDateTime(stats.lastPlayed) ?? undefined}
@@ -451,7 +457,10 @@ function ProfileProgressCard({ progress }: { progress: Progress }) {
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-start gap-3">
-              <h3 className="line-clamp-2 min-w-0 flex-1 text-base font-semibold tracking-[-0.02em] text-gv-text">
+              <h3
+                className="line-clamp-2 min-w-0 flex-1 text-base font-semibold tracking-[-0.02em] text-gv-text"
+                translate="no"
+              >
                 {title}
               </h3>
               <Badge color={meta.chip} className="shrink-0 self-start">
@@ -549,6 +558,9 @@ export default function Community() {
           });
 
         setUsers(activeUsers);
+        trackEvent("community_loaded", {
+          members: countBucket(activeUsers.length),
+        });
         // No users → nothing to await; details `useEffect` keeps the gate
         // closed below otherwise.
         setDetailsDone(activeUsers.length === 0);

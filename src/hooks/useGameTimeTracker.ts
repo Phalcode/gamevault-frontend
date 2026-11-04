@@ -3,6 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { isTauriApp } from "@/utils/tauri";
 import { getRootPaths } from "@/utils/rootPaths";
+import { countBucket, trackEvent } from "@/utils/analytics";
 
 /**
  * Game time tracker lifecycle controller.
@@ -165,6 +166,11 @@ async function reconcileOfflineTime(options: {
     "offline",
     `${options.reason}: ${files} offline file(s), credited ${creditedMinutes} min, ${pendingMinutes} min kept for the next attempt${age}`,
   );
+  trackEvent("playtime_credited", {
+    minutes: countBucket(creditedMinutes),
+    pending: pendingMinutes > 0,
+    reason: options.reason,
+  });
 }
 
 export function useGameTimeTracker() {

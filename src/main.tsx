@@ -4,8 +4,11 @@ import { BrowserRouter, Route, Routes } from "react-router";
 import { MotionConfig } from "motion/react";
 import { Login } from "./components/Login";
 import { Register } from "./components/Register";
+import DeepLinkHandler from "./components/DeepLinkHandler";
+import InterfaceTranslationBoot from "./components/InterfaceTranslationBoot";
 import { PageLoader } from "./components/PageLoader";
 import { PrereleaseNotice } from "./components/PrereleaseNotice";
+import { ServerVersionNotice } from "./components/ServerVersionNotice";
 import {
   AlertDialogProvider,
   GlobalAlertDialogBridge,
@@ -15,6 +18,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { DownloadProvider } from "./context/DownloadContext";
 import { GamepadProvider } from "./context/GamepadContext";
 import { IgnoreListProvider } from "./context/IgnoreListContext";
+import { ArchivePasswordsProvider } from "./context/ArchivePasswordsContext";
 import { OfflineProvider } from "./context/OfflineContext";
 import { UmuProvider } from "./context/UmuContext";
 import "./index.css";
@@ -39,15 +43,43 @@ import { applyZoom, getStoredZoom, registerZoomHotkeys } from "./utils/zoom";
 import { registerReloadHotkey } from "./utils/reload";
 import { registerStreamerModeHotkey } from "./utils/streamerMode";
 import { registerExternalLinkHandler, isTauriApp } from "./utils/tauri";
-import { isAnalyticsEnabled } from "./utils/analytics";
+import {
+  countBucket,
+  initAnalytics,
+  registerAnalyticsClicks,
+  trackEvent,
+} from "./utils/analytics";
 import { startMediaCacheMaintenance } from "./utils/mediaCache";
 import { startFrontendDiagnostics } from "./utils/frontendDiagnostics";
-import * as Swetrix from "swetrix";
+import { prepareInterfaceTranslation } from "./utils/interfaceTranslation";
 import { LaunchLogWindow } from "./pages/LaunchLogWindow";
 
 // The launch log window boots standalone: it renders its own document without
 // the app providers, router, analytics or global hotkeys.
 const isLaunchLogWindow = window.location.hash === "#launch-log";
+
+/**
+ * The native watchdog writes a timestamp before it reloads a frozen webview.
+ * Reading and clearing it here reports one `ui_freeze_recovered` event per
+ * recovery, which a frozen UI could not send itself.
+ */
+async function reportWatchdogRecovery(): Promise<void> {
+  if (!isTauriApp()) return;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const recoveredAt = await invoke<number | null>("take_watchdog_recovery");
+    if (!recoveredAt) return;
+    const minutesAgo = Math.max(
+      0,
+      Math.round((Date.now() / 1000 - recoveredAt) / 60),
+    );
+    trackEvent("ui_freeze_recovered", {
+      minutes_ago: countBucket(minutesAgo),
+    });
+  } catch {
+    // Older builds without the command, or an unreadable settings file.
+  }
+}
 
 if (isLaunchLogWindow) {
   createRoot(document.getElementById("root")!).render(<LaunchLogWindow />);
@@ -58,23 +90,31 @@ if (isLaunchLogWindow) {
   void applyZoom(getStoredZoom());
   void startMediaCacheMaintenance();
 
-  // Reflect the user's locale on <html> so native form controls (e.g. the
-  // <input type="date"> filters) render dates in the locale the computer uses
-  // instead of the statically-declared "en".
-  if (typeof document !== "undefined" && typeof navigator !== "undefined") {
-    document.documentElement.lang = navigator.language || "en";
-  }
+  // Keep `<html lang="en" translate="yes">` as declared in index.html. The UI
+  // is English, and pretending to be the system language stops browsers from
+  // offering their built-in translation. Dates and numbers are formatted with
+  // the runtime locale via `toLocale*`, which does not depend on this
+  // attribute.
 
   (window as any).global = window;
 
-  if (isAnalyticsEnabled()) {
-    Swetrix.init("dBl2xaaJ9x3M", {
-      preloadSessionReplay: true,
-      apiURL: "https://analytics.platform.phalco.de/log",
+  // Analytics start after the consent is resolved (the desktop app keeps it in
+  // the Rust settings so an opt-out survives app updates). Tracking is a no-op
+  // until then, so `app_started` is the first event.
+  void initAnalytics().then(() => {
+    trackEvent("app_started", {
+      version: __APP_VERSION__,
+      channel: __BUILD_CHANNEL__,
+      platform: isTauriApp() ? "desktop" : "web",
+      theme: getStoredTheme(),
+      zoom: String(getStoredZoom()),
+      lang: navigator.language,
+      screen: `${window.screen.width}x${window.screen.height}`,
+      cores: navigator.hardwareConcurrency ?? 0,
     });
-    Swetrix.trackViews();
-    Swetrix.trackErrors();
-  }
+    void reportWatchdogRecovery();
+  });
+  registerAnalyticsClicks();
 
   // Ctrl/Cmd + +/-/0 zoom hotkeys (browsers already handle these natively)
   if (isTauriApp()) {
@@ -90,76 +130,96 @@ if (isLaunchLogWindow) {
     startFrontendDiagnostics();
   }
 
-  createRoot(document.getElementById("root")!).render(
-    <StrictMode>
-      <MotionConfig reducedMotion="user">
-        <AuthProvider>
-          <OfflineProvider>
-            <IgnoreListProvider>
-              <DownloadProvider>
-                <AlertDialogProvider>
-                  <AppUpdaterProvider>
-                    <UmuProvider>
-                      <GlobalAlertDialogBridge />
-                      <PrereleaseNotice />
-                      <BrowserRouter>
-                        <GamepadProvider>
-                          <Suspense fallback={<PageLoader />}>
-                            <Routes>
-                              <Route element={<FullscreenLayout />}>
-                                <Route index element={<Login />} />
-                                <Route path="register" element={<Register />} />
-                              </Route>
+  const renderApp = () =>
+    createRoot(document.getElementById("root")!).render(
+      <StrictMode>
+        <MotionConfig reducedMotion="user">
+          <AuthProvider>
+            <OfflineProvider>
+              <IgnoreListProvider>
+                <ArchivePasswordsProvider>
+                  <DownloadProvider>
+                    <AlertDialogProvider>
+                      <AppUpdaterProvider>
+                        <UmuProvider>
+                          <GlobalAlertDialogBridge />
+                          <PrereleaseNotice />
+                          <ServerVersionNotice />
+                          <BrowserRouter>
+                            <DeepLinkHandler />
+                            <InterfaceTranslationBoot />
+                            <GamepadProvider>
+                              <Suspense fallback={<PageLoader />}>
+                                <Routes>
+                                  <Route element={<FullscreenLayout />}>
+                                    <Route index element={<Login />} />
+                                    <Route
+                                      path="register"
+                                      element={<Register />}
+                                    />
+                                  </Route>
 
-                              <Route element={<DashboardLayout />}>
-                                <Route
-                                  index
-                                  path="library"
-                                  element={<Library />}
-                                />
-                                <Route
-                                  path="library/:id"
-                                  element={<GameView />}
-                                />
-                                <Route
-                                  path="downloads"
-                                  element={<Downloads />}
-                                />
-                                <Route
-                                  path="community"
-                                  element={<Community />}
-                                />
-                                <Route
-                                  path="community/:id"
-                                  element={<UserProfile />}
-                                />
-                                <Route path="settings" element={<Settings />} />
-                                <Route
-                                  path="admin"
-                                  element={
-                                    <ProtectedRoute
-                                      guarded
-                                      requiredRole={GamevaultUserRoleEnum._3}
-                                    >
-                                      <Administration />
-                                    </ProtectedRoute>
-                                  }
-                                />
-                              </Route>
+                                  <Route element={<DashboardLayout />}>
+                                    <Route
+                                      index
+                                      path="library"
+                                      element={<Library />}
+                                    />
+                                    <Route
+                                      path="library/:id"
+                                      element={<GameView />}
+                                    />
+                                    <Route
+                                      path="downloads"
+                                      element={<Downloads />}
+                                    />
+                                    <Route
+                                      path="community"
+                                      element={<Community />}
+                                    />
+                                    <Route
+                                      path="community/:id"
+                                      element={<UserProfile />}
+                                    />
+                                    <Route
+                                      path="settings"
+                                      element={<Settings />}
+                                    />
+                                    <Route
+                                      path="admin"
+                                      element={
+                                        <ProtectedRoute
+                                          guarded
+                                          requiredRole={
+                                            GamevaultUserRoleEnum._3
+                                          }
+                                        >
+                                          <Administration />
+                                        </ProtectedRoute>
+                                      }
+                                    />
+                                  </Route>
 
-                              <Route path="*" element={<NotFound />} />
-                            </Routes>
-                          </Suspense>
-                        </GamepadProvider>
-                      </BrowserRouter>
-                    </UmuProvider>
-                  </AppUpdaterProvider>
-                </AlertDialogProvider>
-              </DownloadProvider>
-            </IgnoreListProvider>
-          </OfflineProvider>
-        </AuthProvider>
-      </MotionConfig>
-    </StrictMode>,
-  );
+                                  <Route path="*" element={<NotFound />} />
+                                </Routes>
+                              </Suspense>
+                            </GamepadProvider>
+                          </BrowserRouter>
+                        </UmuProvider>
+                      </AppUpdaterProvider>
+                    </AlertDialogProvider>
+                  </DownloadProvider>
+                </ArchivePasswordsProvider>
+              </IgnoreListProvider>
+            </OfflineProvider>
+          </AuthProvider>
+        </MotionConfig>
+      </StrictMode>,
+    );
+
+  // Warm the translation cache and hide the app before the first paint when
+  // interface translation is active, so the initial screen is not English.
+  void prepareInterfaceTranslation()
+    .catch(() => undefined)
+    .then(renderApp);
 }

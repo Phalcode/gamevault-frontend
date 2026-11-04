@@ -22,7 +22,11 @@ jobs:
         shell: bash
         run: |
           SPEC_FILE="$RUNNER_TEMP/api-spec.yaml"
-          curl -fsSL "${{ vars.GV_API_SPEC_URL || 'https://gamevault.alfagun74.de/api/docs-yaml' }}" -o "$SPEC_FILE"
+          # The spec host is a single external instance, so a gateway hiccup
+          # (502/503) must not fail the whole job. Retry before giving up.
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 --max-time 120 \
+            "${{ vars.GV_API_SPEC_URL || 'https://gamevault.alfagun74.de/api/docs-yaml' }}" -o "$SPEC_FILE"
           echo "hash=$(sha256sum "$SPEC_FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "file=$SPEC_FILE" >> "$GITHUB_OUTPUT"
 
@@ -66,12 +70,15 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install Linux system dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
+        timeout-minutes: 15
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+        with:
+          version: "1-${{ env.ImageVersion }}"
+          execute_install_scripts: true
+          packages: >-
+            libwebkit2gtk-4.1-dev
+            libappindicator3-dev
+            librsvg2-dev
             patchelf
 
       - name: Setup Rust

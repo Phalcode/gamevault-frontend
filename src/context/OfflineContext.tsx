@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { isTauriApp } from "@/utils/tauri";
+import { countBucket, trackEvent } from "@/utils/analytics";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const wasOfflineRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isOnlineRef = useRef(true);
+  const offlineSinceRef = useRef<number | null>(null);
 
   // Keep ref in sync with state so polling closure always sees latest
   isOnlineRef.current = isOnline;
@@ -126,6 +128,10 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         // Network error — server unreachable
         if (isOnlineRef.current) {
           console.log("[offline] transition: ONLINE → OFFLINE");
+          offlineSinceRef.current = Date.now();
+          trackEvent("offline_mode_entered", {
+            reason: "status_unreachable",
+          });
         }
         setIsOnline(false);
       }
@@ -152,6 +158,13 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         "[offline] reconnect effect firing, callbacks:",
         reconnectCallbacksRef.current.size,
       );
+      const offlineMinutes = offlineSinceRef.current
+        ? Math.round((Date.now() - offlineSinceRef.current) / 60_000)
+        : 0;
+      offlineSinceRef.current = null;
+      trackEvent("network_reconnected", {
+        offlineMinutes: countBucket(offlineMinutes),
+      });
       wasOfflineRef.current = false;
       reconnectCallbacksRef.current.forEach((cb) => {
         try {

@@ -8,6 +8,7 @@ import {
   type SimulatedDownloadKind,
 } from "@/context/DownloadContext";
 import { useIgnoreList } from "@/context/IgnoreListContext";
+import { useArchivePasswords } from "@/context/ArchivePasswordsContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { useAppUpdater } from "@/context/AppUpdaterContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
@@ -38,9 +39,16 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/tailwind/dialog";
-import { isAnalyticsEnabled, setAnalyticsEnabled } from "@/utils/analytics";
+import {
+  countBucket,
+  initAnalytics,
+  isAnalyticsEnabled,
+  setAnalyticsEnabled,
+  trackEvent,
+} from "@/utils/analytics";
 import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
 import { clearImageCache } from "@/utils/mediaCache";
+import InterfaceTranslationControl from "@/components/InterfaceTranslationControl";
 import {
   formatCpuMemoryLabel,
   formatDisplayLabel,
@@ -69,6 +77,8 @@ import {
   ExclamationTriangleIcon,
   WrenchIcon,
   EyeSlashIcon,
+  EyeIcon,
+  KeyIcon,
   InformationCircleIcon,
   ChevronRightIcon,
   ClipboardDocumentIcon,
@@ -240,6 +250,23 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
     desktopOnly: true,
   },
   {
+    id: "downloads-archive-passwords",
+    title: "Archive passwords",
+    description:
+      "Default passwords tried in order when an archive is password protected",
+    category: "downloads",
+    keywords: [
+      "password",
+      "archive",
+      "extract",
+      "encrypted",
+      "zip",
+      "rar",
+      "7z",
+    ],
+    desktopOnly: true,
+  },
+  {
     id: "downloads-clear-image-cache",
     title: "Clear image cache",
     description: "Remove cached covers and background images",
@@ -276,6 +303,24 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
       "hotkey",
     ],
   },
+  {
+    id: "appearance-translation",
+    title: "Interface translation",
+    description: "Translate the interface into another language",
+    category: "appearance",
+    keywords: [
+      "language",
+      "translate",
+      "translation",
+      "locale",
+      "german",
+      "deutsch",
+      "offline",
+      "bergamot",
+      "mozilla",
+    ],
+    desktopOnly: true,
+  },
   // Sound
   {
     id: "sound-volume",
@@ -303,7 +348,7 @@ const SETTINGS_SEARCH_INDEX: SearchableSetting[] = [
   {
     id: "startup-start-minimized",
     title: "Minimize to System Tray on Startup",
-    description: "Start silently in the tray instead of opening the window",
+    description: "Start silently in the tray when launched at login",
     category: "startup",
     keywords: ["startup", "minimize", "tray", "background", "hidden"],
     desktopOnly: true,
@@ -529,7 +574,11 @@ function SettingsGroup({
   id?: string;
 }) {
   return (
-    <div className={clsx(className)} id={id}>
+    <div
+      className={clsx(className)}
+      id={id}
+      data-analytics-id={id ? `settings.${id}` : undefined}
+    >
       {caption && (
         <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-gv-muted">
           {caption}
@@ -638,7 +687,9 @@ function AboutLinkRow({
     >
       <SettingsLabel title={title} />
       <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-sm font-medium text-gv-accent">
-        <span className="truncate">{value}</span>
+        <span className="truncate" translate="no">
+          {value}
+        </span>
         <ChevronRightIcon className="size-3.5 shrink-0 text-gv-muted" />
       </span>
     </a>
@@ -685,9 +736,9 @@ export default function Settings() {
     simulateDownload,
   } = useDownloads() as any;
   const kbValue = speedLimitKB;
-  const [analyticsConsent, setAnalyticsConsent] = useState<boolean>(() => {
-    return isAnalyticsEnabled();
-  });
+  const [analyticsConsent, setAnalyticsConsent] = useState<boolean | null>(
+    null,
+  );
   const [rootPaths, setRootPaths] = useState<RootPathEntry[]>(() =>
     getRootPaths(),
   );
@@ -712,8 +763,7 @@ export default function Settings() {
   );
   const [alwaysShowLaunchLogs, setAlwaysShowLaunchLogs] =
     useState<boolean>(false);
-  const [verboseDiagnostics, setVerboseDiagnostics] =
-    useState<boolean>(false);
+  const [verboseDiagnostics, setVerboseDiagnostics] = useState<boolean>(false);
   const [autoExtract, setAutoExtract] = useState<boolean>(() => {
     try {
       return localStorage.getItem(AUTO_EXTRACT_KEY) === "1";
@@ -743,6 +793,11 @@ export default function Settings() {
     navigator.userAgent.includes("Linux");
   const systemInfo = collectSystemInfo(isTauri);
   const { ignoreList, setIgnoreList } = useIgnoreList();
+  const {
+    passwords: archivePasswords,
+    addPassword: addArchivePassword,
+    removePassword: removeArchivePassword,
+  } = useArchivePasswords();
   const [winePrefixBase, setWinePrefixBase] = useState<string | null>(null);
   const { forceOffline, setForceOffline } = useOnlineStatus();
   const { showAlert } = useAlertDialog();
@@ -760,6 +815,11 @@ export default function Settings() {
   } = useAppUpdater();
   const [newIgnore, setNewIgnore] = useState("");
   const [ignoreSearch, setIgnoreSearch] = useState("");
+  const [newArchivePassword, setNewArchivePassword] = useState("");
+  const [archivePasswordSearch, setArchivePasswordSearch] = useState("");
+  const [revealedArchivePasswords, setRevealedArchivePasswords] = useState<
+    string[]
+  >([]);
   // Deep-link support: `/settings?section=downloads` opens a specific section.
   const [searchParams] = useSearchParams();
   // `null` shows the master list of settings areas; a value drills into it.
@@ -910,6 +970,18 @@ export default function Settings() {
       cancelled = true;
     };
   }, [isTauri]);
+
+  // Resolve the stored analytics consent. The desktop app keeps it in the Rust
+  // settings, which survives app updates, so this is async.
+  useEffect(() => {
+    let cancelled = false;
+    void initAnalytics().then(() => {
+      if (!cancelled) setAnalyticsConsent(isAnalyticsEnabled());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Load the Wine/Proton prefix base directory from the Rust backend config.
   useEffect(() => {
@@ -1191,6 +1263,28 @@ export default function Settings() {
     await setIgnoreList(ignoreList.filter((existing) => existing !== name));
   };
 
+  const handleAddArchivePassword = async () => {
+    const password = newArchivePassword.trim();
+    if (!password) return;
+    await addArchivePassword(password);
+    setNewArchivePassword("");
+  };
+
+  const handleRemoveArchivePassword = async (password: string) => {
+    await removeArchivePassword(password);
+    setRevealedArchivePasswords((previous) =>
+      previous.filter((entry) => entry !== password),
+    );
+  };
+
+  const toggleArchivePasswordReveal = (password: string) => {
+    setRevealedArchivePasswords((previous) =>
+      previous.includes(password)
+        ? previous.filter((entry) => entry !== password)
+        : [...previous, password],
+    );
+  };
+
   const persistWinePrefix = async (value: string | null) => {
     if (!isTauri) return;
     try {
@@ -1237,6 +1331,7 @@ export default function Settings() {
 
     try {
       const removed = await clearImageCache();
+      trackEvent("media_cache_cleared", { removed: countBucket(removed) });
       await showAlert({
         title: "Image cache cleared",
         description:
@@ -1413,6 +1508,13 @@ export default function Settings() {
   const filteredIgnoreList = ignoreQuery
     ? ignoreList.filter((name) => name.toLowerCase().includes(ignoreQuery))
     : ignoreList;
+
+  const archivePasswordQuery = archivePasswordSearch.trim().toLowerCase();
+  const filteredArchivePasswords = archivePasswordQuery
+    ? archivePasswords.filter((password) =>
+        password.toLowerCase().includes(archivePasswordQuery),
+      )
+    : archivePasswords;
 
   const openLicenses = async () => {
     if (!licenseData) {
@@ -1741,7 +1843,10 @@ export default function Settings() {
                                   />
                                 ) : (
                                   <div className="flex min-w-0 items-center gap-1.5">
-                                    <span className="min-w-0 truncate text-sm font-medium text-gv-text">
+                                    <span
+                                      className="min-w-0 truncate text-sm font-medium text-gv-text"
+                                      translate="no"
+                                    >
                                       {displayLabel}
                                     </span>
                                     <button
@@ -1757,6 +1862,7 @@ export default function Settings() {
                                 <p
                                   className="mt-0.5 truncate text-xs text-gv-muted"
                                   title={root.path}
+                                  translate="no"
                                 >
                                   {root.path}
                                 </p>
@@ -1874,6 +1980,142 @@ export default function Settings() {
                       </SettingsGroup>
                     )}
 
+                    {isTauri && (
+                      <SettingsGroup
+                        id="setting-downloads-archive-passwords"
+                        className={rowHighlight("downloads-archive-passwords")}
+                        caption="Archive passwords"
+                        description="Tried in order when an archive is password protected. A password typed on a download card goes first; if none work, GameVault asks you for one. Stored encrypted on this device, separately for each server and account."
+                      >
+                        {archivePasswords.length === 0 && (
+                          <SettingsRow>
+                            <div className="flex items-center gap-2 text-sm text-gv-muted">
+                              <KeyIcon className="size-4 shrink-0" />
+                              No default passwords saved yet. Add one below.
+                            </div>
+                          </SettingsRow>
+                        )}
+                        {archivePasswords.length > 0 && (
+                          <SettingsRow>
+                            <div className="flex min-w-0 flex-1 items-center gap-3">
+                              <div className="min-w-0 flex-1">
+                                <InputGroup>
+                                  <MagnifyingGlassIcon data-slot="icon" />
+                                  <Input
+                                    type="search"
+                                    value={archivePasswordSearch}
+                                    onChange={(e: any) =>
+                                      setArchivePasswordSearch(e.target.value)
+                                    }
+                                    placeholder="Search saved passwords…"
+                                    aria-label="Search saved archive passwords"
+                                  />
+                                </InputGroup>
+                              </div>
+                              <span className="shrink-0 whitespace-nowrap text-xs text-gv-muted">
+                                {filteredArchivePasswords.length} of{" "}
+                                {archivePasswords.length}
+                              </span>
+                            </div>
+                          </SettingsRow>
+                        )}
+                        {filteredArchivePasswords.length === 0 &&
+                          archivePasswords.length > 0 && (
+                            <SettingsRow>
+                              <div className="flex items-center gap-2 text-sm text-gv-muted">
+                                <MagnifyingGlassIcon className="size-4 shrink-0" />
+                                No matches for “{archivePasswordSearch.trim()}”.
+                              </div>
+                            </SettingsRow>
+                          )}
+                        {filteredArchivePasswords.length > 0 && (
+                          <div className="max-h-80 divide-y divide-gv-line overflow-y-auto">
+                            {filteredArchivePasswords.map((password) => {
+                              const revealed =
+                                revealedArchivePasswords.includes(password);
+                              const position =
+                                archivePasswords.indexOf(password) + 1;
+                              return (
+                                <SettingsRow key={password}>
+                                  <span className="w-6 shrink-0 tabular-nums text-xs text-gv-muted">
+                                    {position}.
+                                  </span>
+                                  <span
+                                    className="min-w-0 flex-1 truncate font-mono text-sm text-gv-text"
+                                    translate="no"
+                                  >
+                                    {revealed
+                                      ? password
+                                      : "•".repeat(
+                                          Math.min(password.length, 16),
+                                        )}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      toggleArchivePasswordReveal(password)
+                                    }
+                                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-gv-panel-soft hover:text-gv-text cursor-pointer"
+                                    aria-label={
+                                      revealed
+                                        ? `Hide password ${position}`
+                                        : `Show password ${position}`
+                                    }
+                                  >
+                                    {revealed ? (
+                                      <EyeSlashIcon className="size-4" />
+                                    ) : (
+                                      <EyeIcon className="size-4" />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void handleRemoveArchivePassword(password)
+                                    }
+                                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-gv-muted transition-colors hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                                    aria-label={`Remove password ${position}`}
+                                  >
+                                    <XMarkIcon className="size-4" />
+                                  </button>
+                                </SettingsRow>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <SettingsRow>
+                          <div className="flex min-w-0 flex-1 items-center gap-2">
+                            <Input
+                              type="password"
+                              value={newArchivePassword}
+                              onChange={(e: any) =>
+                                setNewArchivePassword(e.target.value)
+                              }
+                              translate="no"
+                              onKeyDown={(e: any) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void handleAddArchivePassword();
+                                }
+                              }}
+                              placeholder="Add an archive password"
+                              className="min-w-0 flex-1"
+                              aria-label="Archive password to save"
+                            />
+                            <Button
+                              type="button"
+                              color="indigo"
+                              className="shrink-0 px-3"
+                              onClick={() => void handleAddArchivePassword()}
+                            >
+                              <PlusIcon className="size-4" />
+                              Add
+                            </Button>
+                          </div>
+                        </SettingsRow>
+                      </SettingsGroup>
+                    )}
+
                     <SettingsGroup
                       id="setting-downloads-clear-image-cache"
                       className={rowHighlight("downloads-clear-image-cache")}
@@ -1948,7 +2190,7 @@ export default function Settings() {
                       <SettingsRow>
                         <SettingsLabel
                           title="Minimize GameVault to System Tray on Startup"
-                          description="When auto-start is enabled, GameVault will start silently in the system tray instead of opening the full window."
+                          description="When auto-start is enabled, GameVault will start silently in the system tray instead of opening the full window. Launching GameVault yourself still opens the window."
                         />
                         <Switch
                           name="startMinimized"
@@ -2147,7 +2389,10 @@ export default function Settings() {
                         {winePrefixBase && (
                           <SettingsRow>
                             <div className="flex min-w-0 flex-1 items-center gap-2">
-                              <span className="min-w-0 flex-1 truncate text-sm text-gv-muted">
+                              <span
+                                className="min-w-0 flex-1 truncate text-sm text-gv-muted"
+                                translate="no"
+                              >
                                 {winePrefixBase}
                               </span>
                               <button
@@ -2177,16 +2422,17 @@ export default function Settings() {
                       <SettingsRow>
                         <SettingsLabel
                           title="Help improve GameVault"
-                          description={`We'd like to send a few anonymous usage stats — which features you use and whether something goes wrong — so we know what to fix. Nothing personal, no game names, no IP-tracked browsing. It just helps us improve the app. You can turn it off anytime. Changes take effect after ${isTauri ? "restarting the app" : "reloading"}.`}
+                          description="We'd like to send a few anonymous usage stats: which features you use and whether something goes wrong, so we know what to fix. No game names, no search terms, no IP-tracked browsing. Turning this off stops the requests immediately and survives app updates."
                         />
                         <Switch
                           name="analyticsConsent"
                           color="indigo"
                           aria-label="Help improve GameVault with anonymous usage analytics"
-                          checked={analyticsConsent}
+                          checked={analyticsConsent ?? false}
+                          disabled={analyticsConsent === null}
                           onChange={(v: boolean) => {
-                            setAnalyticsEnabled(v);
                             setAnalyticsConsent(v);
+                            void setAnalyticsEnabled(v);
                           }}
                         />
                       </SettingsRow>
@@ -2245,6 +2491,21 @@ export default function Settings() {
                         </div>
                       </SettingsRow>
                     </SettingsGroup>
+
+                    {isTauri && (
+                      <SettingsGroup
+                        id="setting-appearance-translation"
+                        className={rowHighlight("appearance-translation")}
+                      >
+                        <SettingsRow>
+                          <SettingsLabel
+                            title="Interface translation"
+                            description="Translates the interface with Mozilla's local translation engine. The language model is downloaded once, then everything runs offline. Game titles, tags, descriptions and names stay untranslated. The web UI uses the browser's own translation instead."
+                          />
+                          <InterfaceTranslationControl />
+                        </SettingsRow>
+                      </SettingsGroup>
+                    )}
 
                     {webkitSupported && renderingDiagnostics?.webkit && (
                       <SettingsGroup
@@ -2516,19 +2777,28 @@ export default function Settings() {
                       >
                         <SettingsRow>
                           <SettingsLabel title="Version" />
-                          <span className="shrink-0 font-mono text-xs text-gv-text">
+                          <span
+                            className="shrink-0 font-mono text-xs text-gv-text"
+                            translate="no"
+                          >
                             {__APP_VERSION__}
                           </span>
                         </SettingsRow>
                         <SettingsRow>
                           <SettingsLabel title="Channel" />
-                          <span className="shrink-0 font-mono text-xs text-gv-muted">
+                          <span
+                            className="shrink-0 font-mono text-xs text-gv-muted"
+                            translate="no"
+                          >
                             {__BUILD_CHANNEL__}
                           </span>
                         </SettingsRow>
                         <SettingsRow>
                           <SettingsLabel title="Environment" />
-                          <span className="shrink-0 font-mono text-xs text-gv-muted">
+                          <span
+                            className="shrink-0 font-mono text-xs text-gv-muted"
+                            translate="no"
+                          >
                             {import.meta.env.MODE} ·{" "}
                             {isTauri ? "desktop" : "web"}
                           </span>
@@ -2565,9 +2835,7 @@ export default function Settings() {
                             color="indigo"
                             aria-label="Verbose diagnostics logging"
                             checked={verboseDiagnostics}
-                            onChange={(v: boolean) =>
-                              setVerboseDiagnostics(v)
-                            }
+                            onChange={(v: boolean) => setVerboseDiagnostics(v)}
                           />
                         </SettingsRow>
                       </SettingsGroup>
@@ -2680,7 +2948,10 @@ export default function Settings() {
                           title="Operating System"
                           description="OS, version and architecture"
                         />
-                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {osLabel}
                         </span>
                       </SettingsRow>
@@ -2689,7 +2960,10 @@ export default function Settings() {
                           title="Display"
                           description="Screen the window is on: panel resolution, scale factor and colour depth"
                         />
-                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word">
+                        <span
+                          className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word"
+                          translate="no"
+                        >
                           {displayLabel}
                         </span>
                       </SettingsRow>
@@ -2698,7 +2972,10 @@ export default function Settings() {
                           title="Monitors"
                           description="Physical resolution and scale factor of every connected monitor"
                         />
-                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {monitorsLabel}
                         </span>
                       </SettingsRow>
@@ -2707,13 +2984,19 @@ export default function Settings() {
                           title="GPU (WebGL)"
                           description="GPU renderer reported by the WebGL context"
                         />
-                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {gpuLabel}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
                         <SettingsLabel title="WebGPU" />
-                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {webgpuLabel}
                         </span>
                       </SettingsRow>
@@ -2722,25 +3005,37 @@ export default function Settings() {
                           title="CPU / Memory"
                           description="Processor and installed memory reported by the operating system"
                         />
-                        <span className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word">
+                        <span
+                          className="min-w-0 max-w-[55%] text-right font-mono text-xs text-gv-muted wrap-break-word"
+                          translate="no"
+                        >
                           {cpuMemoryLabel}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
                         <SettingsLabel title="Platform" />
-                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {systemInfo.platform}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
                         <SettingsLabel title="Language" />
-                        <span className="min-w-0 text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {systemInfo.language}
                         </span>
                       </SettingsRow>
                       <SettingsRow>
                         <SettingsLabel title="User Agent" />
-                        <span className="min-w-0 max-w-[55%] break-all text-right font-mono text-xs text-gv-muted">
+                        <span
+                          className="min-w-0 max-w-[55%] break-all text-right font-mono text-xs text-gv-muted"
+                          translate="no"
+                        >
                           {systemInfo.userAgent}
                         </span>
                       </SettingsRow>
@@ -2919,10 +3214,16 @@ export default function Settings() {
                       className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-gv-panel-soft"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-mono text-sm text-gv-text">
+                        <span
+                          className="block truncate font-mono text-sm text-gv-text"
+                          translate="no"
+                        >
                           {pkg.name}
                         </span>
-                        <span className="block text-xs text-gv-muted">
+                        <span
+                          className="block text-xs text-gv-muted"
+                          translate="no"
+                        >
                           v{pkg.version}
                         </span>
                       </span>

@@ -18,6 +18,7 @@ import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
 import { isTauriApp } from "@/utils/tauri";
+import { trackEvent } from "@/utils/analytics";
 import {
   launchInstalledGame,
   launchOutcomeAlert,
@@ -112,7 +113,16 @@ const GameCard = memo(function GameCard({
       try {
         const res = await authFetch(url, { method: next ? "POST" : "DELETE" });
         if (!res.ok) throw new Error(`Bookmark toggle failed (${res.status})`);
+        trackEvent("game_bookmark_toggled", {
+          source: "card",
+          bookmarked: next,
+        });
       } catch (err) {
+        trackEvent("game_bookmark_toggled", {
+          source: "card",
+          bookmarked: !next,
+          success: false,
+        });
         // Roll back the optimistic state and surface the failure instead of
         // failing silently (e.g. when the game no longer exists on the server).
         setBookmarked(!next);
@@ -305,6 +315,7 @@ const GameCard = memo(function GameCard({
         title: localGame.metadata?.title || localGame.title || "Game",
         versionDirectory: installedInfo.versionDirectory,
         installationDirectory: installedInfo.installationDirectory,
+        source: "card",
       });
       const alert = launchOutcomeAlert(outcome);
       if (alert) showAlert(alert);
@@ -349,14 +360,27 @@ const GameCard = memo(function GameCard({
           box-shadow swap forces a repaint at the hover instant, flashing the
           1px bottom seam when the card sits on a fractional scroll position. */}
       <div
+        data-gamepad-group="game-card"
         className={clsx(
           "group/card relative rounded-3xl shadow-(--shadow-card)",
           "transform-gpu will-change-transform backface-hidden",
           "transition-transform duration-200 ease-out hover:[transform:translateY(-4px)_translateZ(0)]",
+          // The library keeps every loaded page mounted, so after deep
+          // scrolling hundreds of cards were laid out, painted and promoted to
+          // their own composited layer at once. That is what turned returning
+          // from a game into a multi-second blank screen. Skipping off-screen
+          // cards keeps the cost proportional to what is actually visible.
+          "game-card-deferred-paint",
         )}
       >
         <Link
           to={gameViewUrl}
+          onClick={() =>
+            trackEvent("game_card_opened", {
+              installed: Boolean(installedInfo),
+              type: game.type,
+            })
+          }
           className={clsx(
             // No own layer here — rasterize into the wrapper's single composited
             // layer so content + shadow move as one texture (a second layer
@@ -467,6 +491,7 @@ const GameCard = memo(function GameCard({
             <button
               type="button"
               onClick={toggleBookmark}
+              data-analytics-id="card.bookmark"
               aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
               aria-pressed={bookmarked}
               disabled={!currentUserId || bookmarkBusy}
@@ -491,6 +516,7 @@ const GameCard = memo(function GameCard({
             <button
               type="button"
               onClick={handleOpenSettings}
+              data-analytics-id="card.settings"
               aria-label="Settings"
               className={clsx(
                 "absolute top-2 left-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border border-gv-line bg-gv-panel-soft/80 text-gv-muted backdrop-blur-xl transition-all duration-200",
@@ -509,6 +535,7 @@ const GameCard = memo(function GameCard({
                 type="button"
                 aria-label="Play"
                 onClick={handlePlayGame}
+                data-analytics-id="card.play"
                 className={clsx(
                   "absolute bottom-3 left-1/2 -translate-x-1/2 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-indigo-400/40 bg-indigo-500/90 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-black/30 backdrop-blur-sm transition-all duration-200",
                   "opacity-0 translate-y-2 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
@@ -534,6 +561,7 @@ const GameCard = memo(function GameCard({
                 {isTauri ? (
                   <Button
                     color="indigo"
+                    data-analytics-id="card.download"
                     aria-label={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
                     className="h-9 px-3 gap-2 flex items-center justify-center"
                     title={`Download ${localGame.title}${formattedSize ? ` (${formattedSize})` : ""}`}
@@ -606,12 +634,16 @@ const GameCard = memo(function GameCard({
             <h3
               className="truncate text-sm font-semibold tracking-[-0.02em] text-gv-text"
               title={localGame.metadata?.title || localGame.title}
+              translate="no"
             >
               {localGame.metadata?.title || localGame.title}
             </h3>
-            {sortMetric && (
-              <p className="truncate text-xs text-gv-muted">{sortMetric}</p>
-            )}
+            {/* Always rendered: a missing metric (e.g. no date for a game that
+                predates created_at) must not shrink the card and make the grid
+                rows ragged. */}
+            <p className="truncate text-xs text-gv-muted">
+              {sortMetric || "—"}
+            </p>
           </div>
         </Link>
       </div>

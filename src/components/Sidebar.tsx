@@ -97,9 +97,13 @@ export function Sidebar() {
         <SidebarHeader>
           <Logo variant="sidebar" height="h-4" />
         </SidebarHeader>
-        <SidebarBody>
+        <SidebarBody data-gamepad-tabs="">
           <SidebarSection>
-            <SidebarItem href="/library" current={isCurrentPath("/library")}>
+            <SidebarItem
+              href="/library"
+              current={isCurrentPath("/library")}
+              data-analytics-id="nav.library"
+            >
               <Squares2X2Icon />
               <SidebarLabel className="flex justify-between w-full">
                 Library
@@ -109,6 +113,7 @@ export function Sidebar() {
               <SidebarItem
                 href="/downloads"
                 current={isCurrentPath("/downloads")}
+                data-analytics-id="nav.downloads"
               >
                 <ArrowDownTrayIcon />
                 <SidebarLabel className="flex justify-between w-full">
@@ -119,6 +124,7 @@ export function Sidebar() {
             <SidebarItem
               href={isTauri && !isOnline ? undefined : "/community"}
               current={isCurrentPath("/community")}
+              data-analytics-id="nav.community"
               onClick={
                 isTauri && !isOnline
                   ? (e: React.MouseEvent) => e.preventDefault()
@@ -133,7 +139,11 @@ export function Sidebar() {
                 Community
               </SidebarLabel>
             </SidebarItem>
-            <SidebarItem href="/settings" current={isCurrentPath("/settings")}>
+            <SidebarItem
+              href="/settings"
+              current={isCurrentPath("/settings")}
+              data-analytics-id="nav.settings"
+            >
               <Cog6ToothIcon />
               <SidebarLabel className="flex justify-between w-full">
                 Settings
@@ -143,6 +153,7 @@ export function Sidebar() {
               <SidebarItem
                 href={isTauri && !isOnline ? undefined : "/admin"}
                 current={isCurrentPath("/admin")}
+                data-analytics-id="nav.admin"
                 onClick={
                   isTauri && !isOnline
                     ? (e: React.MouseEvent) => e.preventDefault()
@@ -216,11 +227,17 @@ export function Sidebar() {
                   seed={userAvatarSeed}
                 />
                 <span className="min-w-0">
-                  <span className="block truncate text-sm/5 font-medium text-gv-text">
+                  <span
+                    translate="no"
+                    className="block truncate text-sm/5 font-medium text-gv-text"
+                  >
                     {username}
                   </span>
                   {email && (
-                    <span className="block truncate text-xs/5 font-normal text-gv-muted">
+                    <span
+                      translate="no"
+                      className="block truncate text-xs/5 font-normal text-gv-muted"
+                    >
                       {email}
                     </span>
                   )}

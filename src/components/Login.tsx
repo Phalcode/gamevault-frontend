@@ -182,7 +182,9 @@ export function Login() {
       // (tauri.localhost), which is *not* the API server — the server URL was
       // persisted when the flow started. On the web both are the same origin.
       const base = isTauriApp()
-        ? normalizeServerUrl(localStorage.getItem(AUTH_SERVER_STORAGE_KEY) || "")
+        ? normalizeServerUrl(
+            localStorage.getItem(AUTH_SERVER_STORAGE_KEY) || "",
+          )
         : window.location.origin;
       if (!base) return;
       (async () => {
@@ -419,6 +421,7 @@ export function Login() {
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    translate="no"
                     ref={passRef}
                     tabIndex={3}
                   />

@@ -45,10 +45,25 @@ export function resolveSortMetric(
   switch (sortBy) {
     case "size":
       return formattedSize;
+    case "recent": {
+      // Installed games show when they were last played/installed, catalogue
+      // games when they were added to the server.
+      const info = game?._installedInfo;
+      if (info) {
+        const activity = Math.max(
+          Number(info.lastPlayedAt) || 0,
+          Number(info.installedAt) || 0,
+        );
+        return activity ? formatShortDate(activity) : null;
+      }
+      return game?.created_at ? formatShortDate(game.created_at) : null;
+    }
     case "created_at":
       return game.created_at ? formatShortDate(game.created_at) : null;
     case "metadata.release_date":
-      return game.metadata?.release_date ? formatShortDate(game.metadata.release_date) : null;
+      return game.metadata?.release_date
+        ? formatShortDate(game.metadata.release_date)
+        : null;
     case "metadata.rating":
       return game.metadata?.rating != null
         ? `${formatDecimal(game.metadata.rating, 1)}%`

@@ -26,6 +26,7 @@ import { isWindowsExecutablePath } from "@/components/downloads/install-utils";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { isTauriApp } from "@/utils/tauri";
 import { formatDate, formatYear } from "@/utils/date";
+import { countBucket, trackEvent } from "@/utils/analytics";
 import {
   applyDroppedSources,
   isProbablyImageUrl,
@@ -35,6 +36,7 @@ import {
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { emitGameDeleted, emitGameUpdated } from "@/utils/gameUpdates";
 import { GameMediaSlot, resolveApiMediaBlob } from "@/utils/mediaCache";
+import { blobToBase64 } from "@/utils/binary";
 import {
   PhotoIcon,
   CircleStackIcon,
@@ -294,6 +296,7 @@ export function GameSettings({
     [],
   );
   const [makingExecutable, setMakingExecutable] = useState(false);
+  const [creatingShortcut, setCreatingShortcut] = useState(false);
   const [launchParams, setLaunchParams] = useState<string>("");
   const [launchAsAdmin, setLaunchAsAdmin] = useState<boolean>(false);
   const [umuGameId, setUmuGameId] = useState<string>("");
@@ -674,6 +677,73 @@ export function GameSettings({
     }
   }, [installedGame, nonExecutableScripts]);
 
+  /** Creates a desktop shortcut that starts this game via its deep link. */
+  const handleCreateDesktopShortcut = useCallback(async () => {
+    if (!installedGame || !selectedLaunchExe) return;
+    setCreatingShortcut(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { join } = await import("@tauri-apps/api/path");
+
+      const executablePath = await join(
+        installedGame.installationDirectory,
+        selectedLaunchExe,
+      );
+
+      // The cover is only a fallback for executables without an icon; a
+      // failure to load it must not block the shortcut itself.
+      let coverBase64: string | null = null;
+      const coverId = workingGame.metadata?.cover?.id;
+      if (coverId && serverUrl) {
+        try {
+          const blob = await resolveApiMediaBlob({
+            serverUrl,
+            mediaId: Number(coverId),
+            authFetch,
+            owner: { gameId: installedGame.gameId, slot: "cover" },
+          });
+          coverBase64 = await blobToBase64(blob);
+        } catch {
+          coverBase64 = null;
+        }
+      }
+
+      const result = await invoke<{ path: string; icon: string }>(
+        "create_desktop_shortcut",
+        {
+          gameId: installedGame.gameId,
+          title:
+            workingGame.metadata?.title ||
+            workingGame.title ||
+            installedGame.gameTitle ||
+            "Game",
+          executablePath,
+          coverBase64,
+        },
+      );
+      console.info("Desktop shortcut created:", result.path);
+
+      // Title-only alerts render as a non-blocking toast.
+      await showAlert({ title: "Desktop shortcut created." });
+    } catch (err: any) {
+      await showAlert({
+        title: "Could not create the desktop shortcut",
+        description: err?.message || String(err),
+      });
+    } finally {
+      setCreatingShortcut(false);
+    }
+  }, [
+    installedGame,
+    selectedLaunchExe,
+    workingGame.metadata?.title,
+    workingGame.metadata?.cover?.id,
+    workingGame.title,
+    serverUrl,
+    authFetch,
+    showAlert,
+  ]);
+
   const handleInstallUmu = useCallback(async () => {
     setInstallingUmu(true);
     try {
@@ -988,6 +1058,23 @@ export function GameSettings({
     [readLocalUmuConfig, showAlert],
   );
 
+  /**
+   * Removes desktop shortcuts that start a game. Called after an uninstall,
+   * once no installed version of the game is left.
+   */
+  const removeDesktopShortcuts = useCallback(
+    async (gameId: number) => {
+      if (!isTauri) return;
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("remove_desktop_shortcuts", { gameId });
+      } catch (error) {
+        console.warn("Failed to remove the desktop shortcut:", error);
+      }
+    },
+    [isTauri],
+  );
+
   const handleUninstallGame = useCallback(async () => {
     if (!installedGame) return;
 
@@ -1031,7 +1118,11 @@ export function GameSettings({
           installedGame.versionDirectory,
           installedGame.gameId,
         );
-        setInstalledGame(await findInstalledGame());
+        // Shortcuts only make sense while some version of the game is
+        // installed, so they go away with the last installed version.
+        const remaining = await findInstalledGame();
+        setInstalledGame(remaining);
+        if (!remaining) await removeDesktopShortcuts(installedGame.gameId);
         onUninstalled?.();
         await showAlert({
           title: "Game uninstalled",
@@ -1102,7 +1193,11 @@ export function GameSettings({
             installedGame.versionDirectory,
             installedGame.gameId,
           );
-          setInstalledGame(await findInstalledGame());
+          // Shortcuts only make sense while some version of the game is
+          // installed, so they go away with the last installed version.
+          const remaining = await findInstalledGame();
+          setInstalledGame(remaining);
+          if (!remaining) await removeDesktopShortcuts(installedGame.gameId);
           onUninstalled?.();
           await showAlert({
             title: "Game uninstalled",
@@ -1175,6 +1270,7 @@ export function GameSettings({
     installedGame,
     onClose,
     onUninstalled,
+    removeDesktopShortcuts,
     showAlert,
     updateInstallationFinishedFlag,
     workingGame.metadata?.title,
@@ -1238,6 +1334,9 @@ export function GameSettings({
           !!updatedGame &&
           Array.isArray(updatedGame.versions) &&
           updatedGame.versions.length > 0;
+        trackEvent("game_version_deleted", {
+          was_last_version: wasLastVersion,
+        });
 
         // The game is fully removed once its last version file is gone: close
         // the settings modal and let the library/game view react.
@@ -1369,6 +1468,9 @@ export function GameSettings({
 
           setMetadataProviders(providers);
           setSelectedMetadataProviderIndex(0);
+          trackEvent("metadata_providers_loaded", {
+            providers: countBucket(providers.length),
+          });
         } catch (e: any) {
           console.error("Failed to fetch metadata providers:", e);
           await showAlert({
@@ -1502,6 +1604,9 @@ export function GameSettings({
       setFullGame(updatedGame);
       onGameUpdated?.(updatedGame);
       emitGameUpdated(updatedGame);
+      trackEvent(providerDataId ? "metadata_mapped" : "metadata_unmapped", {
+        provider: selectedProvider.slug,
+      });
 
       // Refresh providers to get updated priorities
       setMetadataProviders([]);
@@ -1545,6 +1650,9 @@ export function GameSettings({
     }
 
     await remapGame(currentShownMappedGame.provider_data_id, priority);
+    trackEvent("metadata_priority_changed", {
+      provider: metadataProviders[selectedMetadataProviderIndex]?.slug,
+    });
     setCustomPriority("");
   };
 
@@ -1564,6 +1672,9 @@ export function GameSettings({
 
   const handleRecache = async () => {
     if (!currentShownMappedGame?.provider_data_id) return;
+    trackEvent("metadata_recached", {
+      provider: metadataProviders[selectedMetadataProviderIndex]?.slug,
+    });
     await remapGame(currentShownMappedGame.provider_data_id);
   };
 
@@ -2279,6 +2390,9 @@ export function GameSettings({
       setFullGame(updatedGame);
       onGameUpdated?.(updatedGame);
       emitGameUpdated(updatedGame);
+      trackEvent("game_metadata_saved", {
+        fields: countBucket(Object.keys(payload).length),
+      });
 
       await showAlert({
         title: "Success",
@@ -2804,6 +2918,7 @@ export function GameSettings({
                                       <div
                                         className="font-mono text-xs leading-relaxed text-gv-text break-all"
                                         title={workingGame.file_path || "N/A"}
+                                        translate="no"
                                       >
                                         {workingGame.file_path || "N/A"}
                                       </div>
@@ -4105,7 +4220,9 @@ export function GameSettings({
                                 </ListboxOption>
                                 {launchExecutables.map((exe) => (
                                   <ListboxOption key={exe} value={exe}>
-                                    <ListboxLabel>{exe}</ListboxLabel>
+                                    <ListboxLabel>
+                                      <span translate="no">{exe}</span>
+                                    </ListboxLabel>
                                   </ListboxOption>
                                 ))}
                               </Listbox>
@@ -4145,6 +4262,29 @@ export function GameSettings({
                                 checked={launchAsAdmin}
                                 onChange={(v: boolean) => setLaunchAsAdmin(v)}
                               />
+                            </div>
+                          </SettingsRow>
+                        </SettingsRowGroup>
+
+                        <SettingsRowGroup>
+                          <SettingsRow
+                            label="Desktop Shortcut"
+                            description="Create a shortcut on your desktop that starts this game. It uses the selected executable's icon, or the game's cover image when the executable has no icon."
+                          >
+                            <div className="flex sm:justify-end">
+                              <Button
+                                color="indigo"
+                                onClick={() =>
+                                  void handleCreateDesktopShortcut()
+                                }
+                                disabled={
+                                  !selectedLaunchExe || creatingShortcut
+                                }
+                              >
+                                {creatingShortcut
+                                  ? "Creating shortcut…"
+                                  : "Create Desktop Shortcut"}
+                              </Button>
                             </div>
                           </SettingsRow>
                         </SettingsRowGroup>
@@ -4308,7 +4448,10 @@ export function GameSettings({
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                   <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <span className="font-medium text-gv-text">
+                                      <span
+                                        className="font-medium text-gv-text"
+                                        translate="no"
+                                      >
                                         {versionLabel}
                                       </span>
                                       {version.early_access && (
@@ -4320,6 +4463,7 @@ export function GameSettings({
                                     <div
                                       className="mt-1 break-all font-mono text-xs text-gv-muted"
                                       title={filePath}
+                                      translate="no"
                                     >
                                       {filePath}
                                     </div>

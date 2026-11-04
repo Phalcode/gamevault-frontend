@@ -91,6 +91,7 @@ const Backup = () => {
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          translate="no"
         />
       </Field>
       <Button type="submit" disabled={loading || !password.length}>
@@ -187,6 +188,7 @@ const Restore = () => {
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          translate="no"
         />
       </Field>
       <Button type="submit" disabled={loading || !password.length}>
@@ -200,7 +202,12 @@ export function BackupRestoreDialog({ onClose }: BackupRestoreDialogProps) {
   const [tab, setTab] = useState<TabKey>("backup");
 
   return (
-    <Dialog open onClose={onClose} size="3xl" className="!h-[min(70vh,650px)] flex flex-col">
+    <Dialog
+      open
+      onClose={onClose}
+      size="3xl"
+      className="!h-[min(70vh,650px)] flex flex-col"
+    >
       <DialogTitle className="flex items-center justify-between gap-4 pb-1">
         <span>Backup & Restore Database</span>
         <button

@@ -102,6 +102,7 @@ export default function Administration() {
                   <Link
                     href={streamerMode ? maskUrl(serverUrl) : serverUrl}
                     target="_blank"
+                    translate="no"
                   >
                     {streamerMode ? maskUrl(serverUrl) : serverUrl}
                   </Link>
@@ -115,6 +116,7 @@ export default function Administration() {
                   <Link
                     href={`https://github.com/Phalcode/gamevault-backend/releases/tag/${version}`}
                     target="_blank"
+                    translate="no"
                   >
                     {version}
                   </Link>
@@ -322,7 +324,7 @@ export default function Administration() {
                           </Link>
                           <div>
                             <div className="font-medium flex items-center gap-2">
-                              <span>
+                              <span translate="no">
                                 {displayName}{" "}
                                 {!streamerMode && (first_name || last_name) && (
                                   <span className="font-normal">
@@ -337,7 +339,7 @@ export default function Administration() {
                               )}
                             </div>
                             {displayEmail && (
-                              <div className="text-gv-muted">
+                              <div translate="no" className="text-gv-muted">
                                 <a
                                   href={
                                     streamerMode ? undefined : `mailto:${email}`

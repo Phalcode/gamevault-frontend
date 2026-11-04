@@ -3,16 +3,21 @@ mod events;
 mod util;
 mod executables;
 mod downloads;
+mod launch_mode;
+mod user_agent;
+mod analytics_forward;
 mod extraction;
 mod installation;
 mod jumplist;
 mod launch_log;
+mod desktop_shortcut;
 mod tracker_log;
 mod games;
 mod fs_commands;
 mod time_tracker;
 mod cache;
 mod settings;
+mod bergamot_models;
 mod secure_store;
 mod net;
 mod youtube;
@@ -22,12 +27,12 @@ mod umu;
 mod rendering;
 mod frontend_watchdog;
 
-use crate::settings::AppSettings;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
@@ -411,9 +416,22 @@ async fn run_app_update(app: AppHandle, channel: UpdateChannel) -> Result<Option
   Ok(Some(update.version.clone()))
 }
 
+/// Replaces the webview's browser user agent with the product one, so API
+/// requests, server logs and analytics can identify the desktop client.
+fn apply_webview_user_agent<R: tauri::Runtime>(context: &mut tauri::Context<R>) {
+  let agent = user_agent::frontend_user_agent(
+    &context.package_info().version.to_string(),
+    &user_agent::platform_token(),
+  );
+  for window in &mut context.config_mut().app.windows {
+    window.user_agent = Some(agent.clone());
+  }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  let context = tauri::generate_context!();
+  let mut context = tauri::generate_context!();
+  apply_webview_user_agent(&mut context);
 
   // The Windows taskbar jump list is keyed on this id, so it has to be set
   // before the first window appears.
@@ -442,11 +460,30 @@ pub fn run() {
         let _ = window.set_focus();
       }
     }))
-    .plugin(tauri_plugin_window_state::Builder::default().build())
+    // Registered after single-instance so a second instance's URL is forwarded
+    // to this process (see the plugin's `deep-link` feature).
+    .plugin(tauri_plugin_deep_link::init())
+    // Visibility is owned by the launch logic in `setup`: restoring it from the
+    // last session would show the window again on autostart, and a close-to-tray
+    // exit would persist a hidden window that then never appears on launch.
+    .plugin(
+      tauri_plugin_window_state::Builder::default()
+        .with_state_flags(
+          tauri_plugin_window_state::StateFlags::all()
+            & !tauri_plugin_window_state::StateFlags::VISIBLE,
+        )
+        .build(),
+    )
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_opener::init())
-    .plugin(tauri_plugin_autostart::init(Default::default(), None));
+    // The login entry carries `--minimized`, which is how a start from the OS is
+    // told apart from a manual launch. Launch Agents (the default) keep the
+    // argument; only the AppleScript mode would drop it.
+    .plugin(tauri_plugin_autostart::init(
+      MacosLauncher::LaunchAgent,
+      Some(vec![launch_mode::MINIMIZED_FLAG]),
+    ));
 
   if let Some(pubkey) = updater_public_key() {
     builder = builder.plugin(
@@ -458,6 +495,18 @@ pub fn run() {
 
   builder
     .setup(|app| {
+      // ── Deep links ─────────────────────────────────────────────────────
+      // Installers register `gamevault://` for packaged builds. Development
+      // builds and AppImages (which are not integrated into the desktop
+      // environment) need the scheme registered at runtime instead.
+      #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+      {
+        use tauri_plugin_deep_link::DeepLinkExt;
+        if let Err(error) = app.deep_link().register_all() {
+          log::warn!("failed to register deep link schemes: {error}");
+        }
+      }
+
       // Serve YouTube embed pages over a loopback HTTP origin so they keep
       // working in packaged builds (tauri-apps/tauri#14422).
       youtube::start_embed_server();
@@ -533,25 +582,34 @@ pub fn run() {
         });
       }
 
-      // ── Conditionally hide window at startup ───────────────────────────
+      // ── Window visibility on launch ───────────────────────────────────
+      //
+      // The window is created hidden (`visible: false` in tauri.conf.json), so
+      // the autostart path never flashes a window. It only stays hidden when
+      // the login entry started us *and* the user enabled "start minimized";
+      // a manual launch always opens the window.
+      if let Some(window) = app.get_webview_window("main") {
+        let start_in_tray = launch_mode::requested_start_minimized(std::env::args())
+          && settings::load_settings(app.handle()).start_minimized;
 
-      {
-        let path = app.path().app_data_dir().unwrap().join("gamevault-settings.json");
-        let start_minimized = if path.exists() {
-          std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|data| serde_json::from_str::<AppSettings>(&data).ok())
-            .map(|s| s.start_minimized)
-            .unwrap_or(false)
-        } else {
-          false
-        };
-
-        if start_minimized {
-          if let Some(window) = app.get_webview_window("main") {
-            let _ = window.hide();
-          }
+        if !start_in_tray {
+          let _ = window.show();
+          let _ = window.set_focus();
         }
+      }
+
+      // ── One-time autostart entry migration ─────────────────────────────
+      //
+      // Builds before `--minimized` registered the entry without arguments, so
+      // an already enabled autostart would now open the window at login.
+      // Rewrite it once; doing this on every launch would also re-enable an
+      // entry the user switched off in the OS' own startup settings.
+      if !settings::autostart_args_synced(app.handle()) {
+        let autolaunch = app.autolaunch();
+        if autolaunch.is_enabled().unwrap_or(false) {
+          let _ = autolaunch.enable();
+        }
+        let _ = settings::mark_autostart_args_synced(app.handle());
       }
 
       // ── Apply persisted WebKitGTK rendering settings (Linux) ──────────
@@ -614,6 +672,10 @@ pub fn run() {
       tracker_log::tracker_log_line,
       settings::get_start_minimized,
       settings::set_start_minimized,
+      settings::get_analytics_enabled,
+      settings::set_analytics_enabled,
+      settings::take_watchdog_recovery,
+      analytics_forward::analytics_post,
       settings::get_minimize_on_game_launch,
       settings::set_minimize_on_game_launch,
       settings::get_ignore_list,
@@ -622,6 +684,17 @@ pub fn run() {
       settings::set_default_wine_prefix,
       settings::get_prerelease_notice_channel,
       settings::set_prerelease_notice_channel,
+      settings::get_interface_translation_language,
+      settings::set_interface_translation_language,
+      bergamot_models::bergamot_model_status,
+      bergamot_models::bergamot_model_registry,
+      bergamot_models::read_bergamot_model_plan,
+      bergamot_models::read_bergamot_model_file,
+      bergamot_models::download_bergamot_model,
+      bergamot_models::delete_bergamot_model,
+      bergamot_models::read_interface_translation_cache,
+      bergamot_models::write_interface_translation_cache,
+      bergamot_models::clear_interface_translation_cache,
       settings::get_always_show_launch_logs,
       settings::set_always_show_launch_logs,
       settings::get_diagnostics_verbose,
@@ -647,6 +720,8 @@ pub fn run() {
       launch_log::list_launch_logs,
       launch_log::open_launch_log_window,
       launch_log::open_launch_log_folder,
+      desktop_shortcut::create_desktop_shortcut,
+      desktop_shortcut::remove_desktop_shortcuts,
       launch_log::clear_launch_logs,
       launch_log::read_launch_log_file,
       is_updater_enabled,

@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { UmuSetupOverlay, type UmuPhase } from "@/components/UmuSetupOverlay";
 import { isTauriApp } from "@/utils/tauri";
+import { trackEvent } from "@/utils/analytics";
 
 export interface UmuStatusInfo {
   installed: boolean;
@@ -47,6 +48,9 @@ export function UmuProvider({ children }: { children: React.ReactNode }) {
     if (!isTauriApp()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    // Guards the setup events: the backend emits `umu-status` per log line, so
+    // only transitions in and out of the setup phases are reported.
+    let setupReported = false;
 
     void (async () => {
       try {
@@ -61,8 +65,13 @@ export function UmuProvider({ children }: { children: React.ReactNode }) {
             phase: nextPhase,
             line,
             gameTitle: nextGameTitle,
+            message,
           } = event.payload;
           if (nextPhase === "installing" || nextPhase === "setup") {
+            if (!setupReported) {
+              setupReported = true;
+              trackEvent("umu_setup_started", { phase: nextPhase });
+            }
             setPhase(nextPhase as UmuPhase);
             if (nextGameTitle) setGameTitle(nextGameTitle);
             if (line) {
@@ -70,6 +79,17 @@ export function UmuProvider({ children }: { children: React.ReactNode }) {
             }
             setVisible(true);
           } else {
+            if (setupReported) {
+              setupReported = false;
+              trackEvent(
+                nextPhase === "installed"
+                  ? "umu_setup_completed"
+                  : nextPhase === "error"
+                    ? "umu_setup_failed"
+                    : "umu_setup_finished",
+                { phase: nextPhase, has_message: Boolean(message) },
+              );
+            }
             // running | installed | error | exit → the game/installer started,
             // the install finished, or the sequence failed/ended.
             setVisible(false);

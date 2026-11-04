@@ -85,6 +85,13 @@ pub(crate) struct LaunchLog {
 static CURRENT: OnceLock<Mutex<Option<Arc<LaunchLog>>>> = OnceLock::new();
 static HISTORY: OnceLock<Mutex<VecDeque<LaunchLogEntry>>> = OnceLock::new();
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+/// Serializes window creation so two events in quick succession cannot try to
+/// build the same window label twice.
+static WINDOW_CREATION: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn window_creation_lock() -> &'static Mutex<()> {
+  WINDOW_CREATION.get_or_init(|| Mutex::new(()))
+}
 
 fn current_store() -> &'static Mutex<Option<Arc<LaunchLog>>> {
   CURRENT.get_or_init(|| Mutex::new(None))
@@ -382,7 +389,16 @@ fn snapshot_of(log: &LaunchLog, limit: usize) -> Option<LaunchLogSnapshot> {
 // ── Window ─────────────────────────────────────────────────────────────────
 
 /// Opens (or focuses) the launch log window.
+///
+/// Must not run on the main thread: on Windows, creating a window from a
+/// synchronous command or event handler deadlocks (see Tauri's
+/// `WebviewWindowBuilder` documentation). `open_launch_log_window` therefore
+/// calls this from a blocking worker.
 pub(crate) fn open_or_focus_log_window(app: &AppHandle) -> Result<(), String> {
+  let _guard = window_creation_lock()
+    .lock()
+    .unwrap_or_else(|poisoned| poisoned.into_inner());
+
   if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
     let _ = window.show();
     let _ = window.unminimize();
@@ -425,8 +441,13 @@ pub(crate) async fn list_launch_logs() -> Vec<LaunchLogEntry> {
 }
 
 #[tauri::command]
-pub(crate) fn open_launch_log_window(app: AppHandle) -> Result<(), String> {
-  open_or_focus_log_window(&app)
+pub(crate) async fn open_launch_log_window(app: AppHandle) -> Result<(), String> {
+  // A synchronous command runs on the main thread, and building a window there
+  // deadlocks on Windows (Tauri's `WebviewWindowBuilder` docs). Hand the work
+  // to a blocking worker so the event loop stays free.
+  tauri::async_runtime::spawn_blocking(move || open_or_focus_log_window(&app))
+    .await
+    .map_err(|error| format!("Failed to open the launch log window: {error}"))?
 }
 
 #[tauri::command]

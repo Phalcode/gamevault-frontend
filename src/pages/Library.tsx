@@ -25,8 +25,11 @@ import MultiSelectFilterDialog, {
 } from "@/components/MultiSelectFilterDialog";
 import { Strong, Text, TextLink } from "@/components/tailwind/text";
 import { isTauriApp } from "@/utils/tauri";
+import { countBucket, trackEvent } from "@/utils/analytics";
 import { useInstalledGames } from "@/hooks/useInstalledGames";
 import { useOnlineStatus } from "@/context/OfflineContext";
+import { useAlertDialog } from "@/context/AlertDialogContext";
+import { useNavigate } from "react-router";
 import { SectionExpander } from "@/components/SectionExpander";
 import { RowCountControl } from "@/components/RowCountControl";
 import { motion } from "motion/react";
@@ -34,6 +37,7 @@ import { DURATION_SLOW, EASE_OUT } from "@/lib/motion";
 import {
   activeFilterCount as computeActiveFilterCount,
   buildInstalledGameMap,
+  collectInstalledMetadataNames,
   filterAndSortInstalledGames,
   getParamValues,
   hasActiveFilters as computeHasActiveFilters,
@@ -46,6 +50,9 @@ import {
 
 const SORT_BY: { label: string; value: string }[] = [
   { label: "Title", value: "sort_title" },
+  // "Recent": last played/installed for installed games, last added for
+  // the server catalogue (see SERVER_SORT_ALIASES in utils/gamesQuery.ts).
+  { label: "Recent", value: "recent" },
   { label: "Size", value: "size" },
   { label: "Date Added", value: "created_at" },
   { label: "Release Date", value: "metadata.release_date" },
@@ -87,19 +94,48 @@ const BOOKMARK_OPTIONS: { label: string; value: BookmarkFilter }[] = [
   { label: "Bookmarked by Others", value: "others" },
 ];
 
-const LIB_SORT_KEY = "app_library_sort";
-const LIB_ORDER_KEY = "app_library_order";
+const LIB_SORT_KEY = "app_library_sort_v2";
+const LIB_ORDER_KEY = "app_library_order_v2";
+// "Recent" is the default sort: last played/installed first in the
+// installed list, newest additions first on the server catalogue.
+const DEFAULT_SORT = "recent";
+const DEFAULT_ORDER: "ASC" | "DESC" = "DESC";
+
+/** Die icon for the random game action. */
+function DiceIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="4" />
+      <circle cx="8.5" cy="8.5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="8.5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="8.5" cy="15.5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="15.5" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
 
 export default function Library() {
-  const { serverUrl, user } = useAuth();
+  const { serverUrl, user, authFetch } = useAuth();
   const { isOnline } = useOnlineStatus();
+  const { showAlert } = useAlertDialog();
+  const navigate = useNavigate();
   const isTauri = isTauriApp();
+  const currentUserId = (user as any)?.id ?? (user as any)?.ID;
 
   const CONTROL_HEIGHT_CLASS = "min-h-11 sm:min-h-9";
   const INPUT_CONTROL_HEIGHT_CLASS = "[&_input]:min-h-11 sm:[&_input]:min-h-9";
 
   const urlInitializedRef = useRef(false);
   const [search, setSearch] = useState("");
+  const [pickingRandomGame, setPickingRandomGame] = useState(false);
   // Sort/order preferences are always retained (they're the default behaviour).
   const [sortBy, setSortBy] = useState(() => {
     try {
@@ -108,7 +144,7 @@ export default function Library() {
         if (saved && SORT_BY.some((o) => o.value === saved)) return saved;
       }
     } catch {}
-    return "sort_title";
+    return DEFAULT_SORT;
   });
   const [order, setOrder] = useState<"ASC" | "DESC">(() => {
     try {
@@ -118,7 +154,7 @@ export default function Library() {
         if (saved === "ASC" || saved === "DESC") return saved;
       }
     } catch {}
-    return "ASC";
+    return DEFAULT_ORDER;
   });
   const [showFilters, setShowFilters] = useState(false);
   const [bookmarkFilter, setBookmarkFilter] = useState<BookmarkFilter>("all");
@@ -203,6 +239,9 @@ export default function Library() {
 
   // Clear all filters
   const clearAllFilters = useCallback(() => {
+    trackEvent("library_filters_cleared", {
+      activeFilters: countBucket(activeFilterCount),
+    });
     setBookmarkFilter("all");
     setSelectedGameTypes([]);
     setSelectedTags([]);
@@ -286,6 +325,8 @@ export default function Library() {
 
     const ord = params.get("order");
     if (ord === "ASC" || ord === "DESC") setOrder(ord);
+    // Shared links to an explicit sort keep their old ascending default.
+    else if (sort && sort !== DEFAULT_SORT) setOrder("ASC");
 
     const bookmarked = params.get("bookmarked");
     if (bookmarked && isBookmark(bookmarked)) {
@@ -346,10 +387,10 @@ export default function Library() {
       if (search.trim().length > 0) params.set("q", search.trim());
       else params.delete("q");
 
-      if (sortBy !== "sort_title") params.set("sort", sortBy);
+      if (sortBy !== DEFAULT_SORT) params.set("sort", sortBy);
       else params.delete("sort");
 
-      if (order !== "ASC") params.set("order", order);
+      if (order !== DEFAULT_ORDER) params.set("order", order);
       else params.delete("order");
 
       if (bookmarkFilter !== "all") params.set("bookmarked", bookmarkFilter);
@@ -463,6 +504,7 @@ export default function Library() {
   });
   const handleRowsChange = useCallback((n: number) => {
     setInstalledRows(n);
+    trackEvent("library_rows_changed", { rows: n });
     try {
       localStorage.setItem(INSTALLED_ROWS_KEY, String(n));
     } catch {
@@ -470,36 +512,42 @@ export default function Library() {
     }
   }, []);
 
-  // Map installed games to a GamevaultGame-compatible shape for GameCard
+  // Map installed games to a GamevaultGame-compatible shape for GameCard.
+  // The offline cache stores the full game object (metadata, versions,
+  // bookmarks, progresses, size, created_at, ...), which is what lets the
+  // Library filters and sorts behave identically online and offline.
+  // `gameMetadata` is only the on-disk installer-preferences file, so it must
+  // not be treated as game metadata.
   const installedAsGames: GamevaultGame[] = useMemo(() => {
     return installedGames.map((ig) => {
-      const meta = (ig.cachedMetadata || ig.gameMetadata) as any;
-      const g = {
-        id: ig.gameId,
-        created_at: new Date(),
-        entity_version: 0,
-        title: ig.gameTitle,
-        sort_title: ig.gameTitle?.toLowerCase(),
-        type: ig.gameType as any,
-        // Carry the server's version info through so installed-only cards can
-        // also show the "update available" indicator.
-        version: (meta as any)?.version,
-        versions: (meta as any)?.versions,
-        metadata: meta
-          ? {
-              title: meta.title,
-              cover: meta.cover ?? meta.metadata?.cover,
-              rating: meta.rating ?? meta.metadata?.rating,
-              release_date: meta.release_date ?? meta.metadata?.release_date,
-              tags: meta.tags ?? meta.metadata?.tags,
-              genres: meta.genres ?? meta.metadata?.genres,
-              developers: meta.developers ?? meta.metadata?.developers,
-              publishers: meta.publishers ?? meta.metadata?.publishers,
-            }
-          : undefined,
-      } as GamevaultGame;
+      const cached =
+        ig.cachedMetadata && typeof ig.cachedMetadata === "object"
+          ? (ig.cachedMetadata as any)
+          : null;
+      const g: any = cached ? { ...cached } : {};
+
+      g.id = ig.gameId;
+      g.title = cached?.title || ig.gameTitle;
+      g.sort_title = String(
+        cached?.sort_title || ig.gameTitle || cached?.title || "",
+      ).toLowerCase();
+      g.type = (ig.gameType ?? cached?.type) as any;
+      g.metadata = cached?.metadata ? { ...cached.metadata } : undefined;
+      g.created_at = cached?.created_at
+        ? new Date(cached.created_at)
+        : (undefined as any);
+
+      // Fall back to the installed version's size when the legacy mirror is
+      // missing, so the Size sort and metric still work.
+      if (g.size === undefined || g.size === null) {
+        const versions = Array.isArray(g.versions) ? g.versions : [];
+        const version =
+          versions.find((v: any) => v?.id === ig.versionId) ?? versions[0];
+        if (version?.size !== undefined) g.size = version.size;
+      }
+
       // Attach installation info for GameCard play button
-      (g as any)._installedInfo = {
+      g._installedInfo = {
         installationDirectory: ig.installationDirectory,
         versionDirectory: ig.versionDirectory,
         versionId: ig.versionId,
@@ -508,10 +556,10 @@ export default function Library() {
         installedAt: ig.installedAt ?? 0,
         lastPlayedAt: ig.lastPlayedAt ?? 0,
       };
-      (g as any)._onUninstalled = refetchInstalledGames;
-      return g;
+      g._onUninstalled = refetchInstalledGames;
+      return g as GamevaultGame;
     });
-  }, [installedGames]);
+  }, [installedGames, refetchInstalledGames]);
 
   // Map installed game id -> installation info so server games that are
   // already installed locally can be marked (e.g. a small "Installed" badge).
@@ -520,7 +568,9 @@ export default function Library() {
     [installedGames],
   );
 
-  // Client-side filter + sort installed games with the same Library criteria
+  // Client-side filter + sort installed games with the same Library criteria.
+  // Everything is derived from locally cached game data, so this works the
+  // same whether the server is reachable or not.
   const filteredInstalledGames = useMemo(() => {
     return filterAndSortInstalledGames(installedAsGames, {
       search: deferredSearch,
@@ -529,6 +579,14 @@ export default function Library() {
       genres: genreNames,
       developers: developerNames,
       publishers: publisherNames,
+      bookmarkFilter,
+      gameState: selectedGameState,
+      releaseDateFrom,
+      releaseDateTo,
+      earlyAccess,
+      sortBy,
+      order,
+      userId: currentUserId,
     });
   }, [
     installedAsGames,
@@ -538,7 +596,73 @@ export default function Library() {
     genreNames,
     developerNames,
     publisherNames,
+    bookmarkFilter,
+    selectedGameState,
+    releaseDateFrom,
+    releaseDateTo,
+    earlyAccess,
+    sortBy,
+    order,
+    currentUserId,
   ]);
+
+  // Filter dialog options that are always available, even offline.
+  const installedTagOptions = useMemo(
+    () => collectInstalledMetadataNames(installedAsGames, "tags"),
+    [installedAsGames],
+  );
+  const installedGenreOptions = useMemo(
+    () => collectInstalledMetadataNames(installedAsGames, "genres"),
+    [installedAsGames],
+  );
+  const installedDeveloperOptions = useMemo(
+    () => collectInstalledMetadataNames(installedAsGames, "developers"),
+    [installedAsGames],
+  );
+  const installedPublisherOptions = useMemo(
+    () => collectInstalledMetadataNames(installedAsGames, "publishers"),
+    [installedAsGames],
+  );
+
+  /**
+   * Opens a random game from the whole library.
+   *
+   * Deliberately asks the server, like GameVault 1 does, so the pick covers
+   * every game instead of only the pages loaded so far. The endpoint does not
+   * apply the library filters, which the button label states.
+   */
+  const openRandomGame = useCallback(async () => {
+    if (!serverUrl || pickingRandomGame) return;
+    setPickingRandomGame(true);
+    try {
+      const response = await authFetch(`${serverUrl}/api/games/random`, {
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        let reason = `HTTP ${response.status}`;
+        try {
+          const body = await response.json();
+          if (typeof body?.message === "string") reason = body.message;
+        } catch {
+          // Keep the status code when the body is not JSON.
+        }
+        throw new Error(reason);
+      }
+      const game = (await response.json()) as GamevaultGame;
+      if (game?.id == null) throw new Error("The server returned no game.");
+      trackEvent("library_random_game", { success: true });
+      navigate(`/library/${game.id}`);
+    } catch (error) {
+      trackEvent("library_random_game", { success: false });
+      void showAlert({
+        title: "Could not pick a random game",
+        description: error instanceof Error ? error.message : String(error),
+        tone: "danger",
+      });
+    } finally {
+      setPickingRandomGame(false);
+    }
+  }, [authFetch, navigate, pickingRandomGame, serverUrl, showAlert]);
 
   return (
     <div className="flex min-h-full flex-col gap-5">
@@ -557,7 +681,7 @@ export default function Library() {
       </div>
 
       <section className="surface-panel rounded-3xl p-5 sm:p-6">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto_auto] lg:items-end">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto_auto_auto] lg:items-end">
           <div className="w-full lg:col-span-1">
             <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-gv-muted">
               Search
@@ -584,7 +708,20 @@ export default function Library() {
                 <Listbox
                   name="sortBy"
                   value={sortBy}
-                  onChange={(v: any) => setSortBy(String(v))}
+                  onChange={(v: any) => {
+                    const nextSortBy = String(v);
+                    // "Recent" only makes sense newest-first.
+                    const nextOrder =
+                      nextSortBy === "recent" && order === "ASC"
+                        ? "DESC"
+                        : order;
+                    setSortBy(nextSortBy);
+                    if (nextOrder !== order) setOrder(nextOrder);
+                    trackEvent("library_sort_changed", {
+                      sortBy: nextSortBy,
+                      order: nextOrder,
+                    });
+                  }}
                 >
                   {SORT_BY.map((opt) => (
                     <ListboxOption key={opt.value} value={opt.value}>
@@ -598,10 +735,16 @@ export default function Library() {
                 <Button
                   outline
                   className={`${CONTROL_HEIGHT_CLASS} px-3 gap-1.5`}
+                  data-analytics-id="library.sortDirection"
                   aria-label="Toggle sorting direction"
-                  onClick={() =>
-                    setOrder((o) => (o === "ASC" ? "DESC" : "ASC"))
-                  }
+                  onClick={() => {
+                    const nextOrder = order === "ASC" ? "DESC" : "ASC";
+                    setOrder(nextOrder);
+                    trackEvent("library_sort_changed", {
+                      sortBy,
+                      order: nextOrder,
+                    });
+                  }}
                 >
                   {order === "ASC" ? (
                     <ArrowUpIcon className="h-4 w-4" />
@@ -613,18 +756,39 @@ export default function Library() {
                   </span>
                 </Button>
               </div>
+
+              <div className="shrink-0">
+                <Button
+                  outline
+                  className={`${CONTROL_HEIGHT_CLASS} px-3 gap-1.5`}
+                  title="Picks a random game from the whole library. Active filters are not applied."
+                  data-analytics-id="library.random"
+                  aria-label="Pick a random game from the whole library"
+                  onClick={() => void openRandomGame()}
+                  disabled={!serverUrl || pickingRandomGame}
+                >
+                  <DiceIcon className="h-4 w-4" />
+                  <span className="hidden sm:inline">Random</span>
+                </Button>
+              </div>
             </div>
 
             <div className="shrink-0">
               <Button
                 outline
                 className={`${CONTROL_HEIGHT_CLASS} px-3 ${hasActiveFilters ? "text-gv-accent" : ""}`}
+                data-analytics-id="library.toggleFilters"
                 aria-label={
                   showFilters
                     ? "Hide filters"
                     : `Show filters${activeFilterCount > 0 ? ` (${activeFilterCount} active)` : ""}`
                 }
-                onClick={() => setShowFilters((s) => !s)}
+                onClick={() => {
+                  trackEvent("library_filters_panel_toggled", {
+                    open: !showFilters,
+                  });
+                  setShowFilters((s) => !s);
+                }}
               >
                 <FunnelIcon className="h-4 w-4 sm:mr-1" />
                 <span>{showFilters ? "Hide filters" : "Filters"}</span>
@@ -779,9 +943,12 @@ export default function Library() {
                 <Listbox
                   name="gameState"
                   value={selectedGameState}
-                  onChange={(v: any) =>
-                    setSelectedGameState(v as ProgressStateEnum | "")
-                  }
+                  onChange={(v: any) => {
+                    setSelectedGameState(v as ProgressStateEnum | "");
+                    trackEvent("library_filter_changed", {
+                      filter: "progress_state",
+                    });
+                  }}
                   disabled={!user}
                 >
                   <ListboxOption value="">
@@ -829,7 +996,12 @@ export default function Library() {
                 <Listbox
                   name="earlyAccess"
                   value={earlyAccess}
-                  onChange={(v: any) => setEarlyAccess(v as EarlyAccessFilter)}
+                  onChange={(v: any) => {
+                    setEarlyAccess(v as EarlyAccessFilter);
+                    trackEvent("library_filter_changed", {
+                      filter: "early_access",
+                    });
+                  }}
                 >
                   {EARLY_ACCESS_OPTIONS.map((opt) => (
                     <ListboxOption key={opt.value} value={opt.value}>
@@ -847,7 +1019,12 @@ export default function Library() {
                 <Listbox
                   name="bookmarkFilter"
                   value={bookmarkFilter}
-                  onChange={(v: any) => setBookmarkFilter(v as BookmarkFilter)}
+                  onChange={(v: any) => {
+                    setBookmarkFilter(v as BookmarkFilter);
+                    trackEvent("library_filter_changed", {
+                      filter: "bookmarks",
+                    });
+                  }}
                   disabled={!user}
                 >
                   {BOOKMARK_OPTIONS.map((opt) => (
@@ -988,7 +1165,11 @@ export default function Library() {
         {/* Installed Games Section (Tauri only) */}
         {isTauri && (
           <SectionExpander
-            title={`Installed Games (${filteredInstalledGames.length})`}
+            title={
+              filteredInstalledGames.length === installedAsGames.length
+                ? `Installed Games (${installedAsGames.length})`
+                : `Installed Games (${filteredInstalledGames.length} of ${installedAsGames.length})`
+            }
             defaultOpen={true}
             headerRight={
               <RowCountControl
@@ -999,7 +1180,23 @@ export default function Library() {
           >
             {filteredInstalledGames.length === 0 ? (
               <div className="surface-panel-soft rounded-2xl p-4 text-sm text-gv-muted">
-                No installed games found.
+                {installedAsGames.length > 0
+                  ? "No installed games match your filters and search."
+                  : "No installed games found."}
+                {installedAsGames.length > 0 && (
+                  <div className="mt-2">
+                    <TextLink
+                      href="#"
+                      onClick={() => {
+                        clearAllFilters();
+                        setShowFilters(false);
+                        setSearch("");
+                      }}
+                    >
+                      <Strong>Try clearing all filters and search</Strong>
+                    </TextLink>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto overflow-y-hidden pb-3">
@@ -1231,7 +1428,10 @@ export default function Library() {
         title="Types"
         staticItems={GAME_TYPE_FILTER_ITEMS}
         selectedItems={selectedGameTypes}
-        onSelectionChange={setSelectedGameTypes}
+        onSelectionChange={(next) => {
+          setSelectedGameTypes(next);
+          trackEvent("library_filter_changed", { filter: "types" });
+        }}
         badgeColor="pink"
       />
       <MultiSelectFilterDialog
@@ -1239,8 +1439,12 @@ export default function Library() {
         onClose={() => setTagsDialogOpen(false)}
         title="Tags"
         endpoint="/api/tags"
+        fallbackItems={installedTagOptions}
         selectedItems={selectedTags}
-        onSelectionChange={setSelectedTags}
+        onSelectionChange={(next) => {
+          setSelectedTags(next);
+          trackEvent("library_filter_changed", { filter: "tags" });
+        }}
         badgeColor="blue"
       />
       <MultiSelectFilterDialog
@@ -1248,8 +1452,12 @@ export default function Library() {
         onClose={() => setGenresDialogOpen(false)}
         title="Genres"
         endpoint="/api/genres"
+        fallbackItems={installedGenreOptions}
         selectedItems={selectedGenres}
-        onSelectionChange={setSelectedGenres}
+        onSelectionChange={(next) => {
+          setSelectedGenres(next);
+          trackEvent("library_filter_changed", { filter: "genres" });
+        }}
         badgeColor="green"
       />
       <MultiSelectFilterDialog
@@ -1257,8 +1465,12 @@ export default function Library() {
         onClose={() => setDevelopersDialogOpen(false)}
         title="Developers"
         endpoint="/api/developers"
+        fallbackItems={installedDeveloperOptions}
         selectedItems={selectedDevelopers}
-        onSelectionChange={setSelectedDevelopers}
+        onSelectionChange={(next) => {
+          setSelectedDevelopers(next);
+          trackEvent("library_filter_changed", { filter: "developers" });
+        }}
         badgeColor="purple"
       />
       <MultiSelectFilterDialog
@@ -1266,8 +1478,12 @@ export default function Library() {
         onClose={() => setPublishersDialogOpen(false)}
         title="Publishers"
         endpoint="/api/publishers"
+        fallbackItems={installedPublisherOptions}
         selectedItems={selectedPublishers}
-        onSelectionChange={setSelectedPublishers}
+        onSelectionChange={(next) => {
+          setSelectedPublishers(next);
+          trackEvent("library_filter_changed", { filter: "publishers" });
+        }}
         badgeColor="orange"
       />
     </div>

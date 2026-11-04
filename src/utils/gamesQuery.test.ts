@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { buildCacheKey, buildGamesQueryParams } from "./gamesQuery";
+import {
+  buildCacheKey,
+  buildGamesQueryParams,
+  GAMES_CACHE_FRESH_MS,
+  isGamesCacheFresh,
+} from "./gamesQuery";
+
+describe("isGamesCacheFresh", () => {
+  it("treats a recent fetch as fresh and an old one as stale", () => {
+    const now = 1_000_000;
+    expect(isGamesCacheFresh(now - 1_000, now)).toBe(true);
+    expect(isGamesCacheFresh(now - GAMES_CACHE_FRESH_MS - 1, now)).toBe(false);
+  });
+
+  it("treats a missing timestamp as stale", () => {
+    expect(isGamesCacheFresh(undefined, 1_000_000)).toBe(false);
+    expect(isGamesCacheFresh(0, 1_000_000)).toBe(false);
+  });
+});
 
 describe("buildGamesQueryParams", () => {
   it("builds search/sort/limit params", () => {
@@ -12,6 +30,15 @@ describe("buildGamesQueryParams", () => {
     expect(params.get("search")).toBe("minecraft");
     expect(params.get("sortBy")).toBe("sort_title:DESC");
     expect(params.get("limit")).toBe("25");
+  });
+
+  it("maps the client-only 'recent' sort to created_at", () => {
+    expect(
+      buildGamesQueryParams({ sortBy: "recent", order: "DESC" }).get("sortBy"),
+    ).toBe("created_at:DESC");
+    expect(
+      buildGamesQueryParams({ sortBy: "recent", order: "ASC" }).get("sortBy"),
+    ).toBe("created_at:ASC");
   });
 
   it("maps bookmark filters for the current user only", () => {
@@ -37,9 +64,7 @@ describe("buildGamesQueryParams", () => {
       developers: ["studio"],
       publishers: ["pub"],
     });
-    expect(params.get("filter.type")).toBe(
-      "$in:WINDOWS_SETUP,LINUX_PORTABLE",
-    );
+    expect(params.get("filter.type")).toBe("$in:WINDOWS_SETUP,LINUX_PORTABLE");
     expect(params.get("filter.metadata.tags.name")).toBe("$in:horror");
     expect(params.get("filter.metadata.genres.name")).toBe("$in:action");
     expect(params.get("filter.metadata.developers.name")).toBe("$in:studio");
@@ -55,9 +80,11 @@ describe("buildGamesQueryParams", () => {
     expect(params.get("filter.progresses.user.id")).toBe("$eq:7");
 
     // Without a user id the state filter is omitted.
-    expect(buildGamesQueryParams({ gameState: "COMPLETED" }).has("filter.progresses.state")).toBe(
-      false,
-    );
+    expect(
+      buildGamesQueryParams({ gameState: "COMPLETED" }).has(
+        "filter.progresses.state",
+      ),
+    ).toBe(false);
   });
 
   it("maps release date ranges", () => {
@@ -87,9 +114,11 @@ describe("buildGamesQueryParams", () => {
         "filter.metadata.early_access",
       ),
     ).toBe("$eq:false");
-    expect(buildGamesQueryParams({ earlyAccess: "all" }).has("filter.metadata.early_access")).toBe(
-      false,
-    );
+    expect(
+      buildGamesQueryParams({ earlyAccess: "all" }).has(
+        "filter.metadata.early_access",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -101,16 +130,8 @@ describe("buildCacheKey", () => {
   };
 
   it("is stable when array order changes", () => {
-    const a = buildCacheKey(
-      { ...base, gameTypes: ["a", "b"] },
-      "http://x",
-      1,
-    );
-    const b = buildCacheKey(
-      { ...base, gameTypes: ["b", "a"] },
-      "http://x",
-      1,
-    );
+    const a = buildCacheKey({ ...base, gameTypes: ["a", "b"] }, "http://x", 1);
+    const b = buildCacheKey({ ...base, gameTypes: ["b", "a"] }, "http://x", 1);
     expect(a).toBe(b);
   });
 

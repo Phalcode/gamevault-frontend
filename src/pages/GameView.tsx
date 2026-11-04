@@ -6,6 +6,8 @@ import { Media } from "@/components/Media";
 import MediaSlider from "@/components/MediaSlider";
 import MarkdownContent from "@/components/MarkdownContent";
 import BackButton from "@/components/BackButton";
+import { useInterfaceTranslationLanguage } from "@/hooks/useInterfaceTranslationLanguage";
+import { translateTextOnDemand } from "@/utils/domTranslation";
 import { Spinner } from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
@@ -23,6 +25,7 @@ import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
 import { buildShareUrl } from "@/utils/shareUrl";
+import { trackEvent } from "@/utils/analytics";
 import { formatDate, formatTime, formatYear } from "@/utils/date";
 import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
 import { formatDecimal } from "@/utils/number";
@@ -34,7 +37,7 @@ import {
   useRef,
   useLayoutEffect,
 } from "react";
-import { useParams, useNavigate } from "react-router";
+import { useParams, useNavigate, useLocation } from "react-router";
 import {
   CloudArrowDownIcon,
   Cog8ToothIcon,
@@ -50,6 +53,7 @@ import {
   CalendarDaysIcon,
   GlobeAltIcon,
   HashtagIcon,
+  LanguageIcon,
 } from "@heroicons/react/24/outline";
 import clsx from "clsx";
 import {
@@ -79,6 +83,12 @@ export default function GameView() {
   const { id } = useParams<{ id: string }>();
   const numericId = Number(id);
   const navigate = useNavigate();
+  const location = useLocation();
+  // A game opened from a `gamevault://show?gameid=...` link should fall back
+  // to the library when the id does not exist, instead of showing an error.
+  const openedFromDeepLink = Boolean(
+    (location.state as { fromDeepLink?: boolean } | null)?.fromDeepLink,
+  );
   const { serverUrl, authFetch, user } = useAuth();
   const streamerMode = useStreamerMode();
   const [game, setGame] = useState<GamevaultGame | null>(null);
@@ -163,9 +173,17 @@ export default function GameView() {
         const res = await authFetch(`${base}/api/games/${numericId}`, {
           method: "GET",
         });
+        if (res.status === 404 && openedFromDeepLink) {
+          if (!cancelled) navigate("/library", { replace: true });
+          return;
+        }
         if (!res.ok) throw new Error(`Failed to load game (${res.status})`);
         const json = await res.json();
         if (!cancelled) setGame(json);
+        trackEvent("game_view_opened", {
+          from_deep_link: openedFromDeepLink,
+          offline_cache: false,
+        });
       } catch (e: any) {
         // Offline fallback: try loading from local cache
         if (isTauriApp() && !isOnline) {
@@ -177,6 +195,11 @@ export default function GameView() {
             if (cached && !cancelled) {
               const json = JSON.parse(cached);
               setGame(json as GamevaultGame);
+              trackEvent("game_view_opened", {
+                from_deep_link: openedFromDeepLink,
+                offline_cache: true,
+              });
+              trackEvent("offline_cache_used", { area: "game" });
               return;
             }
           } catch {
@@ -191,7 +214,7 @@ export default function GameView() {
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, authFetch, numericId, isOnline]);
+  }, [serverUrl, authFetch, numericId, isOnline, openedFromDeepLink, navigate]);
 
   useEffect(() => {
     setWebsitesExpanded(false);
@@ -222,6 +245,56 @@ export default function GameView() {
   const [detailsTab, setDetailsTab] = useState<
     "description" | "notes" | "tags"
   >("description");
+
+  // On-demand translation of the game description/notes. Those are content,
+  // not interface copy, so the interface translator never touches them; the
+  // user asks for them explicitly. Only offered while the desktop app is
+  // translating its interface.
+  const interfaceTranslationLanguage = useInterfaceTranslationLanguage();
+  const [translatedDetails, setTranslatedDetails] = useState<
+    Record<string, string>
+  >({});
+  const [translatingDetailsTab, setTranslatingDetailsTab] = useState<
+    string | null
+  >(null);
+  const detailsText =
+    detailsTab === "description"
+      ? description
+      : detailsTab === "notes"
+        ? notes
+        : null;
+  const translatedDetailsText = translatedDetails[detailsTab];
+  const canTranslateDetails =
+    !!interfaceTranslationLanguage && !!detailsText && detailsTab !== "tags";
+
+  useEffect(() => {
+    setTranslatedDetails({});
+    setTranslatingDetailsTab(null);
+  }, [game?.id]);
+
+  const handleTranslateDetails = async () => {
+    if (!interfaceTranslationLanguage || !detailsText) return;
+    if (translatedDetailsText) {
+      setTranslatedDetails((prev) => {
+        const next = { ...prev };
+        delete next[detailsTab];
+        return next;
+      });
+      return;
+    }
+    setTranslatingDetailsTab(detailsTab);
+    try {
+      const translated = await translateTextOnDemand(
+        detailsText,
+        interfaceTranslationLanguage,
+      );
+      setTranslatedDetails((prev) => ({ ...prev, [detailsTab]: translated }));
+    } catch {
+      // Leave the original text in place when the engine is unavailable.
+    } finally {
+      setTranslatingDetailsTab(null);
+    }
+  };
   const mediaSliderRef = useRef<HTMLDivElement | null>(null);
   const detailsCardRef = useRef<HTMLDivElement | null>(null);
   const [mediaHeight, setMediaHeight] = useState<number | null>(null);
@@ -357,7 +430,16 @@ export default function GameView() {
       const url = `${base}/api/users/me/bookmark/${game.id}`;
       const res = await authFetch(url, { method: next ? "POST" : "DELETE" });
       if (!res.ok) throw new Error("Bookmark toggle failed");
+      trackEvent("game_bookmark_toggled", {
+        source: "game_view",
+        bookmarked: next,
+      });
     } catch {
+      trackEvent("game_bookmark_toggled", {
+        source: "game_view",
+        bookmarked: !next,
+        success: false,
+      });
       setBookmarked(!next);
       showAlert({
         title: "Couldn't update bookmark",
@@ -386,11 +468,13 @@ export default function GameView() {
     const shareUrl = buildShareUrl(serverUrl, route);
     try {
       await navigator.clipboard.writeText(shareUrl);
+      trackEvent("game_share_link_copied", { success: true });
       // Show global alert notification
       showAlert({
         title: "Link copied",
       });
     } catch {
+      trackEvent("game_share_link_copied", { success: false });
       showAlert({
         title: "Couldn't copy link",
         description: shareUrl,
@@ -546,6 +630,7 @@ export default function GameView() {
         title: title || game?.title || "Game",
         versionDirectory: installedInfo.versionDirectory,
         installationDirectory: installedInfo.installationDirectory,
+        source: "game_view",
       });
       const alert = launchOutcomeAlert(outcome);
       if (alert) showAlert(alert);
@@ -556,6 +641,9 @@ export default function GameView() {
   const handleVersionSelect = useCallback(
     (selectedVersion: GameVersion) => {
       if (!pendingDownloadAction) return;
+      trackEvent("game_version_selected", {
+        early_access: Boolean((selectedVersion as any).early_access),
+      });
       executeDownloadAction(
         pendingDownloadAction,
         selectedVersion,
@@ -609,6 +697,7 @@ export default function GameView() {
             // mutate local userProgress optimistic
             setProgressState(nextKey as any);
           }
+          trackEvent("game_progress_state_changed", { state: nextKey });
         }
       } finally {
         setProgressUpdating(false);
@@ -801,7 +890,10 @@ export default function GameView() {
                 )}
               </div>
               <div className="flex-1 min-w-0 flex flex-col gap-3">
-                <div className="text-xl font-semibold leading-tight truncate pr-2">
+                <div
+                  className="text-xl font-semibold leading-tight truncate pr-2"
+                  translate="no"
+                >
                   {title}
                 </div>
                 {updateAvailable && (
@@ -894,6 +986,7 @@ export default function GameView() {
                   <Button
                     outline
                     onClick={() => setSettingsOpen(true)}
+                    data-analytics-id="game.settings"
                     className={floatingIconButtonClassName}
                     title="Settings"
                   >
@@ -902,6 +995,7 @@ export default function GameView() {
                   <Button
                     outline
                     onClick={toggleBookmark}
+                    data-analytics-id="game.bookmark"
                     disabled={!user || bookmarkBusy || (isTauri && !isOnline)}
                     className={clsx(
                       bookmarked
@@ -932,7 +1026,10 @@ export default function GameView() {
                 (game as any)?.metadata?.early_access ? (
                   <div className="flex flex-wrap gap-1 pt-1 items-center">
                     {game?.type && game.type !== "UNDETECTABLE" && (
-                      <span className="px-2 py-0.5 rounded-full bg-gv-accent/15 text-gv-accent-strong text-[10px] font-medium">
+                      <span
+                        className="px-2 py-0.5 rounded-full bg-gv-accent/15 text-gv-accent-strong text-[10px] font-medium"
+                        translate="no"
+                      >
                         {game.type
                           .replace(/_/g, " ")
                           .toLowerCase()
@@ -949,6 +1046,7 @@ export default function GameView() {
                       <span
                         key={g}
                         className="px-2 py-0.5 rounded-full bg-gv-panel-strong text-[10px] font-medium text-gv-muted"
+                        translate="no"
                       >
                         {g}
                       </span>
@@ -1103,6 +1201,26 @@ export default function GameView() {
                           />
                         )}
                       </button>
+                      {canTranslateDetails && (
+                        <button
+                          type="button"
+                          onClick={() => void handleTranslateDetails()}
+                          disabled={translatingDetailsTab === detailsTab}
+                          title={
+                            translatedDetailsText
+                              ? "Show the original text"
+                              : "Translate this text"
+                          }
+                          className="mb-1 ml-auto inline-flex items-center gap-1 self-start rounded-md px-1.5 py-1 text-[11px] font-medium text-gv-muted transition hover:text-gv-text disabled:opacity-60"
+                        >
+                          <LanguageIcon className="size-3.5" />
+                          {translatingDetailsTab === detailsTab
+                            ? "Translating…"
+                            : translatedDetailsText
+                              ? "Original"
+                              : "Translate"}
+                        </button>
+                      )}
                     </div>
                   </LayoutGroup>
                   <motion.div
@@ -1113,22 +1231,35 @@ export default function GameView() {
                     className="text-sm leading-relaxed space-y-4 min-h-45 text-gv-text"
                   >
                     {detailsTab === "description" &&
-                      (description ? (
-                        <MarkdownContent content={description} />
+                      ((translatedDetails.description ?? description) ? (
+                        <div translate="no">
+                          <MarkdownContent
+                            content={
+                              translatedDetails.description ??
+                              (description as string)
+                            }
+                          />
+                        </div>
                       ) : (
                         <p className="italic text-gv-muted">
                           No description available.
                         </p>
                       ))}
                     {detailsTab === "notes" &&
-                      (notes ? (
-                        <MarkdownContent content={notes} />
+                      ((translatedDetails.notes ?? notes) ? (
+                        <div translate="no">
+                          <MarkdownContent
+                            content={
+                              translatedDetails.notes ?? (notes as string)
+                            }
+                          />
+                        </div>
                       ) : (
                         <p className="italic text-gv-muted">No notes.</p>
                       ))}
                     {detailsTab === "tags" &&
                       (tags && tags.length ? (
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2" translate="no">
                           {tags.map((t) => (
                             <span
                               key={t}
@@ -1163,6 +1294,7 @@ export default function GameView() {
                       <div
                         className="font-medium whitespace-nowrap truncate"
                         title={(releaseYear || "—") + ""}
+                        translate="no"
                       >
                         {releaseYear || "—"}
                       </div>
@@ -1191,6 +1323,7 @@ export default function GameView() {
                       <div
                         className="font-medium whitespace-nowrap truncate"
                         title={versionTag || "—"}
+                        translate="no"
                       >
                         {versionTag || "—"}
                       </div>
@@ -1215,6 +1348,7 @@ export default function GameView() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="underline hover:text-gv-accent-cool"
+                                translate="no"
                               >
                                 {website.replace(/^https?:\/\//, "")}
                               </a>
@@ -1245,6 +1379,7 @@ export default function GameView() {
                       <div
                         className="font-medium whitespace-nowrap truncate"
                         title={devNames.length ? devNames.join(", ") : "—"}
+                        translate="no"
                       >
                         {devNames.length ? devNames.join(", ") : "—"}
                       </div>
@@ -1263,6 +1398,7 @@ export default function GameView() {
                             ? publisherNames.join(", ")
                             : "—"
                         }
+                        translate="no"
                       >
                         {publisherNames.length
                           ? publisherNames.join(", ")
@@ -1279,6 +1415,7 @@ export default function GameView() {
                       <div
                         className="font-medium whitespace-nowrap"
                         title={ageRating ?? "—"}
+                        translate="no"
                       >
                         {ageRating ?? "—"}
                       </div>
@@ -1343,7 +1480,10 @@ export default function GameView() {
                             />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="font-medium truncate text-gv-text">
+                                <span
+                                  translate="no"
+                                  className="font-medium truncate text-gv-text"
+                                >
                                   {uname}
                                 </span>
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-gv-panel-soft text-gv-muted font-medium">
