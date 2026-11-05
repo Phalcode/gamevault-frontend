@@ -210,6 +210,25 @@ jobs:
             gstreamer1.0-plugins-good
             gstreamer1.0-plugins-bad
 
+      # `cache-apt-pkgs-action` reports success even when apt could not fetch
+      # everything (a mirror lagging behind the archive is enough), which then
+      # surfaces as a confusing `glib-sys` failure in the Rust build. Verify
+      # the headers are really there and install them directly if not.
+      - name: Verify Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          required=(glib-2.0 gtk+-3.0 webkit2gtk-4.1)
+          if pkg-config --exists "${required[@]}"; then
+            exit 0
+          fi
+          echo "::warning::The APT cache did not provide the GTK/WebKit development packages, installing them directly."
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+          pkg-config --exists "${required[@]}"
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
