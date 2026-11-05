@@ -487,10 +487,12 @@ jobs:
             grep -qx "$asset" <<<"$assets" || { echo "::error::Release asset is missing: $asset"; exit 1; }
           done
 
-          # Versioned installers must ship the signature the updater verifies.
+          # Versioned updater bundles must ship the signature the updater
+          # verifies. The macOS .dmg is not part of the update feed, so Tauri
+          # does not sign it.
           while IFS= read -r asset; do
             case "$asset" in
-              *.sig|gamevault-frontend.zip) continue ;;
+              *.sig|gamevault-frontend.zip|*.dmg) continue ;;
               *"-$tag"*)
                 grep -qx "$asset.sig" <<<"$assets" || { echo "::error::Missing signature for $asset"; exit 1; } ;;
             esac
@@ -501,6 +503,12 @@ jobs:
           gh release download "$tag" --repo "${{ github.repository }}" --pattern latest.json --dir "$RUNNER_TEMP" --clobber
           manifest_version=$(jq -r '.version' "$RUNNER_TEMP/latest.json")
           [ "$manifest_version" = "$tag" ] || { echo "::error::latest.json advertises $manifest_version, expected $tag"; exit 1; }
+
+          # Every file the updater will download has to exist on the release.
+          for url in $(jq -r '.platforms[].url' "$RUNNER_TEMP/latest.json"); do
+            name="${url##*/}"
+            grep -qx "$name" <<<"$assets" || { echo "::error::latest.json references a missing asset: $name"; exit 1; }
+          done
 
       - name: Publish release
         shell: bash
