@@ -290,6 +290,7 @@ fn umu_state() -> &'static Mutex<Option<UmuSnapshot>> {
   UMU_STATE.get_or_init(|| Mutex::new(None))
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn set_umu_snapshot(snapshot: Option<UmuSnapshot>) {
   if let Ok(mut state) = umu_state().lock() {
     *state = snapshot;
@@ -302,11 +303,13 @@ pub(crate) fn umu_snapshot() -> Option<UmuSnapshot> {
 
 static UMU_INSTALL_RUNNING: OnceLock<AtomicBool> = OnceLock::new();
 
+#[cfg(target_os = "linux")]
 fn umu_install_running() -> &'static AtomicBool {
   UMU_INSTALL_RUNNING.get_or_init(|| AtomicBool::new(false))
 }
 
 /// Whether umu-launcher is currently being downloaded/extracted.
+#[cfg(target_os = "linux")]
 pub(crate) fn is_umu_install_running() -> bool {
   umu_install_running().load(Ordering::SeqCst)
 }
@@ -315,6 +318,7 @@ pub(crate) fn is_umu_install_running() -> bool {
 /// install already holds it. A dedicated flag (instead of the status snapshot)
 /// makes the claim atomic, so two callers racing each other — a double launch,
 /// or the settings button while a launch is waiting — cannot both download.
+#[cfg(target_os = "linux")]
 pub(crate) fn try_begin_umu_install() -> bool {
   umu_install_running()
     .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -322,6 +326,7 @@ pub(crate) fn try_begin_umu_install() -> bool {
 }
 
 /// Release the umu-launcher install slot once an attempt has ended.
+#[cfg(target_os = "linux")]
 pub(crate) fn end_umu_install() {
   umu_install_running().store(false, Ordering::SeqCst);
 }

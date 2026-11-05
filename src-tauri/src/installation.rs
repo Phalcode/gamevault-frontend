@@ -667,6 +667,18 @@ pub(crate) fn launch_installation_executable(
   let installer_relative = installer_relative_path.clone();
   let version_directory = version_directory.clone();
 
+  // The umu settings and the version directory are only read by the Linux
+  // installer path below. The command signature stays the same on every
+  // platform, so mark them used for the other builds.
+  #[cfg(not(target_os = "linux"))]
+  let _ = (
+    &umu_game_id,
+    &umu_store,
+    &umu_proton_path,
+    &umu_wine_prefix,
+    &version_directory,
+  );
+
   // An installer keeps running when the webview is reloaded (F5), and the UI
   // cannot see it any more. Starting a second one would run two setup
   // processes over the same folder, so keep the running one.
