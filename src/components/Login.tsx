@@ -1,5 +1,6 @@
 import { useAuth } from "@/context/AuthContext";
 import {
+  AUTH_REFRESH_STORAGE_KEY,
   AUTH_SERVER_STORAGE_KEY,
   DEMO_PASSWORD,
   DEMO_SERVER_URL,
@@ -65,6 +66,7 @@ export function Login() {
   const userRef = useRef<HTMLInputElement | null>(null);
   const passRef = useRef<HTMLInputElement | null>(null);
   const submitRef = useRef<HTMLButtonElement | null>(null);
+  const ssoPopupRef = useRef<Window | null>(null);
 
   useEffect(() => {
     // Auto-focus server field on mount if not confirmed
@@ -241,6 +243,23 @@ export function Login() {
     return () => window.removeEventListener("message", onMessage);
   }, [confirmedServer, loginWithTokens, navigate]);
 
+  // Some identity providers (or their Cross-Origin-Opener-Policy headers) cut
+  // `window.opener`, so the SSO popup cannot hand its tokens back and finishes
+  // the login itself at our own origin. That writes the refresh token to
+  // storage, which fires here: close the popup and boot from the stored
+  // session instead of leaving the original window on the login form until it
+  // is reloaded.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== AUTH_REFRESH_STORAGE_KEY || !event.newValue) return;
+      ssoPopupRef.current?.close();
+      ssoPopupRef.current = null;
+      window.location.reload();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   const handleContinue = (e: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
     e.preventDefault();
     if (!server.trim()) return;
@@ -277,7 +296,10 @@ export function Login() {
             "gamevault-sso",
             "popup,width=520,height=680",
           );
-          if (popup) return;
+          if (popup) {
+            ssoPopupRef.current = popup;
+            return;
+          }
         }
         window.location.href = loginUrl;
         return;

@@ -1,5 +1,15 @@
 # GameVault Frontend Changelog
 
+## 17.2.1
+
+### Changes
+
+- SSO login in the web UI no longer leaves you on a second window with the first one still showing the login form. When the identity provider cuts the popup connection, the original window picks up the finished session on its own instead of waiting for a manual reload.
+
+### Thanks
+
+- @utlilb
+
 ## 17.2.0
 
 ### Changes
