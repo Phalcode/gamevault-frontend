@@ -31,6 +31,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use tauri::path::BaseDirectory;
+use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 use tauri_plugin_updater::UpdaterExt;
@@ -495,6 +496,38 @@ pub fn run() {
 
   builder
     .setup(|app| {
+      // ── Main window ────────────────────────────────────────────────────
+      //
+      // The window config has `create: false` so it can be built here with a
+      // new-window handler. Tauri denies every `window.open` by default, which
+      // breaks identity providers that run their upstream login (for example
+      // Authentik's Plex source) in a popup: the popup never appears and the
+      // "Open login" fallback does nothing either (tauri-apps/tauri#14263).
+      if app.get_webview_window("main").is_none() {
+        let window_config = app
+          .config()
+          .app
+          .windows
+          .iter()
+          .find(|config| config.label == "main")
+          .cloned()
+          .expect("main window config is missing from tauri.conf.json");
+        WebviewWindowBuilder::from_config(app.handle(), &window_config)?
+          .on_new_window(|url, _features| match url.scheme() {
+            // Only hand real web pages to the webview. Everything else
+            // (file:, tauri:, javascript: ...) stays blocked.
+            "http" | "https" | "about" => {
+              log::info!(
+                "allowing popup for host {}",
+                url.host_str().unwrap_or("unknown")
+              );
+              NewWindowResponse::Allow
+            }
+            _ => NewWindowResponse::Deny,
+          })
+          .build()?;
+      }
+
       // ── Deep links ─────────────────────────────────────────────────────
       // Installers register `gamevault://` for packaged builds. Development
       // builds and AppImages (which are not integrated into the desktop

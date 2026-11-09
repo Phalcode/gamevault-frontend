@@ -5,6 +5,7 @@
 ### Changes
 
 - SSO login in the web UI now runs in the window you started from instead of a popup. The popup could complete the login on its own while the original window stayed on the login form, and the reload that followed could end with "Your session has expired" right after signing in.
+- Fixed SSO login in the desktop app when the identity provider runs its own login popup, like Authentik's Plex source. The app now allows those popups instead of silently blocking them, so the login can finish.
 
 ### Thanks
 
