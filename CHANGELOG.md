@@ -4,7 +4,7 @@
 
 ### Changes
 
-- SSO login in the web UI no longer leaves you on a second window with the first one still showing the login form. When the identity provider cuts the popup connection, the original window picks up the finished session on its own instead of waiting for a manual reload.
+- SSO login in the web UI now runs in the window you started from instead of a popup. The popup could complete the login on its own while the original window stayed on the login form, and the reload that followed could end with "Your session has expired" right after signing in.
 
 ### Thanks
 

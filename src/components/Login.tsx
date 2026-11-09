@@ -1,6 +1,5 @@
 import { useAuth } from "@/context/AuthContext";
 import {
-  AUTH_REFRESH_STORAGE_KEY,
   AUTH_SERVER_STORAGE_KEY,
   DEMO_PASSWORD,
   DEMO_SERVER_URL,
@@ -66,7 +65,6 @@ export function Login() {
   const userRef = useRef<HTMLInputElement | null>(null);
   const passRef = useRef<HTMLInputElement | null>(null);
   const submitRef = useRef<HTMLButtonElement | null>(null);
-  const ssoPopupRef = useRef<Window | null>(null);
 
   useEffect(() => {
     // Auto-focus server field on mount if not confirmed
@@ -209,57 +207,6 @@ export function Login() {
     }
   }, [loginWithTokens, navigate]);
 
-  // Receive the tokens handed back by the SSO popup (web flow). Only trust a
-  // message that originates from the configured server origin.
-  useEffect(() => {
-    const expectedOrigin = confirmedServer
-      ? normalizeServerUrl(confirmedServer)
-      : "";
-    if (!expectedOrigin) return;
-
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== expectedOrigin) return;
-      const data = event.data as
-        | { type?: string; access_token?: string; refresh_token?: string }
-        | undefined;
-      if (!data || data.type !== "gamevault:sso") return;
-      const accessToken = data.access_token;
-      if (!accessToken) return;
-      const refreshToken = data.refresh_token;
-      void (async () => {
-        try {
-          await loginWithTokens(expectedOrigin, {
-            access_token: accessToken,
-            refresh_token: refreshToken ?? undefined,
-          });
-          navigate("/library", { replace: true });
-        } catch {
-          // ignore - context will show error
-        }
-      })();
-    };
-
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [confirmedServer, loginWithTokens, navigate]);
-
-  // Some identity providers (or their Cross-Origin-Opener-Policy headers) cut
-  // `window.opener`, so the SSO popup cannot hand its tokens back and finishes
-  // the login itself at our own origin. That writes the refresh token to
-  // storage, which fires here: close the popup and boot from the stored
-  // session instead of leaving the original window on the login form until it
-  // is reloaded.
-  useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== AUTH_REFRESH_STORAGE_KEY || !event.newValue) return;
-      ssoPopupRef.current?.close();
-      ssoPopupRef.current = null;
-      window.location.reload();
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
   const handleContinue = (e: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
     e.preventDefault();
     if (!server.trim()) return;
@@ -285,22 +232,13 @@ export function Login() {
         const loginUrl = `${normalized}/api/auth/oauth2/login?client_origin=${encodeURIComponent(
           window.location.origin,
         )}`;
-        // On the web, run the flow in a popup so the main window never
-        // navigates away; the backend hands the tokens back via postMessage
-        // instead of putting them in the URL. In the desktop app (and if the
-        // popup is blocked) fall back to a full redirect — the backend returns
-        // the window to our own origin, keeping the Tauri IPC / ACL intact.
-        if (!isTauriApp() && window.location.origin === normalized) {
-          const popup = window.open(
-            loginUrl,
-            "gamevault-sso",
-            "popup,width=520,height=680",
-          );
-          if (popup) {
-            ssoPopupRef.current = popup;
-            return;
-          }
-        }
+        // The login always runs in this window. A popup looked nicer, but the
+        // callback then had to hand the tokens back through window.opener,
+        // which identity providers sever with Cross-Origin-Opener-Policy. The
+        // popup then ran a second copy of the app that finished the login and
+        // rotated the refresh token while the opener was still on the login
+        // form, so the opener booted with a token that had just been
+        // invalidated ("Your session has expired"). One window, one session.
         window.location.href = loginUrl;
         return;
       }
