@@ -122,7 +122,7 @@ pub(crate) async fn bergamot_model_registry(app: tauri::AppHandle) -> Result<Str
 }
 
 async fn fetch_model_registry() -> Result<String, String> {
-  let client = reqwest::Client::builder()
+  let client = crate::net::http_client_builder()
     .timeout(std::time::Duration::from_secs(20))
     .build()
     .map_err(|error| error.to_string())?;
@@ -265,7 +265,7 @@ pub(crate) async fn download_bergamot_model(
   let dir = language_dir(&app, &language)?;
   std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
 
-  let client = reqwest::Client::builder()
+  let client = crate::net::http_client_builder()
     .timeout(std::time::Duration::from_secs(600))
     .build()
     .map_err(|error| error.to_string())?;

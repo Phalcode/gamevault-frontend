@@ -676,7 +676,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     }
 
     // ── Credit time ────────────────────────────────────────────────────────
-    let client = reqwest::Client::new();
+    let client = crate::net::http_client();
     let http_start = Instant::now();
     let backoff_until = tracker_stats()
       .lock()
@@ -1706,7 +1706,7 @@ pub(crate) async fn sync_offline_time(
     "{}/api/progresses/user/{}/game/{}/increment/{}",
     server_url, user_id, game_id, minutes
   );
-  let client = reqwest::Client::new();
+  let client = crate::net::http_client();
   let resp = match client
     .put(&url)
     .header("Authorization", format!("Bearer {}", access_token))

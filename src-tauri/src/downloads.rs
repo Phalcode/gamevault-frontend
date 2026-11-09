@@ -405,7 +405,7 @@ pub(crate) fn download_game_version(
   tauri::async_runtime::spawn(async move {
     let _active_entry = active_entry;
 
-    let client = reqwest::Client::new();
+    let client = crate::net::http_client();
     let mut req = client.get(&url).header("Accept", "*/*");
     if let Some(auth) = auth_header.as_ref() {
       if !auth.trim().is_empty() {
@@ -430,7 +430,10 @@ pub(crate) fn download_game_version(
             status: "error".to_string(),
             received: 0,
             total: None,
-            error: Some(format!("Request failed: {err}")),
+            error: Some(format!(
+              "Request failed: {}",
+              crate::net::reqwest_error_chain(&err)
+            )),
             filename: None,
             file_path: None,
           },

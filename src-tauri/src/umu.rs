@@ -301,7 +301,7 @@ async fn install_umu_launcher_inner(app: &tauri::AppHandle, game_title: Option<&
     None,
   );
 
-  let client = reqwest::Client::builder()
+  let client = crate::net::http_client_builder()
     // Without an explicit timeout a stalled connection would hang the install
     // (and the overlay) forever; the API call gets a short one, the asset
     // download a generous one.

@@ -44,7 +44,7 @@ fn allowed_hosts() -> &'static [String] {
 fn client() -> &'static Client {
   static CLIENT: OnceLock<Client> = OnceLock::new();
   CLIENT.get_or_init(|| {
-    Client::builder()
+    crate::net::http_client_builder()
       .timeout(Duration::from_secs(10))
       // The desktop app identifies as GameVault, not as the webview engine.
       .user_agent(crate::user_agent::frontend_user_agent(

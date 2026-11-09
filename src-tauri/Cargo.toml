@@ -40,7 +40,12 @@ tauri-plugin-opener = "2"
 sevenz-rust2 = { version = "0.20.2", features = ["aes256"] }
 tauri-plugin-stronghold = "2"
 getrandom = "0.2"
-reqwest = { version = "0.12.23", default-features = false, features = ["rustls-tls", "stream"] }
+# Native requests must trust the platform certificate store as well, otherwise
+# requests to a server behind a private CA (e.g. an internal Traefik) fail with
+# "error sending request for url (...)" even though the CA is installed and the
+# webview accepts it. Bundled Mozilla roots stay enabled as a fallback for
+# systems whose store cannot be read.
+reqwest = { version = "0.12.23", default-features = false, features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots", "stream"] }
 tokio = { version = "1.48.0", features = ["fs", "io-util", "time", "sync", "macros"] }
 futures-util = "0.3.31"
 sysinfo = "0.33"
@@ -62,6 +67,10 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 icns = { version = "0.5", default-features = false, features = ["pngio"] }
 
 [target.'cfg(windows)'.dependencies]
+# Machine-wide root store access: `rustls-native-certs` only reads the current
+# user's store, so enterprise/internal roots installed for all users would stay
+# unknown to native requests.
+schannel = "0.1.29"
 winapi = { version = "0.3", features = ["fileapi", "shellapi", "winnt", "winuser", "synchapi", "handleapi", "winbase", "winerror", "processthreadsapi", "sysinfoapi"] }
 # Taskbar jump list (ICustomDestinationList). winapi does not generate those
 # interfaces, and the `windows` crate is already in the tree via wry, so only
