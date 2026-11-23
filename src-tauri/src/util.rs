@@ -68,6 +68,27 @@ pub(crate) fn dir_size(path: &Path) -> u64 {
   total
 }
 
+/// Gives `file` the execute bits of `mode`, a Unix file mode, on top of the
+/// permissions it already has.
+///
+/// Extraction and the install copy write files byte by byte, which creates
+/// them without execute bits, so a game binary (like the one inside a macOS
+/// app bundle) could not be started. Only the execute bits are taken: the
+/// `zip` crate derives a mode for entries packed on Windows as well, and its
+/// read-only flag must not reach installed files that games write to.
+#[cfg(unix)]
+pub(crate) fn add_execute_bits(file: &fs::File, mode: u32) -> std::io::Result<()> {
+  use std::os::unix::fs::PermissionsExt;
+
+  let execute = mode & 0o111;
+  if execute == 0 {
+    return Ok(());
+  }
+  let mut permissions = file.metadata()?.permissions();
+  permissions.set_mode(permissions.mode() | execute);
+  file.set_permissions(permissions)
+}
+
 pub(crate) fn parse_version_folder(folder_name: &str) -> (i64, String) {
   if let Some(rest) = folder_name.strip_prefix('(') {
     if let Some((id_part, name_part)) = rest.split_once(')') {
@@ -146,6 +167,46 @@ mod tests {
   #[test]
   fn falls_back_to_legacy_folder_version_id() {
     assert_eq!(resolve_version_id(&json!({}), 775), 775);
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn adds_only_the_execute_bits_of_a_unix_mode() {
+    use super::add_execute_bits;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = std::env::temp_dir().join(format!(
+      "gamevault-execute-bits-{}",
+      std::process::id()
+    ));
+    let file = fs::File::create(&path).expect("create file");
+    let set = |mode: u32| {
+      file
+        .set_permissions(fs::Permissions::from_mode(mode))
+        .expect("set permissions")
+    };
+    let mode = || file.metadata().expect("read permissions").permissions().mode() & 0o777;
+
+    // A program in a ZIP archive made on macOS or Linux.
+    set(0o644);
+    add_execute_bits(&file, 0o100755).expect("add execute bits");
+    assert_eq!(mode(), 0o755);
+
+    // Only its owner may run it. The other permissions stay as they are.
+    set(0o644);
+    add_execute_bits(&file, 0o100700).expect("add execute bits");
+    assert_eq!(mode(), 0o744);
+
+    // The modes the zip crate derives for entries packed on Windows, plain
+    // and read-only, leave the file as it is.
+    set(0o644);
+    add_execute_bits(&file, 0o100664).expect("add execute bits");
+    add_execute_bits(&file, 0o100444).expect("add execute bits");
+    assert_eq!(mode(), 0o644);
+
+    drop(file);
+    let _ = fs::remove_file(&path);
   }
 }
 

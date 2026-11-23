@@ -63,6 +63,17 @@ fn extract_zip_archive(
     std::io::copy(&mut entry, &mut out_file)
       .map_err(|e| (false, format!("Failed to write output file: {e}")))?;
 
+    // ZIP tools on macOS and Linux store each file's Unix mode. Without its
+    // execute bits, the binary inside a macOS app bundle or a Linux game can
+    // not be started. A failure is only logged: file systems without Unix
+    // permissions (FAT, some network shares) may refuse the change.
+    #[cfg(unix)]
+    if let Some(mode) = entry.unix_mode() {
+      if let Err(e) = crate::util::add_execute_bits(&out_file, mode) {
+        log::warn!("Failed to make {current_file:?} executable: {e}");
+      }
+    }
+
     processed += 1;
     emit_extract_progress(
       app,
