@@ -9,6 +9,7 @@
 - SSO login in the web UI now runs in the window you started from instead of a popup. The popup could complete the login on its own while the original window stayed on the login form, and the reload that followed could end with "Your session has expired" right after signing in.
 - Fixed SSO login in the desktop app when the identity provider runs its own login popup, like Authentik's Plex source. The app now allows those popups instead of silently blocking them, so the login can finish.
 - [#94](https://github.com/Phalcode/gamevault-frontend/issues/94) Fixed games from ZIP archives not starting on macOS and Linux. Extraction and installation dropped the executable permission of their programs, so a macOS app failed with "The application can't be opened".
+- [#94](https://github.com/Phalcode/gamevault-frontend/issues/94) Extraction now keeps the executable permission for games packed as 7z archives or as a single compressed file like an `.AppImage.gz`, so those start on macOS and Linux too.
 
 ### Thanks
 

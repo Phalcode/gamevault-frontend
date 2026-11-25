@@ -89,6 +89,37 @@ pub(crate) fn add_execute_bits(file: &fs::File, mode: u32) -> std::io::Result<()
   file.set_permissions(permissions)
 }
 
+/// POSIX file mode stored by 7-Zip on Unix in the high 16 bits of the Windows
+/// attributes field. The `FILE_ATTRIBUTE_UNIX_EXTENSION` marker (0x8000) tells
+/// it apart from plain Windows attributes, which carry no mode.
+#[cfg(any(unix, test))]
+pub(crate) fn unix_mode_from_7z_attributes(attributes: u32) -> Option<u32> {
+  if attributes & 0x8000 == 0 {
+    return None;
+  }
+  Some(attributes >> 16)
+}
+
+/// Whether the first bytes of a file look like a program the OS can run
+/// directly: an ELF or Mach-O binary, or a script with a shebang.
+#[cfg(any(unix, test))]
+pub(crate) fn looks_like_executable(prefix: &[u8]) -> bool {
+  const MAGIC: [&[u8]; 10] = [
+    b"#!",
+    b"\x7fELF",
+    b"\xfe\xed\xfa\xce",
+    b"\xce\xfa\xed\xfe",
+    b"\xfe\xed\xfa\xcf",
+    b"\xcf\xfa\xed\xfe",
+    b"\xca\xfe\xba\xbe",
+    b"\xbe\xba\xfe\xca",
+    b"\xca\xfe\xba\xbf",
+    b"\xbf\xba\xfe\xca",
+  ];
+
+  MAGIC.iter().any(|magic| prefix.starts_with(*magic))
+}
+
 pub(crate) fn parse_version_folder(folder_name: &str) -> (i64, String) {
   if let Some(rest) = folder_name.strip_prefix('(') {
     if let Some((id_part, name_part)) = rest.split_once(')') {
@@ -148,7 +179,9 @@ pub(crate) fn resolve_version_subdir(version_path: &Path, preferred: &str, legac
 
 #[cfg(test)]
 mod tests {
-  use super::{parse_version_folder, resolve_version_id};
+  use super::{
+    looks_like_executable, parse_version_folder, resolve_version_id, unix_mode_from_7z_attributes,
+  };
   use serde_json::json;
 
   #[test]
@@ -207,6 +240,32 @@ mod tests {
 
     drop(file);
     let _ = fs::remove_file(&path);
+  }
+
+  #[test]
+  fn reads_posix_modes_from_7z_attributes() {
+    assert_eq!(
+      unix_mode_from_7z_attributes(0x8000 | (0o100755 << 16)),
+      Some(0o100755),
+    );
+    assert_eq!(
+      unix_mode_from_7z_attributes(0x8000 | (0o100644 << 16)),
+      Some(0o100644),
+    );
+    // Plain Windows attributes, like the DOS archive bit, carry no mode.
+    assert_eq!(unix_mode_from_7z_attributes(0x20), None);
+    assert_eq!(unix_mode_from_7z_attributes(0), None);
+  }
+
+  #[test]
+  fn recognizes_executables_by_their_magic() {
+    assert!(looks_like_executable(b"\x7fELF\x02\x01\x01"));
+    assert!(looks_like_executable(b"\xcf\xfa\xed\xfe"));
+    assert!(looks_like_executable(b"\xca\xfe\xba\xbe"));
+    assert!(looks_like_executable(b"#!/bin/sh\n"));
+    assert!(!looks_like_executable(b"PK\x03\x04"));
+    assert!(!looks_like_executable(b"MZ\x90\x00"));
+    assert!(!looks_like_executable(b""));
   }
 }
 
