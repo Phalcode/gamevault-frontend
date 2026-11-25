@@ -4,6 +4,7 @@ import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useArchivePasswords } from "@/context/ArchivePasswordsContext";
 import { Button } from "@/components/tailwind/button";
 import { Badge } from "@/components/tailwind/badge";
+import { Switch } from "@/components/tailwind/switch";
 import {
   Dropdown,
   DropdownButton,
@@ -119,6 +120,7 @@ export function DownloadCard({
     retryDownload,
     openDownloadFolder,
     extractArchive,
+    setCreateShortcutOnInstall,
     formatBytes,
     formatSpeed,
   } = useDownloads();
@@ -391,6 +393,29 @@ export function DownloadCard({
           }}
         />
       </div>
+
+      {isTauri && !isInstalled && !download.sourceFilesDeleted && (
+        <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-gv-line bg-gv-panel-soft px-3.5 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gv-text">
+              Create Desktop Shortcut
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-gv-muted">
+              Create a shortcut on your desktop automatically when this game
+              finishes installing.
+            </p>
+          </div>
+          <Switch
+            color="indigo"
+            className="shrink-0"
+            aria-label="Create a desktop shortcut after installation"
+            checked={!!download.createShortcutOnInstall}
+            onChange={(checked: boolean) =>
+              setCreateShortcutOnInstall(download.gameId, checked)
+            }
+          />
+        </div>
+      )}
 
       <div className="mt-4 flex items-center justify-end gap-2 border-t border-gv-line pt-3">
         {primaryAction}

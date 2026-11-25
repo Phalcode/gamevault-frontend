@@ -36,7 +36,10 @@ import {
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { emitGameDeleted, emitGameUpdated } from "@/utils/gameUpdates";
 import { GameMediaSlot, resolveApiMediaBlob } from "@/utils/mediaCache";
-import { blobToBase64 } from "@/utils/binary";
+import {
+  createGameDesktopShortcut,
+  loadGameCoverBase64,
+} from "@/utils/desktopShortcut";
 import {
   PhotoIcon,
   CircleStackIcon,
@@ -682,7 +685,6 @@ export function GameSettings({
     if (!installedGame || !selectedLaunchExe) return;
     setCreatingShortcut(true);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
       const { join } = await import("@tauri-apps/api/path");
 
       const executablePath = await join(
@@ -692,35 +694,23 @@ export function GameSettings({
 
       // The cover is only a fallback for executables without an icon; a
       // failure to load it must not block the shortcut itself.
-      let coverBase64: string | null = null;
-      const coverId = workingGame.metadata?.cover?.id;
-      if (coverId && serverUrl) {
-        try {
-          const blob = await resolveApiMediaBlob({
-            serverUrl,
-            mediaId: Number(coverId),
-            authFetch,
-            owner: { gameId: installedGame.gameId, slot: "cover" },
-          });
-          coverBase64 = await blobToBase64(blob);
-        } catch {
-          coverBase64 = null;
-        }
-      }
+      const coverBase64 = await loadGameCoverBase64({
+        serverUrl,
+        authFetch,
+        gameId: installedGame.gameId,
+        coverId: workingGame.metadata?.cover?.id,
+      });
 
-      const result = await invoke<{ path: string; icon: string }>(
-        "create_desktop_shortcut",
-        {
-          gameId: installedGame.gameId,
-          title:
-            workingGame.metadata?.title ||
-            workingGame.title ||
-            installedGame.gameTitle ||
-            "Game",
-          executablePath,
-          coverBase64,
-        },
-      );
+      const result = await createGameDesktopShortcut({
+        gameId: installedGame.gameId,
+        title:
+          workingGame.metadata?.title ||
+          workingGame.title ||
+          installedGame.gameTitle ||
+          "Game",
+        executablePath,
+        coverBase64,
+      });
       console.info("Desktop shortcut created:", result.path);
 
       // Title-only alerts render as a non-blocking toast.

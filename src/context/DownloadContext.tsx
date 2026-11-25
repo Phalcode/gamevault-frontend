@@ -33,7 +33,14 @@ import {
   getSkipAutoResumeIds,
   setSkipAutoResume,
 } from "@/utils/downloadFormat";
-import { pickPreferredInstaller } from "@/components/downloads/install-utils";
+import {
+  pickPreferredExecutable,
+  pickPreferredInstaller,
+} from "@/components/downloads/install-utils";
+import {
+  createGameDesktopShortcut,
+  loadGameCoverBase64,
+} from "@/utils/desktopShortcut";
 import { mergeLaunchDefaults } from "@/components/downloads/launch-defaults";
 import { buildArchivePasswordCandidates } from "@/utils/archivePasswords";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
@@ -80,6 +87,11 @@ export interface ActiveDownload {
   installationCurrentFile?: string;
   installationError?: string;
   installationExitCode?: number | null;
+  /**
+   * UI preference: create a desktop shortcut once this card finishes
+   * installing. Session-scoped and reset after a successful installation.
+   */
+  createShortcutOnInstall?: boolean;
   sourceFilesDeleted?: boolean;
   fileWriter?: { close(): Promise<void>; abort(): Promise<void> };
 }
@@ -162,6 +174,8 @@ interface DownloadContextValue {
     installerRelativePath: string,
   ) => Promise<void>;
   resetInstallationState: (gameId: number) => void;
+  /** Enables/disables automatic desktop-shortcut creation for a card. */
+  setCreateShortcutOnInstall: (gameId: number, enabled: boolean) => void;
   speedLimitKB: number;
   setSpeedLimitKB: (v: number) => void;
   /** Dev-only: inject a fake download card to preview UI states */
@@ -402,76 +416,97 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [startSimulatedProgress],
   );
 
-  const applyDefaultLaunchConfig = useCallback(async (d: ActiveDownload) => {
-    if (!d.versionDirectory || !d.installationDirectory) return;
-    const { join } = await import("@tauri-apps/api/path");
-    const { invoke } = await import("@tauri-apps/api/core");
+  /**
+   * Fills unset launch options from the server defaults.
+   *
+   * Returns the effective launch executable, so callers (e.g. automatic
+   * desktop shortcuts) know which executable the game will actually start
+   * without re-reading the config or scanning the folder again.
+   */
+  const applyDefaultLaunchConfig = useCallback(
+    async (d: ActiveDownload): Promise<string | undefined> => {
+      if (!d.versionDirectory || !d.installationDirectory) return undefined;
+      const { join } = await import("@tauri-apps/api/path");
+      const { invoke } = await import("@tauri-apps/api/core");
 
-    const configPath = await join(
-      d.versionDirectory,
-      ".gamevault.game.config.json",
-    );
+      const configPath = await join(
+        d.versionDirectory,
+        ".gamevault.game.config.json",
+      );
 
-    let current: Record<string, any> = {};
-    if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
-      try {
-        current = JSON.parse(
-          await invoke<string>("fs_read_text_file", { path: configPath }),
-        );
-      } catch {
-        current = {};
+      let current: Record<string, any> = {};
+      if (await invoke<boolean>("fs_path_exists", { path: configPath })) {
+        try {
+          current = JSON.parse(
+            await invoke<string>("fs_read_text_file", { path: configPath }),
+          );
+        } catch {
+          current = {};
+        }
       }
-    }
 
-    // Never overwrite the executable/parameters pair the user configured; the
-    // umu defaults below are filled independently, because they are separate
-    // launch options (and were not server-provided before).
-    const needsExecutableDefaults = !current.launchexecutable;
+      const configuredExecutable =
+        typeof current.launchexecutable === "string"
+          ? current.launchexecutable.trim()
+          : "";
 
-    const metadata = d.gameMetadata as
-      | (Record<string, unknown> & {
-          launch_executable?: string;
-          launch_parameters?: string;
-          umu_game_id?: string;
-          umu_store?: string;
-          umu_proton_path?: string;
-        })
-      | undefined;
+      // Never overwrite the executable/parameters pair the user configured; the
+      // umu defaults below are filled independently, because they are separate
+      // launch options (and were not server-provided before).
+      const needsExecutableDefaults = !current.launchexecutable;
 
-    // Same source as the launch-executable Listbox (already excludes ignored
-    // executables and is sorted), used to resolve and validate candidates.
-    let exeList: string[] = [];
-    if (needsExecutableDefaults) {
-      ({ executables: exeList } = await invoke<{ executables: string[] }>(
-        "list_launch_executables",
+      const metadata = d.gameMetadata as
+        | (Record<string, unknown> & {
+            launch_executable?: string;
+            launch_parameters?: string;
+            umu_game_id?: string;
+            umu_store?: string;
+            umu_proton_path?: string;
+          })
+        | undefined;
+
+      // Same source as the launch-executable Listbox (already excludes ignored
+      // executables and is sorted), used to resolve and validate candidates.
+      let exeList: string[] = [];
+      if (needsExecutableDefaults) {
+        ({ executables: exeList } = await invoke<{ executables: string[] }>(
+          "list_launch_executables",
+          {
+            installationPath: d.installationDirectory,
+          },
+        ));
+      }
+
+      // Prefer the metadata launch executable, falling back to auto-detecting the
+      // first available one (restoring the legacy client's auto-select behavior),
+      // and adopt the server's umu-launcher defaults for Linux.
+      const merged = mergeLaunchDefaults(
+        current,
         {
-          installationPath: d.installationDirectory,
+          launchExecutable: metadata?.launch_executable,
+          launchParameters: metadata?.launch_parameters,
+          umuGameId: metadata?.umu_game_id,
+          umuStore: metadata?.umu_store,
+          umuProtonPath: metadata?.umu_proton_path,
         },
-      ));
-    }
+        exeList,
+      );
 
-    // Prefer the metadata launch executable, falling back to auto-detecting the
-    // first available one (restoring the legacy client's auto-select behavior),
-    // and adopt the server's umu-launcher defaults for Linux.
-    const merged = mergeLaunchDefaults(
-      current,
-      {
-        launchExecutable: metadata?.launch_executable,
-        launchParameters: metadata?.launch_parameters,
-        umuGameId: metadata?.umu_game_id,
-        umuStore: metadata?.umu_store,
-        umuProtonPath: metadata?.umu_proton_path,
-      },
-      exeList,
-    );
+      if (!merged) return configuredExecutable || undefined;
 
-    if (!merged) return;
+      await invoke("fs_write_text_file", {
+        path: configPath,
+        content: JSON.stringify(merged, null, 2),
+      });
 
-    await invoke("fs_write_text_file", {
-      path: configPath,
-      content: JSON.stringify(merged, null, 2),
-    });
-  }, []);
+      const resolvedExecutable =
+        typeof merged.launchexecutable === "string"
+          ? merged.launchexecutable.trim()
+          : "";
+      return resolvedExecutable || configuredExecutable || undefined;
+    },
+    [],
+  );
 
   const cacheInstalledGameData = useCallback(
     async (gameId: number, freshGame?: GamevaultGame) => {
@@ -833,6 +868,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         status: "downloading",
         extractionStatus: "idle",
         installationStatus: "idle",
+        // Retrying or resuming replaces the card, but the user's install
+        // preference must survive.
+        createShortcutOnInstall: downloads[gameId]?.createShortcutOnInstall,
       };
       setDownloads((prev) => ({ ...prev, [gameId]: entry }));
       trackEvent("download_started", {
@@ -1897,6 +1935,13 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     [updateDownload],
   );
 
+  const setCreateShortcutOnInstall = useCallback(
+    (gameId: number, enabled: boolean) => {
+      updateDownload(gameId, { createShortcutOnInstall: enabled });
+    },
+    [updateDownload],
+  );
+
   const listInstallExecutables = useCallback(
     async (gameId: number) => {
       if (!isTauriApp()) return [];
@@ -1984,6 +2029,70 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   );
 
   /**
+   * Best-effort desktop shortcut for a game that just finished installing.
+   *
+   * Runs detached from finalizeInstallation: a slow cover download or a desktop
+   * IO error must never hold up the installed state or source cleanup.
+   */
+  const createInstallShortcut = useCallback(
+    async (d: ActiveDownload, launchExecutable?: string) => {
+      if (!isTauriApp() || !d.installationDirectory) return;
+
+      try {
+        let executableRelativePath = launchExecutable?.trim() || "";
+        if (!executableRelativePath) {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const { executables } = await invoke<{ executables: string[] }>(
+            "list_launch_executables",
+            { installationPath: d.installationDirectory },
+          );
+          executableRelativePath = pickPreferredExecutable(
+            executables,
+            d.gameMetadata?.launch_executable,
+          );
+        }
+
+        if (!executableRelativePath) {
+          void window.showAlertDialog?.({
+            title: "Desktop shortcut not created",
+            description:
+              "No launch executable was found after installation. Check the game's launch options and create the shortcut from there.",
+            tone: "warning",
+          });
+          return;
+        }
+
+        const coverBase64 = await loadGameCoverBase64({
+          serverUrl,
+          authFetch,
+          gameId: d.gameId,
+          coverId: d.gameMetadata?.cover?.id,
+        });
+        const { join } = await import("@tauri-apps/api/path");
+        const result = await createGameDesktopShortcut({
+          gameId: d.gameId,
+          title: d.gameMetadata?.title || d.gameTitle || "Game",
+          executablePath: await join(
+            d.installationDirectory,
+            executableRelativePath,
+          ),
+          coverBase64,
+        });
+
+        console.info("Desktop shortcut created:", result.path);
+        void window.showAlertDialog?.({ title: "Desktop shortcut created." });
+      } catch (error) {
+        console.warn("Failed to create the desktop shortcut:", error);
+        void window.showAlertDialog?.({
+          title: "Could not create the desktop shortcut",
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [serverUrl, authFetch],
+  );
+
+  /**
    * Completes an installation: persists the flag, applies the default launch
    * config, caches the game and cleans up the source files.
    *
@@ -1997,12 +2106,15 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       if (!d) return;
       installationCompletionHandledRef.current.add(gameId);
 
+      const wantsShortcut = Boolean(d.createShortcutOnInstall);
+      let launchExecutable: string | undefined;
+
       if (d.versionDirectory) {
         try {
           await writeVersionConfig(d.versionDirectory, {
             installationfinished: true,
           });
-          await applyDefaultLaunchConfig(d);
+          launchExecutable = await applyDefaultLaunchConfig(d);
         } catch (error) {
           console.warn("Failed to persist installation state:", error);
         }
@@ -2013,8 +2125,15 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         installationProgress: 100,
         installationCurrentFile: undefined,
         installationError: undefined,
+        // One-shot install option: it compares the completed card with an
+        // installed game, so it must not stay armed for an "Install Again".
+        createShortcutOnInstall: false,
       });
       trackEvent("install_completed", { gameType: d.gameType });
+
+      if (wantsShortcut) {
+        void createInstallShortcut(d, launchExecutable);
+      }
 
       // The installed-games list is cached across page transitions, so it has
       // to learn about the new installation explicitly.
@@ -2032,6 +2151,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       applyDefaultLaunchConfig,
       autoDeleteSourceFiles,
       cacheInstalledGameData,
+      createInstallShortcut,
       updateDownload,
       writeVersionConfig,
     ],
@@ -2837,6 +2957,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     copyInstallationFiles,
     launchInstallationExecutable,
     resetInstallationState,
+    setCreateShortcutOnInstall,
     speedLimitKB,
     setSpeedLimitKB,
     simulateDownload,
