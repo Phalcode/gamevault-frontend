@@ -8,6 +8,14 @@ export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
+  server: {
+    // Cargo rewrites files under `src-tauri/target` while `tauri dev` runs. The
+    // watcher cannot open locked build outputs and crashes the dev server with
+    // EBUSY, so keep Rust sources and build output out of the watch set.
+    watch: {
+      ignored: ["**/src-tauri/**"],
+    },
+  },
   build: {
     // Acknowledges the larger vendor/analytics bundles produced by rolldown.
     chunkSizeWarningLimit: 1000,

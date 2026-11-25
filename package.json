@@ -6,7 +6,7 @@
   "private": true,
   "license": "CC BY-NC-SA 4.0",
   "type": "module",
-  "packageManager": "pnpm@11.25.0",
+  "packageManager": "pnpm@12.23.0",
   "scripts": {
     "start": "vite --clearScreen false",
     "dev": "vite",
