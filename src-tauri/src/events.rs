@@ -1,3 +1,4 @@
+use crate::util::InstalledGameOwner;
 use serde::Serialize;
 use tauri::Emitter;
 
@@ -28,7 +29,6 @@ pub(crate) struct RecoveredDownloadCard {
   pub version_id: i64,
   pub game_title: String,
   pub game_metadata: Option<serde_json::Value>,
-  pub cached_metadata: Option<serde_json::Value>,
   pub game_type: Option<String>,
   pub version_name: String,
   pub filename: String,
@@ -52,12 +52,13 @@ pub(crate) struct InstalledGameInfo {
   pub game_id: i64,
   pub game_title: String,
   pub game_metadata: Option<serde_json::Value>,
-  pub cached_metadata: Option<serde_json::Value>,
   pub game_type: Option<String>,
   pub version_id: i64,
   pub version_name: String,
   pub installation_directory: String,
   pub version_directory: String,
+  /// Servers that own this installed version, with their game ids.
+  pub owners: Vec<InstalledGameOwner>,
   /// Unix timestamp (millis) of when this version was installed, 0 if unknown.
   pub installed_at: i64,
 }

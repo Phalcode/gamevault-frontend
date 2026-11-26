@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useAuth } from "@/context/AuthContext";
+import { useServerStatus } from "@/hooks/useServerStatus";
 import { parseDeepLink } from "@/utils/deepLink";
 import { launchInstalledGameById } from "@/utils/launchInstalledGame";
+import { serverIdentifiers } from "@/utils/serverIdentity";
 import {
   consumePendingDeepLink,
   setPendingDeepLink,
@@ -69,8 +71,10 @@ function markSeen(url: string): boolean {
 export function useDeepLinks(): void {
   const navigate = useNavigate();
   const location = useLocation();
-  const { auth, bootstrapping } = useAuth();
+  const { auth, bootstrapping, serverUrl } = useAuth();
+  const { info: serverInfo } = useServerStatus();
   const [urls, setUrls] = useState<string[]>([]);
+  const identities = serverIdentifiers(serverUrl, serverInfo?.server_uuid);
 
   const enqueue = useCallback(
     (incoming: readonly string[], fromInitialRead: boolean) => {
@@ -156,7 +160,7 @@ export function useDeepLinks(): void {
 
     if (action.kind === "start") {
       // Launches the installed game (or does nothing); never navigates.
-      void launchInstalledGameById(action.gameId);
+      void launchInstalledGameById(action.gameId, identities);
       return;
     }
 
@@ -178,7 +182,15 @@ export function useDeepLinks(): void {
       replace: location.pathname === "/",
       state: { fromDeepLink: true },
     });
-  }, [auth, bootstrapping, urls, location.pathname, navigate]);
+  }, [
+    auth,
+    bootstrapping,
+    urls,
+    location.pathname,
+    navigate,
+    serverUrl,
+    serverInfo?.server_uuid,
+  ]);
 
   // Apply a link that was parked before login.
   useEffect(() => {
@@ -192,12 +204,19 @@ export function useDeepLinks(): void {
     if (!action) return;
 
     if (action.kind === "start") {
-      void launchInstalledGameById(action.gameId);
+      void launchInstalledGameById(action.gameId, identities);
       return;
     }
 
     if (location.pathname === action.route) return;
 
     navigate(action.route, { state: { fromDeepLink: true } });
-  }, [auth, bootstrapping, location.pathname, navigate]);
+  }, [
+    auth,
+    bootstrapping,
+    location.pathname,
+    navigate,
+    serverUrl,
+    serverInfo?.server_uuid,
+  ]);
 }

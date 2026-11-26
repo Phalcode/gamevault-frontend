@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { rememberServerUuid } from "@/utils/serverIdentity";
 
 export interface ServerInfo {
   status: string;
@@ -19,14 +20,22 @@ interface UseServerStatusResult {
 
 export function useServerStatus(): UseServerStatusResult {
   const { serverUrl } = useAuth();
-  const [info, setInfo] = useState<ServerInfo | null>(null);
+  const [infoState, setInfoState] = useState<{
+    url: string;
+    info: ServerInfo;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
-    if (!serverUrl) return;
+    if (!serverUrl) {
+      setInfoState(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     const base = serverUrl.replace(/\/+$/, "");
     let cancelled = false;
     setLoading(true);
@@ -41,7 +50,8 @@ export function useServerStatus(): UseServerStatusResult {
             `Status failed (${res.status}): ${(await res.text()) || res.statusText}`,
           );
         const data = await res.json();
-        if (!cancelled) setInfo(data);
+        rememberServerUuid(serverUrl, data?.server_uuid);
+        if (!cancelled) setInfoState({ url: serverUrl, info: data });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -52,6 +62,9 @@ export function useServerStatus(): UseServerStatusResult {
       cancelled = true;
     };
   }, [serverUrl, nonce]);
+
+  // Never expose the previous server's status/UUID after a server switch.
+  const info = infoState && infoState.url === serverUrl ? infoState.info : null;
 
   return { info, loading, error, refresh };
 }

@@ -41,6 +41,15 @@ import {
   createGameDesktopShortcut,
   loadGameCoverBase64,
 } from "@/utils/desktopShortcut";
+import {
+  normalizeServerIdentityUrl,
+  rememberServerUuid,
+  serverIdentifiers,
+} from "@/utils/serverIdentity";
+import {
+  installedGameOwnerForServer,
+  normalizeInstalledGame,
+} from "@/utils/installedGames";
 import { mergeLaunchDefaults } from "@/components/downloads/launch-defaults";
 import { buildArchivePasswordCandidates } from "@/utils/archivePasswords";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
@@ -75,7 +84,6 @@ export interface ActiveDownload {
   speedBps?: number;
   status: "downloading" | "paused" | "completed" | "error" | "aborted";
   error?: string;
-  cachedMetadata?: Record<string, any> | null;
   extractionStatus?:
     "idle" | "extracting" | "completed" | "error" | "needs-password";
   extractionProgress?: number | null;
@@ -210,7 +218,7 @@ type StartDownloadParams = {
 export function DownloadProvider({ children }: { children: ReactNode }) {
   const { serverUrl, authFetch, auth, getAccessToken } = useAuth();
   const { isOnline } = useOnlineStatus();
-  const { info: serverInfo } = useServerStatus();
+  const { info: serverInfo, loading: serverStatusLoading } = useServerStatus();
   const { passwords: savedArchivePasswords } = useArchivePasswords();
   const [downloads, setDownloads] = useState<Record<number, ActiveDownload>>(
     {},
@@ -526,6 +534,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
 
         // Cache game data
         await invoke("cache_game_data", {
+          serverNamespace,
           gameId,
           json: JSON.stringify(gameJson),
         });
@@ -719,8 +728,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       const { join } = await import("@tauri-apps/api/path");
       const { invoke } = await import("@tauri-apps/api/core");
 
-      const serverIdentifier =
-        serverInfo?.server_uuid || serverUrl || "unknown";
+      const normalizedUrl = normalizeServerIdentityUrl(serverUrl);
+      const serverUuid = serverInfo?.server_uuid?.trim() || "";
+      rememberServerUuid(serverUrl, serverUuid);
 
       const metadataPath = await join(
         gameFolderPath,
@@ -739,7 +749,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      current[serverIdentifier] = String(gameId);
+      // The URL key is always present, so lookups keep working even when the
+      // server status/UUID was unavailable while the download started.
+      if (normalizedUrl) current[normalizedUrl] = String(gameId);
+      if (serverUuid) current[serverUuid] = String(gameId);
 
       // Persist installer/uninstaller preferences so the backend can read them
       // from .gamevault.metadata.json (see read_saved_installer_preferences).
@@ -1020,6 +1033,9 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           });
           await writeGameMetadata(gameFolderPath, gameId, gameMetadata);
           await writeVersionConfig(versionBaseFolder, {
+            gameid: gameId,
+            serveruuid: serverInfo?.server_uuid?.trim() || undefined,
+            serverurl: normalizeServerIdentityUrl(serverUrl) || undefined,
             versionid: versionId,
             gametype: gameType,
             downloadfinished: false,
@@ -1400,6 +1416,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     },
     [
       serverUrl,
+      serverInfo,
       authFetch,
       auth,
       getAccessToken,
@@ -2667,7 +2684,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     let mounted = true;
 
     const recoverDownloads = async () => {
-      if (!isTauriApp()) return;
+      if (!isTauriApp() || !serverUrl) return;
+
+      const serverNamespace = getServerNamespace(serverUrl);
+      const identities = serverIdentifiers(serverUrl, serverInfo?.server_uuid);
 
       try {
         const rootPaths = getRootPaths();
@@ -2679,6 +2699,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         for (const root of rootPaths) {
           const recoveredCards = await invoke<any[]>("recover_download_cards", {
             selectedRoot: root.path,
+            serverIdentifiers: identities,
           }).catch(() => [] as any[]);
 
           for (const card of recoveredCards || []) {
@@ -2754,7 +2775,6 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               installationError: undefined,
               installationExitCode: installationFinished ? 0 : null,
               sourceFilesDeleted,
-              cachedMetadata: card.cachedMetadata ?? null,
             };
           }
         }
@@ -2787,6 +2807,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         for (const [idStr, dl] of Object.entries(recovered)) {
           try {
             const cached = await invoke<string | null>("load_cached_game", {
+              serverNamespace,
               gameId: Number(idStr),
             });
             if (cached && mounted) {
@@ -2818,7 +2839,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [serverInfo?.server_uuid, serverUrl]);
 
   // Resume downloads that were interrupted by the app exiting once the server
   // is reachable (serverUrl is set asynchronously during bootstrap).
@@ -2852,14 +2873,29 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     }
   }, [serverUrl, autoResumeIds, startDownload, auth?.access_token]);
 
-  // Cleanup orphaned offline caches on startup
+  // Cleanup orphaned offline caches for the current server on startup.
+  //
+  // The server identity must be resolved first: without the UUID, legacy
+  // installations recorded only under the UUID are invisible to the scan and
+  // their caches would be deleted.
   useEffect(() => {
-    if (!isTauriApp()) return;
+    if (!isTauriApp() || !serverUrl || serverStatusLoading || !serverInfo)
+      return;
+
+    const serverNamespace = getServerNamespace(serverUrl);
+    const identities = serverIdentifiers(serverUrl, serverInfo.server_uuid);
 
     const cleanupOrphanCaches = async () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const cachedIds = await invoke<number[]>("list_cached_game_ids");
+
+        // Old cache entries were stored under a bare game id and cannot be
+        // assigned to a server; never reuse them after the namespace change.
+        await invoke("clear_legacy_game_caches").catch(() => {});
+
+        const cachedIds = await invoke<number[]>("list_cached_game_ids", {
+          serverNamespace,
+        });
         if (!cachedIds.length) return;
 
         // Get installed game IDs from all roots
@@ -2869,14 +2905,16 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           const installed = await invoke<any[]>("list_installed_games", {
             selectedRoot: root.path,
           }).catch(() => [] as any[]);
-          for (const g of installed) {
-            const id = g.gameId ?? g.game_id ?? 0;
-            if (id > 0) knownIds.add(id);
+          for (const raw of installed) {
+            const info = normalizeInstalledGame(raw);
+            const owner = installedGameOwnerForServer(info, identities);
+            if (owner && owner.gameId > 0) knownIds.add(owner.gameId);
           }
 
           // Active downloads
           const recovered = await invoke<any[]>("recover_download_cards", {
             selectedRoot: root.path,
+            serverIdentifiers: identities,
           }).catch(() => [] as any[]);
           for (const c of recovered) {
             const id = Number(c.gameId || 0);
@@ -2887,7 +2925,10 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         // Delete caches for games that are neither installed nor actively downloading
         for (const id of cachedIds) {
           if (!knownIds.has(id)) {
-            await invoke("delete_cached_game", { gameId: id }).catch(() => {});
+            await invoke("delete_cached_game", {
+              serverNamespace,
+              gameId: id,
+            }).catch(() => {});
           }
         }
       } catch {
@@ -2896,7 +2937,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     };
 
     cleanupOrphanCaches();
-  }, []);
+  }, [serverInfo, serverStatusLoading, serverUrl]);
 
   // ── OS taskbar / dock indicator (progress + attention) ────────────────
   //

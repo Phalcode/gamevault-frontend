@@ -8,7 +8,7 @@ use crate::state::{
   TrackerRuntimeStats,
 };
 use crate::tracker_log;
-use crate::util::{is_ignored_executable, paths_match};
+use crate::util::{is_ignored_executable, owner_for_server, paths_match};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -55,9 +55,83 @@ struct CachedCandidates {
   candidates: Vec<PathBuf>,
 }
 
-static CANDIDATE_CACHE: OnceLock<Mutex<HashMap<i64, CachedCandidates>>> = OnceLock::new();
+/// One installed version the tracker can credit, tied to the server that owns
+/// it. Playtime for another server's install is collected offline and replayed
+/// when the user connects to that server again.
+#[derive(Clone)]
+struct TrackedInstall {
+  game_id: i64,
+  title: String,
+  version_directory: String,
+  server_url: Option<String>,
+  server_identifiers: Vec<String>,
+  is_current_server: bool,
+  exe_paths: Vec<PathBuf>,
+}
 
-fn candidate_cache() -> &'static Mutex<HashMap<i64, CachedCandidates>> {
+/// The server/game id a locally running version's playtime belongs to.
+struct PlaytimeOwner {
+  game_id: i64,
+  server_url: Option<String>,
+  server_identifiers: Vec<String>,
+  is_current_server: bool,
+}
+
+/// Prefers the current server when the game is installed there (so the minute
+/// can be credited online). Otherwise falls back to the first usable owner,
+/// which lets playtime from another server be stored offline under that server.
+fn resolve_playtime_owner(
+  game: &InstalledGameInfo,
+  config: &TrackerConfig,
+) -> Option<PlaytimeOwner> {
+  if let Some(owner) = owner_for_server(&game.owners, &config.server_identifiers) {
+    if owner.game_id > 0 {
+      return Some(PlaytimeOwner {
+        game_id: owner.game_id,
+        server_url: Some(config.server_url.clone()),
+        server_identifiers: config.server_identifiers.clone(),
+        is_current_server: true,
+      });
+    }
+  }
+
+  if !game.owners.is_empty() {
+    let owner = game
+      .owners
+      .iter()
+      .find(|owner| owner.game_id > 0 && owner.server_url.is_some())
+      .or_else(|| game.owners.iter().find(|owner| owner.game_id > 0))?;
+    let mut identifiers = owner.identifiers.clone();
+    if identifiers.is_empty() {
+      if let Some(url) = &owner.server_url {
+        identifiers.push(url.clone());
+      }
+    }
+    return Some(PlaytimeOwner {
+      game_id: owner.game_id,
+      server_url: owner.server_url.clone(),
+      server_identifiers: identifiers,
+      is_current_server: false,
+    });
+  }
+
+  // Very old installs without any ownership marker: keep the previous
+  // behavior and attribute them to the current server.
+  if game.game_id > 0 {
+    return Some(PlaytimeOwner {
+      game_id: game.game_id,
+      server_url: Some(config.server_url.clone()),
+      server_identifiers: config.server_identifiers.clone(),
+      is_current_server: true,
+    });
+  }
+
+  None
+}
+
+static CANDIDATE_CACHE: OnceLock<Mutex<HashMap<String, CachedCandidates>>> = OnceLock::new();
+
+fn candidate_cache() -> &'static Mutex<HashMap<String, CachedCandidates>> {
   CANDIDATE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -82,6 +156,7 @@ fn is_shortcut(path: &Path) -> bool {
 pub(crate) async fn start_game_time_tracker(
   app: tauri::AppHandle,
   server_url: String,
+  server_identifiers: Vec<String>,
   user_id: i64,
   access_token: String,
   download_path: Option<String>,
@@ -136,6 +211,7 @@ pub(crate) async fn start_game_time_tracker(
 
   let config = TrackerConfig {
     server_url,
+    server_identifiers,
     user_id,
     access_token,
     download_paths: paths,
@@ -248,7 +324,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
   let mut previous_tick_at: Option<Instant> = None;
   let mut in_catch_up_burst = false;
   let mut logged_skips: HashMap<i64, String> = HashMap::new();
-  let mut logged_candidates: HashMap<i64, usize> = HashMap::new();
+  let mut logged_candidates: HashMap<String, usize> = HashMap::new();
   let mut logged_backoff_until: Option<u64> = None;
 
   loop {
@@ -402,14 +478,30 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     // ── Executable candidates per installed game ───────────────────────────
     let ignored = load_settings(&app).ignored_executables;
     let candidates_start = Instant::now();
-    let mut game_exe_map: HashMap<i64, Vec<PathBuf>> = HashMap::new();
+    let mut tracked_games: Vec<TrackedInstall> = Vec::new();
     let mut game_titles: HashMap<i64, String> = HashMap::new();
     let mut skips: HashMap<i64, SkipReason> = HashMap::new();
     let mut cache_hits = 0usize;
     let mut cache_misses = 0usize;
 
     for game in &installed {
-      game_titles.insert(game.game_id, game.game_title.clone());
+      let target = match resolve_playtime_owner(game, &config) {
+        Some(target) => target,
+        None => {
+          tracker_log::push_kv(
+            "warn",
+            "game",
+            &[
+              ("event", "playtime_target_missing".to_string()),
+              ("game", game.game_id.to_string()),
+              ("title", game.game_title.clone()),
+            ],
+          );
+          continue;
+        }
+      };
+      let target_game_id = target.game_id;
+      game_titles.insert(target_game_id, game.game_title.clone());
 
       // The configured installation dir may not exist (e.g. no "Installation"
       // subfolder); fall back to the version dir so the game is still tracked.
@@ -420,9 +512,9 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
       }
       if !scan_dir.exists() || !scan_dir.is_dir() {
         skips.insert(
-          game.game_id,
+          target_game_id,
           SkipReason {
-            game_id: game.game_id,
+            game_id: target_game_id,
             title: game.game_title.clone(),
             reason: format!(
               "version_dir_missing (install='{}', version='{}')",
@@ -437,10 +529,11 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
       // every tick for every game. Reuse the last result while the folder is
       // unchanged and the cache is still fresh.
       let dir_modified = dir_modified_ms(&scan_dir);
+      let cache_key = game.version_directory.clone();
       let cached = candidate_cache()
         .lock()
         .ok()
-        .and_then(|cache| cache.get(&game.game_id).cloned());
+        .and_then(|cache| cache.get(&cache_key).cloned());
       let mut scan_truncated = false;
       let cache_hit = matches!(
         cached.as_ref(),
@@ -469,7 +562,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
           .collect();
         if let Ok(mut cache) = candidate_cache().lock() {
           cache.insert(
-            game.game_id,
+            cache_key.clone(),
             CachedCandidates {
               scan_dir: scan_dir.clone(),
               dir_modified_ms: dir_modified,
@@ -528,9 +621,9 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
           format!("no_exe_candidates (found {found} candidates in {})", scan_dir.to_string_lossy())
         };
         skips.insert(
-          game.game_id,
+          target_game_id,
           SkipReason {
-            game_id: game.game_id,
+            game_id: target_game_id,
             title: game.game_title.clone(),
             reason,
           },
@@ -538,8 +631,8 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
         continue;
       }
 
-      if logged_candidates.get(&game.game_id) != Some(&abs_paths.len()) {
-        logged_candidates.insert(game.game_id, abs_paths.len());
+      if logged_candidates.get(&cache_key) != Some(&abs_paths.len()) {
+        logged_candidates.insert(cache_key.clone(), abs_paths.len());
         let mut listed = abs_paths
           .iter()
           .take(8)
@@ -554,7 +647,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
           "game",
           &[
             ("event", "candidates".to_string()),
-            ("game", game.game_id.to_string()),
+            ("game", target_game_id.to_string()),
             ("title", game.game_title.clone()),
             ("count", abs_paths.len().to_string()),
             ("cache", if cache_hit { "hit".to_string() } else { "miss".to_string() }),
@@ -564,10 +657,15 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
         );
       }
 
-      game_exe_map
-        .entry(game.game_id)
-        .or_default()
-        .extend(abs_paths);
+      tracked_games.push(TrackedInstall {
+        game_id: target_game_id,
+        title: game.game_title.clone(),
+        version_directory: game.version_directory.clone(),
+        server_url: target.server_url,
+        server_identifiers: target.server_identifiers,
+        is_current_server: target.is_current_server,
+        exe_paths: abs_paths,
+      });
     }
 
     let candidates_ms = candidates_start.elapsed().as_millis() as u64;
@@ -576,7 +674,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
       log_skip_once(&mut logged_skips, skip);
     }
 
-    if game_exe_map.is_empty() {
+    if tracked_games.is_empty() {
       tracker_log::push_kv(
         "warn",
         "tick",
@@ -605,18 +703,23 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     let process_ms = process_start.elapsed().as_millis() as u64;
     let match_start = Instant::now();
 
+    let mut matched_targets: Vec<TrackedInstall> = Vec::new();
     let mut matched_game_ids: Vec<i64> = Vec::new();
-    for (game_id, exe_paths) in &game_exe_map {
+    for target in &tracked_games {
       let matching: Vec<String> = processes
         .iter()
-        .filter(|process| exe_paths.iter().any(|game_exe| process_matches_game(process, game_exe)))
+        .filter(|process| {
+          target
+            .exe_paths
+            .iter()
+            .any(|game_exe| process_matches_game(process, game_exe))
+        })
         .map(|process| describe_process(process))
         .collect();
-      let title = game_titles.get(game_id).cloned().unwrap_or_default();
       let reason = if matching.is_empty() {
         // Distinguish "the game closed" from "the game is running but our
         // candidate paths do not match it" — the second one is a bug report.
-        if candidate_name_seen(&processes, exe_paths) {
+        if candidate_name_seen(&processes, &target.exe_paths) {
           Some("exe_seen_but_unmatched")
         } else {
           Some("process_gone")
@@ -626,8 +729,8 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
       };
 
       let state = update_ledger(
-        *game_id,
-        &title,
+        target.game_id,
+        &target.title,
         !matching.is_empty(),
         &matching,
         reason,
@@ -635,7 +738,10 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
         now_ms,
       );
       if !matches!(state, LedgerMatch::Lost) {
-        matched_game_ids.push(*game_id);
+        matched_targets.push(target.clone());
+        if !matched_game_ids.contains(&target.game_id) {
+          matched_game_ids.push(target.game_id);
+        }
       }
     }
 
@@ -659,7 +765,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     // tick so the minute counter keeps moving.
     sync_tray_now_playing(&app, &matched_game_ids, &game_titles);
 
-    if matched_game_ids.is_empty() {
+    if matched_targets.is_empty() {
       tracker_log::push_kv(
         "tick",
         "tick",
@@ -667,7 +773,7 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
           ("event", "no_match".to_string()),
           ("tick", tick_number.to_string()),
           ("installed", installed.len().to_string()),
-          ("games_with_exe", game_exe_map.len().to_string()),
+          ("games_with_exe", tracked_games.len().to_string()),
           ("processes", processes.len().to_string()),
           ("match_ms", match_ms.to_string()),
         ],
@@ -709,19 +815,27 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     let mut credited = 0u64;
     let mut offline = 0u64;
     let mut lost = 0u64;
-    for game_id in &matched_game_ids {
-      let outcome = if backing_off {
+    for target in &matched_targets {
+      let outcome = if !target.is_current_server {
+        // The game belongs to another server. We only hold the current
+        // server's credentials, so persist the minute under the owning
+        // server and replay it when the user connects there again.
+        save_offline_time_for(target, &config);
+        CreditOutcome::Offline {
+          reason: "another server (stored offline for that server)".to_string(),
+        }
+      } else if backing_off {
         // Do not hammer a server that rejects our session: keep the minute,
         // store it offline and try again after the backoff.
         if let Ok(mut stats) = tracker_stats().lock() {
           stats.skipped_auth_ticks += 1;
         }
-        save_offline_time(&installed, &config, *game_id);
+        save_offline_time_for(target, &config);
         CreditOutcome::Offline {
           reason: "auth backoff (session rejected, request skipped)".to_string(),
         }
       } else {
-        increment_game_time(&app, &client, &config, *game_id, &installed).await
+        increment_game_time(&app, &client, &config, target).await
       };
 
       match outcome {
@@ -740,7 +854,11 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
           record_failure(reason);
         }
       }
-      record_credit(*game_id, outcome);
+      if target.is_current_server {
+        record_credit(target.game_id, outcome);
+      }
+      // Playtime stored for another server is not "pending" for the current
+      // one; it is replayed when the user connects to that server again.
     }
     let http_ms = http_start.elapsed().as_millis() as u64;
 
@@ -748,9 +866,9 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
     let summary = format!(
       "tick {tick_number} | installed={} with_exe={} processes={} matched={} credited={credited} offline={offline} lost={lost} | library={library_ms}ms candidates={candidates_ms}ms cache={cache_hits}/{cache_misses} process={process_ms}ms match={match_ms}ms http={http_ms}ms total={duration_ms}ms",
       installed.len(),
-      game_exe_map.len(),
+      tracked_games.len(),
       processes.len(),
-      matched_game_ids.len(),
+      matched_targets.len(),
     );
     tracker_log::push("tick", "tick", &summary);
     if let Ok(mut stats) = tracker_stats().lock() {
@@ -1363,9 +1481,9 @@ async fn increment_game_time(
   app: &tauri::AppHandle,
   client: &reqwest::Client,
   config: &TrackerConfig,
-  game_id: i64,
-  installed: &[InstalledGameInfo],
+  target: &TrackedInstall,
 ) -> CreditOutcome {
+  let game_id = target.game_id;
   let url = format!(
     "{}/api/progresses/user/{}/game/{}/increment",
     config.server_url, config.user_id, game_id
@@ -1375,7 +1493,7 @@ async fn increment_game_time(
     Ok(response) => response,
     Err(error) => {
       let reason = format!("network error: {error}");
-      save_offline_time(installed, config, game_id);
+      save_offline_time_for(target, config);
       return CreditOutcome::Offline { reason };
     }
   };
@@ -1431,7 +1549,7 @@ async fn increment_game_time(
         }
         apply_auth_backoff(app, status.as_u16());
       }
-      save_offline_time(installed, config, game_id);
+      save_offline_time_for(target, config);
       CreditOutcome::Offline {
         reason: format!("http {} ({})", status.as_u16(), excerpt(&body, 160)),
       }
@@ -1480,6 +1598,61 @@ fn read_configured_launch_executable(version_dir: &Path) -> Option<PathBuf> {
   Some(PathBuf::from(exe))
 }
 
+fn server_keys_equal(left: &str, right: &str) -> bool {
+  left
+    .trim()
+    .trim_end_matches('/')
+    .eq_ignore_ascii_case(right.trim().trim_end_matches('/'))
+}
+
+/// True when the existing offline file belongs to the same server as `target`.
+///
+/// Files from older builds have no server fields and are assumed to belong to
+/// the version directory they live in.
+fn offline_file_matches_target(target: &TrackedInstall, existing: &str) -> bool {
+  let Ok(value) = serde_json::from_str::<serde_json::Value>(existing) else {
+    return true;
+  };
+
+  let server_url = value
+    .get("server_url")
+    .and_then(|value| value.as_str())
+    .unwrap_or("")
+    .trim()
+    .to_string();
+  let mut known_identifiers: Vec<String> = value
+    .get("server_identifiers")
+    .and_then(|value| value.as_array())
+    .map(|values| {
+      values
+        .iter()
+        .filter_map(|value| value.as_str())
+        .map(|value| value.to_string())
+        .collect()
+    })
+    .unwrap_or_default();
+  if known_identifiers.is_empty() && !server_url.is_empty() {
+    known_identifiers.push(server_url);
+  }
+  if known_identifiers.is_empty() {
+    return true;
+  }
+
+  target.server_identifiers.iter().any(|identifier| {
+    known_identifiers
+      .iter()
+      .any(|known| server_keys_equal(known, identifier))
+  }) || target
+    .server_url
+    .as_ref()
+    .map(|url| {
+      known_identifiers
+        .iter()
+        .any(|known| server_keys_equal(known, url))
+    })
+    .unwrap_or(false)
+}
+
 /// Builds the offline file content, keeping `accumulated_minutes` monotonic.
 ///
 /// This is the safety net for every minute the server did not accept: the file
@@ -1490,7 +1663,8 @@ fn offline_payload(
   existing: Option<&str>,
   user_id: i64,
   game_id: i64,
-  server_url: &str,
+  server_url: Option<&str>,
+  server_identifiers: &[String],
   at_ms: u64,
 ) -> (i64, serde_json::Value) {
   let current_minutes = existing
@@ -1509,45 +1683,58 @@ fn offline_payload(
     "game_id": game_id,
     "accumulated_minutes": accumulated,
     "updated_at": at_ms / 1000,
-    "server_url": server_url,
+    "server_url": server_url.unwrap_or(""),
+    "server_identifiers": server_identifiers,
   });
   (accumulated, data)
 }
 
-/// Stores one uncredited minute in the game's offline file. Returns the path it
-/// wrote to, so the caller can log where the playtime went.
-fn save_offline_time(
-  installed: &[InstalledGameInfo],
+/// Stores one uncredited minute in the game's offline file, tagged with the
+/// server that owns the installation. Returns the path it wrote to.
+fn save_offline_time_for(
+  target: &TrackedInstall,
   config: &TrackerConfig,
-  game_id: i64,
 ) -> Option<PathBuf> {
-  let target = match installed.iter().find(|game| game.game_id == game_id) {
-    Some(game) => game,
-    None => {
+  if target.version_directory.trim().is_empty() {
+    return None;
+  }
+
+  let offline_file =
+    PathBuf::from(&target.version_directory).join(".gamevault.offline_time.json");
+  let existing = fs::read_to_string(&offline_file).ok();
+
+  if let Some(existing) = existing.as_deref() {
+    if !offline_file_matches_target(target, existing) {
       tracker_log::push_kv(
         "error",
         "offline",
         &[
-          ("event", "offline_save_failed".to_string()),
-          ("game", game_id.to_string()),
+          ("event", "offline_save_server_mismatch".to_string()),
+          ("game", target.game_id.to_string()),
+          ("title", target.title.clone()),
           (
             "reason",
-            "the game is no longer in the library, so the minute could not be stored offline"
+            "the existing offline file belongs to a different server; the minute was not mixed into it"
               .to_string(),
           ),
+          ("path", offline_file.to_string_lossy().to_string()),
         ],
       );
       return None;
     }
-  };
+  }
 
-  let offline_file = PathBuf::from(&target.version_directory).join(".gamevault.offline_time.json");
-  let existing = fs::read_to_string(&offline_file).ok();
+  let server_url = if target.is_current_server {
+    Some(config.server_url.as_str())
+  } else {
+    target.server_url.as_deref()
+  };
   let (accumulated, data) = offline_payload(
     existing.as_deref(),
     config.user_id,
-    game_id,
-    &config.server_url,
+    target.game_id,
+    server_url,
+    &target.server_identifiers,
     tracker_log::now_ms(),
   );
 
@@ -1558,9 +1745,10 @@ fn save_offline_time(
         "offline",
         &[
           ("event", "offline_saved".to_string()),
-          ("game", game_id.to_string()),
-          ("title", target.game_title.clone()),
+          ("game", target.game_id.to_string()),
+          ("title", target.title.clone()),
           ("accumulated_minutes", accumulated.to_string()),
+          ("server_url", server_url.unwrap_or("").to_string()),
           ("path", offline_file.to_string_lossy().to_string()),
         ],
       );
@@ -1572,7 +1760,7 @@ fn save_offline_time(
         "offline",
         &[
           ("event", "offline_save_failed".to_string()),
-          ("game", game_id.to_string()),
+          ("game", target.game_id.to_string()),
           ("error", error.to_string()),
           ("path", offline_file.to_string_lossy().to_string()),
         ],
@@ -1593,6 +1781,10 @@ pub(crate) struct OfflineTimeFile {
   accumulated_minutes: i64,
   /// Unix seconds of the last write (0 for files from older builds).
   updated_at: i64,
+  /// Server that owns the installation; empty for legacy files.
+  server_url: Option<String>,
+  /// All identifiers (URL/UUID) of the owning server.
+  server_identifiers: Vec<String>,
 }
 
 #[tauri::command]
@@ -1625,6 +1817,28 @@ const OFFLINE_TIME_FILE: &str = ".gamevault.offline_time.json";
 fn read_offline_time_file(path: &Path) -> Option<OfflineTimeFile> {
   let content = fs::read_to_string(path).ok()?;
   let json = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+  let server_url = json
+    .get("server_url")
+    .and_then(|v| v.as_str())
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty());
+  let mut server_identifiers: Vec<String> = json
+    .get("server_identifiers")
+    .and_then(|value| value.as_array())
+    .map(|values| {
+      values
+        .iter()
+        .filter_map(|value| value.as_str())
+        .map(|value| value.to_string())
+        .collect()
+    })
+    .unwrap_or_default();
+  if server_identifiers.is_empty() {
+    if let Some(url) = &server_url {
+      server_identifiers.push(url.clone());
+    }
+  }
+
   Some(OfflineTimeFile {
     path: path.to_string_lossy().to_string(),
     user_id: json.get("user_id").and_then(|v| v.as_i64()).unwrap_or(0),
@@ -1634,13 +1848,15 @@ fn read_offline_time_file(path: &Path) -> Option<OfflineTimeFile> {
       .and_then(|v| v.as_i64())
       .unwrap_or(0),
     updated_at: json.get("updated_at").and_then(|v| v.as_i64()).unwrap_or(0),
+    server_url,
+    server_identifiers,
   })
 }
 
 /// Collects the offline time files below `base` (`<root>/GameVault` or `<root>`).
 ///
-/// `save_offline_time` always writes the file into the version directory, so the
-/// layout is fixed: `<base>/<Title>/Versions/<Version>/.gamevault.offline_time.json`.
+/// `save_offline_time_for` always writes the file into the version directory, so
+/// the layout is fixed: `<base>/<Title>/Versions/<Version>/.gamevault.offline_time.json`.
 /// Walking exactly those three levels is what keeps this cheap — the previous
 /// recursive walk descended into every installation folder and read hundreds of
 /// thousands of directory entries, which took seconds and stalled the disk for
@@ -1836,11 +2052,16 @@ fn debug_tracker_scan_blocking(
   let tracker_running = tracker_config().lock().map(|g| g.is_some()).unwrap_or(false);
 
   let mut roots: Vec<String> = Vec::new();
+  let mut server_identifiers: Vec<String> = Vec::new();
   if let Some(root) = selected_root.filter(|r| !r.trim().is_empty()) {
     roots.push(root);
-  } else if let Ok(guard) = tracker_config().lock() {
+  }
+  if let Ok(guard) = tracker_config().lock() {
     if let Some(config) = guard.as_ref() {
-      roots = config.download_paths.clone();
+      if roots.is_empty() {
+        roots = config.download_paths.clone();
+      }
+      server_identifiers = config.server_identifiers.clone();
     }
   }
   if roots.is_empty() {
@@ -1850,7 +2071,14 @@ fn debug_tracker_scan_blocking(
   let mut installed = Vec::new();
   for root in &roots {
     if let Ok(games) = list_installed_games_blocking(root.clone()) {
-      installed.extend(games);
+      installed.extend(games.into_iter().filter_map(|mut game| {
+        let owner = owner_for_server(&game.owners, &server_identifiers)?;
+        if owner.game_id <= 0 {
+          return None;
+        }
+        game.game_id = owner.game_id;
+        Some(game)
+      }));
     }
   }
 
@@ -2048,28 +2276,215 @@ mod tests {
   fn offline_payload_counts_up_from_legacy_files() {
     // A file from an older build only has accumulated_minutes.
     let legacy = r#"{"user_id": 1, "game_id": 2341, "accumulated_minutes": 61}"#;
-    let (accumulated, data) = offline_payload(Some(legacy), 1, 2341, "https://example.test", 1_700_000_000_000);
+    let identifiers = vec!["https://example.test".to_string()];
+    let (accumulated, data) = offline_payload(
+      Some(legacy),
+      1,
+      2341,
+      Some("https://example.test"),
+      &identifiers,
+      1_700_000_000_000,
+    );
     assert_eq!(accumulated, 62);
     assert_eq!(data["accumulated_minutes"].as_i64(), Some(62));
     assert_eq!(data["game_id"].as_i64(), Some(2341));
     assert_eq!(data["user_id"].as_i64(), Some(1));
     assert_eq!(data["updated_at"].as_i64(), Some(1_700_000_000));
     assert_eq!(data["server_url"].as_str(), Some("https://example.test"));
+    assert_eq!(data["server_identifiers"], serde_json::json!(identifiers));
   }
 
   #[test]
   fn offline_payload_starts_at_one_and_survives_damage() {
-    let (first, _) = offline_payload(None, 1, 7, "https://example.test", 0);
+    let identifiers = vec!["https://example.test".to_string()];
+    let (first, _) = offline_payload(
+      None,
+      1,
+      7,
+      Some("https://example.test"),
+      &identifiers,
+      0,
+    );
     assert_eq!(first, 1);
 
     // Unreadable/garbage content must not reset the counter backwards.
-    let (from_garbage, _) = offline_payload(Some("<html>"), 1, 7, "https://example.test", 0);
+    let (from_garbage, _) = offline_payload(
+      Some("<html>"),
+      1,
+      7,
+      Some("https://example.test"),
+      &identifiers,
+      0,
+    );
     assert_eq!(from_garbage, 1);
 
     // Negative values (hand-edited file) are clamped, never decreased further.
     let negative = r#"{"accumulated_minutes": -5}"#;
-    let (clamped, _) = offline_payload(Some(negative), 1, 7, "https://example.test", 0);
+    let (clamped, _) = offline_payload(
+      Some(negative),
+      1,
+      7,
+      Some("https://example.test"),
+      &identifiers,
+      0,
+    );
     assert_eq!(clamped, 1);
+  }
+
+  #[test]
+  fn selects_the_current_server_owner_when_available() {
+    use crate::util::InstalledGameOwner;
+
+    let game = InstalledGameInfo {
+      game_id: 5,
+      game_title: "Game".to_string(),
+      game_metadata: None,
+      game_type: None,
+      version_id: 1,
+      version_name: "1.0".to_string(),
+      installation_directory: "/games/Game".to_string(),
+      version_directory: "/games/Game/Versions/1.0".to_string(),
+      owners: vec![
+        InstalledGameOwner {
+          server_url: Some("https://a.example".to_string()),
+          identifiers: vec!["https://a.example".to_string()],
+          game_id: 5,
+        },
+        InstalledGameOwner {
+          server_url: Some("https://b.example".to_string()),
+          identifiers: vec!["uuid-b".to_string(), "https://b.example".to_string()],
+          game_id: 7,
+        },
+      ],
+      installed_at: 0,
+    };
+    let config = TrackerConfig {
+      server_url: "https://b.example".to_string(),
+      server_identifiers: vec![
+        "uuid-b".to_string(),
+        "https://b.example".to_string(),
+      ],
+      user_id: 1,
+      access_token: "token".to_string(),
+      download_paths: vec![],
+    };
+
+    let target = resolve_playtime_owner(&game, &config).expect("owner");
+    assert_eq!(target.game_id, 7);
+    assert!(target.is_current_server);
+  }
+
+  #[test]
+  fn other_server_owner_is_tracked_offline() {
+    use crate::util::InstalledGameOwner;
+
+    let game = InstalledGameInfo {
+      game_id: 5,
+      game_title: "Game".to_string(),
+      game_metadata: None,
+      game_type: None,
+      version_id: 1,
+      version_name: "1.0".to_string(),
+      installation_directory: "/games/Game".to_string(),
+      version_directory: "/games/Game/Versions/1.0".to_string(),
+      owners: vec![InstalledGameOwner {
+        server_url: Some("https://a.example".to_string()),
+        identifiers: vec![
+          "https://a.example".to_string(),
+          "uuid-a".to_string(),
+        ],
+        game_id: 42,
+      }],
+      installed_at: 0,
+    };
+    let config = TrackerConfig {
+      server_url: "https://b.example".to_string(),
+      server_identifiers: vec!["uuid-b".to_string()],
+      user_id: 1,
+      access_token: "token".to_string(),
+      download_paths: vec![],
+    };
+
+    let target = resolve_playtime_owner(&game, &config).expect("owner");
+    assert_eq!(target.game_id, 42);
+    assert_eq!(target.server_url.as_deref(), Some("https://a.example"));
+    assert!(!target.is_current_server);
+  }
+
+  #[test]
+  fn offline_file_server_identity_must_match() {
+    let target = TrackedInstall {
+      game_id: 42,
+      title: "Game".to_string(),
+      version_directory: "/games/Game/Versions/1.0".to_string(),
+      server_url: Some("https://a.example".to_string()),
+      server_identifiers: vec![
+        "https://a.example".to_string(),
+        "uuid-a".to_string(),
+      ],
+      is_current_server: false,
+      exe_paths: vec![],
+    };
+
+    assert!(offline_file_matches_target(
+      &target,
+      r#"{"server_url":"https://a.example","server_identifiers":["uuid-a"]}"#,
+    ));
+    assert!(!offline_file_matches_target(
+      &target,
+      r#"{"server_url":"https://b.example","server_identifiers":["uuid-b"]}"#,
+    ));
+    assert!(offline_file_matches_target(
+      &target,
+      r#"{"accumulated_minutes":3}"#,
+    ));
+  }
+
+  #[test]
+  fn stores_foreign_playtime_under_its_owning_server() {
+    let root = scratch_root("foreign-server");
+    let version_dir = root
+      .join("GameVault")
+      .join("Game")
+      .join("Versions")
+      .join("1.0");
+    fs::create_dir_all(&version_dir).expect("create version dir");
+
+    let target = TrackedInstall {
+      game_id: 42,
+      title: "Game".to_string(),
+      version_directory: version_dir.to_string_lossy().to_string(),
+      server_url: Some("https://a.example".to_string()),
+      server_identifiers: vec![
+        "https://a.example".to_string(),
+        "uuid-a".to_string(),
+      ],
+      is_current_server: false,
+      exe_paths: vec![],
+    };
+    let config = TrackerConfig {
+      server_url: "https://b.example".to_string(),
+      server_identifiers: vec!["uuid-b".to_string()],
+      user_id: 1,
+      access_token: "token".to_string(),
+      download_paths: vec![],
+    };
+
+    assert!(save_offline_time_for(&target, &config).is_some());
+    assert!(save_offline_time_for(&target, &config).is_some());
+
+    let file = read_offline_time_file(&version_dir.join(OFFLINE_TIME_FILE))
+      .expect("read offline file");
+    assert_eq!(file.game_id, 42);
+    assert_eq!(file.accumulated_minutes, 2);
+    assert_eq!(file.server_url.as_deref(), Some("https://a.example"));
+    assert_eq!(
+      file.server_identifiers,
+      vec!["https://a.example", "uuid-a"]
+    );
+    assert_eq!(file.user_id, 1);
+
+    fs::remove_dir_all(&root).ok();
   }
 
   #[test]

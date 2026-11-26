@@ -5,6 +5,7 @@ import {
   useInstalledGames,
   type InstalledGameInfo,
 } from "@/hooks/useInstalledGames";
+import { installedGameOwnerForServer } from "@/utils/installedGames";
 import { isTauriApp } from "@/utils/tauri";
 import {
   launchInstalledGame,
@@ -61,12 +62,25 @@ const INSTALLED_GAMES_POLL_MS = 250;
 export function useTrayMenu() {
   const navigate = useNavigate();
   const { showAlert } = useAlertDialog();
-  const { installedGames, loading } = useInstalledGames();
+  const { installedGames, serverIdentifiers, loading } = useInstalledGames();
+
+  // Native menu actions identify a game only by its numeric id, so they must
+  // stay restricted to installs owned by the current server.
+  const currentInstalledGames = useMemo<InstalledGameInfo[]>(
+    () =>
+      installedGames.flatMap((game) => {
+        const owner = installedGameOwnerForServer(game, serverIdentifiers);
+        return owner && owner.gameId > 0
+          ? [{ ...game, gameId: owner.gameId }]
+          : [];
+      }),
+    [installedGames, serverIdentifiers],
+  );
 
   // The action listener is registered once, so it reads the current library
   // from refs instead of re-subscribing on every refresh.
-  const installedGamesRef = useRef<InstalledGameInfo[]>(installedGames);
-  installedGamesRef.current = installedGames;
+  const installedGamesRef = useRef<InstalledGameInfo[]>(currentInstalledGames);
+  installedGamesRef.current = currentInstalledGames;
   const loadingRef = useRef(loading);
   loadingRef.current = loading;
 
@@ -140,8 +154,8 @@ export function useTrayMenu() {
 
   // Most recently used installed games (played or installed), newest first.
   const recentGames = useMemo<TrayRecentGame[]>(
-    () => trayRecentGames(installedGames, RECENT_GAME_LIMIT),
-    [installedGames],
+    () => trayRecentGames(currentInstalledGames, RECENT_GAME_LIMIT),
+    [currentInstalledGames],
   );
 
   // Push the list to the tray and the jump list. The last payload is

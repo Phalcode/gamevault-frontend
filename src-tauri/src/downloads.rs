@@ -1,22 +1,29 @@
 use crate::events::RecoveredDownloadCard;
 use crate::games::directory_has_entries;
-use crate::util::{parse_version_folder, stable_id_from_path, parse_i64_json, resolve_version_id, resolve_version_subdir};
+use crate::util::{
+    parse_version_folder, resolve_installed_game_id, resolve_version_id,
+    resolve_version_subdir, stable_id_from_path, GameIdResolution,
+};
 use std::fs;
 use std::path::PathBuf;
 
 #[tauri::command]
 pub(crate) async fn recover_download_cards(
   selected_root: String,
+  server_identifiers: Vec<String>,
 ) -> Result<Vec<RecoveredDownloadCard>, String> {
   // Scans every version folder under the root to rebuild the download cards,
   // which must happen off the UI thread.
-  tauri::async_runtime::spawn_blocking(move || recover_download_cards_blocking(selected_root))
-    .await
-    .map_err(|error| format!("Recovering downloads failed: {error}"))?
+  tauri::async_runtime::spawn_blocking(move || {
+    recover_download_cards_blocking(selected_root, server_identifiers)
+  })
+  .await
+  .map_err(|error| format!("Recovering downloads failed: {error}"))?
 }
 
 pub(crate) fn recover_download_cards_blocking(
   selected_root: String,
+  server_identifiers: Vec<String>,
 ) -> Result<Vec<RecoveredDownloadCard>, String> {
   let candidate = PathBuf::from(&selected_root).join("GameVault");
   let root = if candidate.exists() {
@@ -107,11 +114,6 @@ pub(crate) fn recover_download_cards_blocking(
         .and_then(|v| v.as_str())
         .map(|v| v.trim().to_string())
         .unwrap_or_default();
-      let config_game_id = parse_i64_json(cfg_value.get("gameid"));
-      let metadata_game_id = game_metadata
-        .as_ref()
-        .and_then(|m| m.as_object())
-        .and_then(|obj| obj.values().find_map(|v| parse_i64_json(Some(v))));
 
       if !download_finished && !extraction_finished && download_progress.is_empty() {
         continue;
@@ -141,19 +143,14 @@ pub(crate) fn recover_download_cards_blocking(
       }
 
       let version_path_str = version_path.to_string_lossy().to_string();
-      let recovered_game_id = config_game_id
-        .or(metadata_game_id)
-        .filter(|id| *id > 0)
-        .unwrap_or_else(|| stable_id_from_path(&version_path_str));
-
-      let cache_dir = root.join(".cache").join("games");
-      let cache_file = cache_dir.join(format!("{}.json", recovered_game_id));
-      let cached_metadata: Option<serde_json::Value> = if cache_file.exists() {
-        fs::read_to_string(&cache_file)
-          .ok()
-          .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-      } else {
-        None
+      let resolved_game_id = match resolve_installed_game_id(
+        &cfg_value,
+        game_metadata.as_ref(),
+        &server_identifiers,
+      ) {
+        GameIdResolution::GameId(game_id) => game_id,
+        GameIdResolution::NotThisServer => continue,
+        GameIdResolution::Unknown => stable_id_from_path(&version_path_str),
       };
 
       let (progress_received, progress_total) = if let Some((left, right)) = download_progress.split_once('/') {
@@ -182,7 +179,7 @@ pub(crate) fn recover_download_cards_blocking(
       };
       let has_resume_progress = !download_progress.is_empty() || recovered_received > 0;
       cards.push(RecoveredDownloadCard {
-        game_id: recovered_game_id,
+        game_id: resolved_game_id,
         version_id,
         game_title: resolved_game_title.clone(),
         game_metadata: game_metadata.clone(),
@@ -211,7 +208,6 @@ pub(crate) fn recover_download_cards_blocking(
         },
         extraction_progress: if extraction_finished { Some(100.0) } else { None },
         installation_finished,
-        cached_metadata,
       });
     }
   }

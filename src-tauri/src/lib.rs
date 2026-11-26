@@ -690,6 +690,7 @@ pub fn run() {
       cache::cleanup_cached_images,
       cache::list_cached_game_ids,
       cache::delete_cached_game,
+      cache::clear_legacy_game_caches,
       cache::delete_cached_image,
       cache::clear_all_cached_images,
       time_tracker::get_offline_time_files,

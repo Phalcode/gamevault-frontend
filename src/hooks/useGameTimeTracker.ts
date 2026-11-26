@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
+import { useServerStatus } from "@/hooks/useServerStatus";
 import { isTauriApp } from "@/utils/tauri";
 import { getRootPaths } from "@/utils/rootPaths";
+import { serverIdentifiers } from "@/utils/serverIdentity";
+import { offlineTimeBelongsToServer } from "@/utils/offlineTime";
 import { countBucket, trackEvent } from "@/utils/analytics";
 
 /**
@@ -27,6 +30,10 @@ interface OfflineTimeFile {
   accumulatedMinutes: number;
   /** Unix seconds of the last write; 0 for files from older builds. */
   updatedAt: number;
+  /** Server that owns the installation; absent for legacy files. */
+  serverUrl?: string | null;
+  /** URL/UUID identifiers of the owning server. */
+  serverIdentifiers?: string[];
 }
 
 /** Payload of the native `tracker-auth-expired` event. */
@@ -89,7 +96,11 @@ async function invokeTracker<T>(
     const { invoke } = await import("@tauri-apps/api/core");
     return await invoke<T>(command, args);
   } catch (error) {
-    await logTrackerLine("error", "invoke", `${command} failed: ${String(error)}`);
+    await logTrackerLine(
+      "error",
+      "invoke",
+      `${command} failed: ${String(error)}`,
+    );
     return null;
   }
 }
@@ -102,6 +113,8 @@ async function invokeTracker<T>(
  */
 async function reconcileOfflineTime(options: {
   serverUrl: string;
+  serverIdentifiers: string[];
+  userId: number;
   accessToken: string;
   reason: string;
 }): Promise<void> {
@@ -118,6 +131,8 @@ async function reconcileOfflineTime(options: {
   let files = 0;
   let creditedMinutes = 0;
   let pendingMinutes = 0;
+  let skippedFiles = 0;
+  let skippedMinutes = 0;
   let oldestFileMinutes = 0;
 
   for (const root of rootPaths) {
@@ -129,6 +144,25 @@ async function reconcileOfflineTime(options: {
     for (const file of offlineFiles) {
       files += 1;
 
+      if (!file.accumulatedMinutes || file.accumulatedMinutes <= 0) {
+        await invokeTracker("delete_offline_time_file", { path: file.path });
+        continue;
+      }
+
+      // Playtime collected while connected to another server (or account)
+      // stays on disk for the replay that belongs to that server/account.
+      if (
+        !offlineTimeBelongsToServer(
+          file,
+          options.serverIdentifiers,
+          options.userId,
+        )
+      ) {
+        skippedFiles += 1;
+        skippedMinutes += file.accumulatedMinutes;
+        continue;
+      }
+
       if (file.updatedAt) {
         const ageMinutes = Math.max(
           0,
@@ -137,15 +171,10 @@ async function reconcileOfflineTime(options: {
         oldestFileMinutes = Math.max(oldestFileMinutes, Math.round(ageMinutes));
       }
 
-      if (!file.accumulatedMinutes || file.accumulatedMinutes <= 0) {
-        await invokeTracker("delete_offline_time_file", { path: file.path });
-        continue;
-      }
-
       const success = await invokeTracker<boolean>("sync_offline_time", {
         serverUrl: options.serverUrl,
         accessToken: options.accessToken,
-        userId: file.userId,
+        userId: file.userId || options.userId,
         gameId: file.gameId,
         minutes: file.accumulatedMinutes,
         reason: options.reason,
@@ -160,11 +189,16 @@ async function reconcileOfflineTime(options: {
     }
   }
 
-  const age = oldestFileMinutes > 0 ? `, oldest file ${oldestFileMinutes} min old` : "";
+  const age =
+    oldestFileMinutes > 0 ? `, oldest file ${oldestFileMinutes} min old` : "";
+  const skipped =
+    skippedFiles > 0
+      ? `, ${skippedFiles} file(s) / ${skippedMinutes} min kept for another server or account`
+      : "";
   await logTrackerLine(
     pendingMinutes > 0 ? "warn" : "info",
     "offline",
-    `${options.reason}: ${files} offline file(s), credited ${creditedMinutes} min, ${pendingMinutes} min kept for the next attempt${age}`,
+    `${options.reason}: ${files} offline file(s), credited ${creditedMinutes} min, ${pendingMinutes} min kept for the next attempt${skipped}${age}`,
   );
   trackEvent("playtime_credited", {
     minutes: countBucket(creditedMinutes),
@@ -175,8 +209,19 @@ async function reconcileOfflineTime(options: {
 
 export function useGameTimeTracker() {
   const { serverUrl, user, auth, getAccessToken } = useAuth();
+  const { info: serverInfo } = useServerStatus();
   const { onReconnect } = useOnlineStatus();
-  const startedRef = useRef<{ serverUrl: string; userId: number } | null>(null);
+  const userId = (user as any)?.id ?? (user as any)?.ID ?? 0;
+  const identities = useMemo(
+    () => serverIdentifiers(serverUrl, serverInfo?.server_uuid),
+    [serverUrl, serverInfo?.server_uuid],
+  );
+  const identityKey = identities.join("\n");
+  const startedRef = useRef<{
+    serverUrl: string;
+    identityKey: string;
+    userId: number;
+  } | null>(null);
   const syncInFlightRef = useRef(false);
   const initialSyncDoneRef = useRef(false);
   /** Token last handed to the native tracker (avoids duplicate pushes). */
@@ -198,7 +243,6 @@ export function useGameTimeTracker() {
   useEffect(() => {
     if (!isTauriApp()) return;
 
-    const userId = user?.id;
     const accessToken = auth?.access_token;
     const downloadPaths = getRootPaths().map((p) => p.path);
 
@@ -215,7 +259,11 @@ export function useGameTimeTracker() {
           reason: "credentials unavailable (logout or missing session)",
         });
       } else {
-        void logTrackerLine("info", "lifecycle", "tracker idle: waiting for credentials");
+        void logTrackerLine(
+          "info",
+          "lifecycle",
+          "tracker idle: waiting for credentials",
+        );
       }
       return;
     }
@@ -241,7 +289,12 @@ export function useGameTimeTracker() {
     }
 
     const started = startedRef.current;
-    if (started && started.serverUrl === serverUrl && started.userId === userId) {
+    if (
+      started &&
+      started.serverUrl === serverUrl &&
+      started.identityKey === identityKey &&
+      started.userId === userId
+    ) {
       // Same session (token may have refreshed); leave the loop running.
       return;
     }
@@ -261,24 +314,31 @@ export function useGameTimeTracker() {
       );
     }
 
-    startedRef.current = { serverUrl, userId };
+    startedRef.current = { serverUrl, identityKey, userId };
     pushedTokenRef.current = accessToken;
     void invokeTracker("start_game_time_tracker", {
       serverUrl,
+      serverIdentifiers: identities,
       userId,
       accessToken,
       downloadPath: null,
       downloadPaths,
     });
-  }, [serverUrl, user?.id, auth?.access_token]);
+  }, [serverUrl, identityKey, userId, auth?.access_token]);
 
   // Stop the tracker on unmount.
   useEffect(() => {
     return () => {
       if (!startedRef.current) return;
       startedRef.current = null;
-      void logTrackerLine("info", "lifecycle", "stopping tracker: hook unmounted");
-      void invokeTracker("stop_game_time_tracker", { reason: "hook unmounted" });
+      void logTrackerLine(
+        "info",
+        "lifecycle",
+        "stopping tracker: hook unmounted",
+      );
+      void invokeTracker("stop_game_time_tracker", {
+        reason: "hook unmounted",
+      });
     };
   }, []);
 
@@ -290,6 +350,12 @@ export function useGameTimeTracker() {
     pushToken(accessToken);
   }, [auth?.access_token, pushToken]);
 
+  // A different server/account must replay its own offline files, even if this
+  // session already synced the previous one.
+  useEffect(() => {
+    initialSyncDoneRef.current = false;
+  }, [serverUrl, identityKey, userId]);
+
   // Sync any lingering offline time on startup (handles case where user
   // went offline, closed the app, then restarted while online)
   useEffect(() => {
@@ -300,10 +366,12 @@ export function useGameTimeTracker() {
 
     void reconcileOfflineTime({
       serverUrl,
+      serverIdentifiers: identities,
+      userId,
       accessToken: auth.access_token,
       reason: "startup",
     });
-  }, [serverUrl, auth?.access_token]);
+  }, [serverUrl, identityKey, userId, auth?.access_token]);
 
   // Sync offline time when coming back online
   useEffect(() => {
@@ -316,6 +384,8 @@ export function useGameTimeTracker() {
       try {
         await reconcileOfflineTime({
           serverUrl,
+          serverIdentifiers: identities,
+          userId,
           accessToken: auth?.access_token || "",
           reason: "reconnect",
         });
@@ -325,7 +395,7 @@ export function useGameTimeTracker() {
     });
 
     return unregister;
-  }, [onReconnect, serverUrl, auth?.access_token]);
+  }, [onReconnect, serverUrl, identityKey, userId, auth?.access_token]);
 
   // The native tracker tells us when the server rejects its session. Without
   // this, the tracker kept using an expired token for as long as the UI made
@@ -368,6 +438,8 @@ export function useGameTimeTracker() {
             try {
               await reconcileOfflineTime({
                 serverUrl,
+                serverIdentifiers: identities,
+                userId,
                 accessToken: token,
                 reason: "auth-refresh",
               });
@@ -395,7 +467,7 @@ export function useGameTimeTracker() {
       disposed = true;
       unlisten?.();
     };
-  }, [getAccessToken, pushToken, serverUrl]);
+  }, [getAccessToken, pushToken, serverUrl, identityKey, userId]);
 
   // Keep the native tracker's session copy fresh. Token refresh is otherwise
   // lazy (nothing asks for a new token while the UI sits idle), and a token
@@ -423,7 +495,8 @@ export function useGameTimeTracker() {
     const id = window.setInterval(async () => {
       if (syncInFlightRef.current) return;
 
-      const status = await invokeTracker<TrackerStatusSummary>("get_tracker_status");
+      const status =
+        await invokeTracker<TrackerStatusSummary>("get_tracker_status");
       if (!status || status.pendingOfflineMinutes <= 0) return;
 
       const token = await getAccessToken();
@@ -434,6 +507,8 @@ export function useGameTimeTracker() {
       try {
         await reconcileOfflineTime({
           serverUrl,
+          serverIdentifiers: identities,
+          userId,
           accessToken: token,
           reason: "periodic-retry",
         });
@@ -443,7 +518,7 @@ export function useGameTimeTracker() {
     }, PENDING_RETRY_MS);
 
     return () => window.clearInterval(id);
-  }, [getAccessToken, pushToken, serverUrl]);
+  }, [getAccessToken, pushToken, serverUrl, identityKey, userId]);
 
   // The browser reporting "online" is the earliest signal that the server is
   // reachable again — replay immediately instead of waiting for the poller.
@@ -461,6 +536,8 @@ export function useGameTimeTracker() {
       try {
         await reconcileOfflineTime({
           serverUrl,
+          serverIdentifiers: identities,
+          userId,
           accessToken: token,
           reason: "browser-online",
         });
@@ -471,7 +548,7 @@ export function useGameTimeTracker() {
 
     window.addEventListener("online", handleOnline);
     return () => window.removeEventListener("online", handleOnline);
-  }, [getAccessToken, pushToken, serverUrl]);
+  }, [getAccessToken, pushToken, serverUrl, identityKey, userId]);
 
   // Record window visibility and connectivity next to the tracker ticks, so a
   // sleep/resume or an offline window lines up with the tick gaps in the log.
@@ -479,7 +556,11 @@ export function useGameTimeTracker() {
     if (!isTauriApp()) return;
 
     const handleVisibility = () => {
-      void logTrackerLine("info", "app", `window visibility: ${document.visibilityState}`);
+      void logTrackerLine(
+        "info",
+        "app",
+        `window visibility: ${document.visibilityState}`,
+      );
     };
     const handleFocus = () => {
       void logTrackerLine("info", "app", "window focused");

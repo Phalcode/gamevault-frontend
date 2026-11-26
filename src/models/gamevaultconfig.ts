@@ -1,5 +1,9 @@
 export interface GameVaultConfig {
   gameid?: number;
+  /** UUID of the server that installed this version. */
+  serveruuid?: string;
+  /** Normalized URL of the server that installed this version. */
+  serverurl?: string;
   versionid?: number;
   gametype?: string;
   downloadfinished: boolean;

@@ -16,6 +16,7 @@ pub(crate) fn control_flags() -> &'static Mutex<HashMap<i64, Arc<AtomicU8>>> {
 #[derive(Clone)]
 pub(crate) struct TrackerConfig {
   pub server_url: String,
+  pub server_identifiers: Vec<String>,
   pub user_id: i64,
   pub access_token: String,
   pub download_paths: Vec<String>,

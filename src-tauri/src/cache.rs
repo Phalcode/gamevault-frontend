@@ -46,13 +46,19 @@ fn images_cache_dir(app: &tauri::AppHandle, server_namespace: &str) -> Result<Pa
     Ok(cache_root(app).join("images").join(server_namespace))
 }
 
+fn games_cache_dir(app: &tauri::AppHandle, server_namespace: &str) -> Result<PathBuf, String> {
+    validate_server_namespace(server_namespace)?;
+    Ok(cache_root(app).join("games").join(server_namespace))
+}
+
 #[tauri::command]
 pub(crate) async fn cache_game_data(
     app: tauri::AppHandle,
+    server_namespace: String,
     game_id: i64,
     json: String,
 ) -> Result<(), String> {
-    let dir = cache_root(&app).join("games");
+    let dir = games_cache_dir(&app, &server_namespace)?;
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create cache dir: {e}"))?;
     let path = dir.join(format!("{game_id}.json"));
     fs::write(&path, json.as_bytes()).map_err(|e| format!("Failed to cache game data: {e}"))?;
@@ -87,11 +93,10 @@ pub(crate) async fn cache_game_image(
 #[tauri::command]
 pub(crate) async fn load_cached_game(
     app: tauri::AppHandle,
+    server_namespace: String,
     game_id: i64,
 ) -> Result<Option<String>, String> {
-    let path = cache_root(&app)
-        .join("games")
-        .join(format!("{game_id}.json"));
+    let path = games_cache_dir(&app, &server_namespace)?.join(format!("{game_id}.json"));
     if !path.exists() {
         return Ok(None);
     }
@@ -157,8 +162,11 @@ pub(crate) async fn cleanup_cached_images(
 }
 
 #[tauri::command]
-pub(crate) async fn list_cached_game_ids(app: tauri::AppHandle) -> Result<Vec<i64>, String> {
-    let dir = cache_root(&app).join("games");
+pub(crate) async fn list_cached_game_ids(
+    app: tauri::AppHandle,
+    server_namespace: String,
+) -> Result<Vec<i64>, String> {
+    let dir = games_cache_dir(&app, &server_namespace)?;
     if !dir.exists() {
         return Ok(Vec::new());
     }
@@ -178,14 +186,42 @@ pub(crate) async fn list_cached_game_ids(app: tauri::AppHandle) -> Result<Vec<i6
 }
 
 #[tauri::command]
-pub(crate) async fn delete_cached_game(app: tauri::AppHandle, game_id: i64) -> Result<(), String> {
-    let path = cache_root(&app)
-        .join("games")
-        .join(format!("{game_id}.json"));
+pub(crate) async fn delete_cached_game(
+    app: tauri::AppHandle,
+    server_namespace: String,
+    game_id: i64,
+) -> Result<(), String> {
+    let path = games_cache_dir(&app, &server_namespace)?.join(format!("{game_id}.json"));
     if path.exists() {
         fs::remove_file(&path).map_err(|e| format!("Failed to delete cached game: {e}"))?;
     }
     Ok(())
+}
+
+/// Removes game metadata cached by versions that stored it under a bare game id.
+///
+/// Those files cannot be assigned to a server, so they must not be reused after
+/// the per-server cache layout. They refill from the server on the next scan.
+#[tauri::command]
+pub(crate) async fn clear_legacy_game_caches(app: tauri::AppHandle) -> Result<u64, String> {
+    let dir = cache_root(&app).join("games");
+    if !dir.exists() {
+        return Ok(0);
+    }
+
+    let mut deleted = 0u64;
+    for entry in fs::read_dir(&dir)
+        .map_err(|e| format!("Failed to read cache dir: {e}"))?
+        .flatten()
+    {
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+            fs::remove_file(&path)
+                .map_err(|e| format!("Failed to delete legacy cached game: {e}"))?;
+            deleted += 1;
+        }
+    }
+    Ok(deleted)
 }
 
 #[tauri::command]

@@ -56,16 +56,21 @@ const GameCard = memo(function GameCard({
   // Detect if this is a locally installed game (set by Library for installed games)
   const installedInfo = (game as any)?._installedInfo as
     | {
+        gameId?: number;
         installationDirectory: string;
         versionDirectory: string;
         versionId: number;
         versionName: string;
         gameType?: string | null;
+        isCurrentServer?: boolean;
+        serverIdentifiers?: string[];
+        originServerUrl?: string | null;
       }
     | undefined;
   const onUninstalledCallback = (game as any)?._onUninstalled as
     (() => void) | undefined;
   const isInstalled = !!installedInfo;
+  const installedFromOtherServer = installedInfo?.isCurrentServer === false;
   // Derive initial bookmarked state from raw API shape (bookmarked_users or bookmarkedUsers)
   const currentUserId = (user as any)?.id ?? (user as any)?.ID;
   const initialBookmarked = useMemo(
@@ -96,8 +101,10 @@ const GameCard = memo(function GameCard({
   // A game only has an update when it is installed locally and the server's
   // current default version tag differs from the installed one.
   const updateAvailable = useMemo(
-    () => isGameUpdateAvailable(localGame, installedInfo),
-    [localGame, installedInfo],
+    () =>
+      !installedFromOtherServer &&
+      isGameUpdateAvailable(localGame, installedInfo),
+    [installedFromOtherServer, localGame, installedInfo],
   );
 
   const toggleBookmark = useCallback(
@@ -374,13 +381,26 @@ const GameCard = memo(function GameCard({
         )}
       >
         <Link
-          to={gameViewUrl}
-          onClick={() =>
+          to={installedFromOtherServer ? "#" : gameViewUrl}
+          title={
+            installedFromOtherServer
+              ? `Open settings for this installation — origin: ${
+                  installedInfo.originServerUrl ?? "unknown"
+                }`
+              : undefined
+          }
+          onClick={(event) => {
+            if (installedFromOtherServer) {
+              event.preventDefault();
+              event.stopPropagation();
+              setSettingsOpen(true);
+              return;
+            }
             trackEvent("game_card_opened", {
               installed: Boolean(installedInfo),
               type: game.type,
-            })
-          }
+            });
+          }}
           className={clsx(
             // No own layer here — rasterize into the wrapper's single composited
             // layer so content + shadow move as one texture (a second layer
@@ -488,29 +508,31 @@ const GameCard = memo(function GameCard({
 
             {/* Corner action buttons - hidden until hover */}
             {/* Bookmark */}
-            <button
-              type="button"
-              onClick={toggleBookmark}
-              data-analytics-id="card.bookmark"
-              aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
-              aria-pressed={bookmarked}
-              disabled={!currentUserId || bookmarkBusy}
-              className={clsx(
-                "absolute top-2 right-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border backdrop-blur-xl transition-all duration-200",
-                "opacity-0 translate-y-1 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
-                "disabled:cursor-not-allowed disabled:opacity-50",
-                bookmarked
-                  ? "border-gv-warning/40 bg-gv-warning/15"
-                  : "border-gv-line bg-gv-panel-soft/80 hover:border-gv-line-strong hover:bg-gv-panel",
-                "active:scale-95",
-              )}
-            >
-              {bookmarked ? (
-                <StarSolid className="h-5 w-5 text-gv-warning" />
-              ) : (
-                <StarOutline className="h-5 w-5 text-gv-muted" />
-              )}
-            </button>
+            {!installedFromOtherServer && (
+              <button
+                type="button"
+                onClick={toggleBookmark}
+                data-analytics-id="card.bookmark"
+                aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
+                aria-pressed={bookmarked}
+                disabled={!currentUserId || bookmarkBusy}
+                className={clsx(
+                  "absolute top-2 right-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border backdrop-blur-xl transition-all duration-200",
+                  "opacity-0 translate-y-1 group-hover/card:opacity-100! group-hover/card:translate-y-0! group-focus-within/card:opacity-100! group-focus-within/card:translate-y-0!",
+                  "disabled:cursor-not-allowed disabled:opacity-50",
+                  bookmarked
+                    ? "border-gv-warning/40 bg-gv-warning/15"
+                    : "border-gv-line bg-gv-panel-soft/80 hover:border-gv-line-strong hover:bg-gv-panel",
+                  "active:scale-95",
+                )}
+              >
+                {bookmarked ? (
+                  <StarSolid className="h-5 w-5 text-gv-warning" />
+                ) : (
+                  <StarOutline className="h-5 w-5 text-gv-muted" />
+                )}
+              </button>
+            )}
 
             {/* Settings */}
             <button
@@ -644,12 +666,38 @@ const GameCard = memo(function GameCard({
             <p className="truncate text-xs text-gv-muted">
               {sortMetric || "—"}
             </p>
+            {installedFromOtherServer && (
+              <p
+                className="truncate text-[11px] font-medium text-gv-warning"
+                title={
+                  installedInfo.originServerUrl ?? "Origin server URL unknown"
+                }
+              >
+                From other Server
+              </p>
+            )}
           </div>
         </Link>
       </div>
       {settingsOpen && (
         <GameSettings
           game={game}
+          installedGameOverride={
+            installedFromOtherServer && installedInfo
+              ? {
+                  gameId: installedInfo.gameId ?? game.id,
+                  gameTitle:
+                    localGame.metadata?.title || localGame.title || "Game",
+                  gameType: installedInfo.gameType ?? undefined,
+                  versionId: installedInfo.versionId,
+                  versionName: installedInfo.versionName,
+                  installationDirectory: installedInfo.installationDirectory,
+                  versionDirectory: installedInfo.versionDirectory,
+                  serverIdentifiers: installedInfo.serverIdentifiers ?? [],
+                  originServerUrl: installedInfo.originServerUrl ?? null,
+                }
+              : undefined
+          }
           onClose={() => setSettingsOpen(false)}
           onGameUpdated={(updatedGame) => setLocalGame(updatedGame)}
           onUninstalled={onUninstalledCallback}

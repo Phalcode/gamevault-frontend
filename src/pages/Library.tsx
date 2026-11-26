@@ -27,6 +27,12 @@ import { Strong, Text, TextLink } from "@/components/tailwind/text";
 import { isTauriApp } from "@/utils/tauri";
 import { countBucket, trackEvent } from "@/utils/analytics";
 import { useInstalledGames } from "@/hooks/useInstalledGames";
+import {
+  installedGameDisplayOwner,
+  installedGameKey,
+  installedGameOriginServerUrl,
+  installedGameOwnerForServer,
+} from "@/utils/installedGames";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
 import { useNavigate } from "react-router";
@@ -486,8 +492,11 @@ export default function Library() {
   useScrollRestoration("library_scroll_position", games.length > 0);
 
   // --- Installed games (Tauri only) ---
-  const { installedGames, refetch: refetchInstalledGames } =
-    useInstalledGames();
+  const {
+    installedGames,
+    serverIdentifiers: currentServerIdentifiers,
+    refetch: refetchInstalledGames,
+  } = useInstalledGames();
 
   const INSTALLED_ROWS_KEY = "installed_games_rows";
   const [installedRows, setInstalledRows] = useState(() => {
@@ -525,8 +534,21 @@ export default function Library() {
           ? (ig.cachedMetadata as any)
           : null;
       const g: any = cached ? { ...cached } : {};
+      const displayOwner = installedGameDisplayOwner(
+        ig,
+        currentServerIdentifiers,
+      );
+      const currentOwner = installedGameOwnerForServer(
+        ig,
+        currentServerIdentifiers,
+      );
+      const displayGameId =
+        displayOwner && displayOwner.gameId > 0
+          ? displayOwner.gameId
+          : ig.gameId;
+      const isCurrentServer = !!currentOwner;
 
-      g.id = ig.gameId;
+      g.id = displayGameId;
       g.title = cached?.title || ig.gameTitle;
       g.sort_title = String(
         cached?.sort_title || ig.gameTitle || cached?.title || "",
@@ -546,26 +568,40 @@ export default function Library() {
         if (version?.size !== undefined) g.size = version.size;
       }
 
+      // Cover art belongs to the owning server's media cache. Showing it from
+      // the current server could display an unrelated game with the same id.
+      if (!isCurrentServer && g.metadata) {
+        g.metadata = { ...g.metadata, cover: undefined };
+      }
+
       // Attach installation info for GameCard play button
       g._installedInfo = {
+        gameId: displayGameId,
         installationDirectory: ig.installationDirectory,
         versionDirectory: ig.versionDirectory,
         versionId: ig.versionId,
         versionName: ig.versionName,
         gameType: ig.gameType,
         installedAt: ig.installedAt ?? 0,
-        lastPlayedAt: ig.lastPlayedAt ?? 0,
+        lastPlayedAt: isCurrentServer ? (ig.lastPlayedAt ?? 0) : 0,
+        isCurrentServer,
+        serverIdentifiers: displayOwner?.identifiers ?? [],
+        originServerUrl: isCurrentServer
+          ? null
+          : installedGameOriginServerUrl(ig, currentServerIdentifiers),
       };
+      g._installedKey = installedGameKey(ig);
       g._onUninstalled = refetchInstalledGames;
       return g as GamevaultGame;
     });
-  }, [installedGames, refetchInstalledGames]);
+  }, [installedGames, currentServerIdentifiers, refetchInstalledGames]);
 
-  // Map installed game id -> installation info so server games that are
-  // already installed locally can be marked (e.g. a small "Installed" badge).
+  // Only installs owned by the current server may mark server games as
+  // installed. Other servers' installs stay visible above but never collide
+  // with same-id games on this server.
   const installedByGameId = useMemo(
-    () => buildInstalledGameMap(installedGames),
-    [installedGames],
+    () => buildInstalledGameMap(installedGames, currentServerIdentifiers),
+    [installedGames, currentServerIdentifiers],
   );
 
   // Client-side filter + sort installed games with the same Library criteria.
@@ -1210,7 +1246,7 @@ export default function Library() {
                 >
                   {filteredInstalledGames.map((g) => (
                     <GameCard
-                      key={`installed-${g.id}`}
+                      key={`installed-${(g as any)._installedKey ?? g.id}`}
                       game={g}
                       sortBy={sortBy}
                       hideInstalledBadge

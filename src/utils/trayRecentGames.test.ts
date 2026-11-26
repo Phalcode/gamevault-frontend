@@ -17,6 +17,7 @@ function installed(overrides: Partial<InstalledGameInfo>): InstalledGameInfo {
     versionName: "1.0",
     installationDirectory: "/games/1",
     versionDirectory: "/games/1/Versions/1.0",
+    owners: [],
     installedAt: 0,
     lastPlayedAt: 0,
     ...overrides,

@@ -101,6 +101,40 @@ describe("buildInstalledGameMap", () => {
     expect(map.get(3)).toEqual({ gameId: 3, name: "a" });
     expect(map.size).toBe(1);
   });
+
+  it("maps only the current server's game id from ownership records", () => {
+    const map = buildInstalledGameMap(
+      [
+        {
+          gameId: 3,
+          name: "other",
+          owners: [
+            {
+              serverUrl: "https://a.example",
+              identifiers: ["https://a.example", "uuid-a"],
+              gameId: 3,
+            },
+          ],
+        },
+        {
+          gameId: 3,
+          name: "current",
+          owners: [
+            {
+              serverUrl: "https://b.example",
+              identifiers: ["https://b.example", "uuid-b"],
+              gameId: 9,
+            },
+          ],
+        },
+      ],
+      ["https://b.example", "uuid-b"],
+    );
+
+    expect(map.size).toBe(1);
+    expect(map.get(9)).toMatchObject({ name: "current" });
+    expect(map.get(3)).toBeUndefined();
+  });
 });
 
 describe("filterAndSortInstalledGames", () => {

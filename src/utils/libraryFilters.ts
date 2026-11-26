@@ -1,6 +1,10 @@
 import { GamevaultGameTypeEnum } from "@/api/models/GamevaultGame";
 import { ProgressStateEnum } from "@/api/models/Progress";
 import { BookmarkFilter, EarlyAccessFilter } from "@/utils/gamesQuery";
+import {
+  installedGameOwnerForServer,
+  type InstalledGameOwner,
+} from "@/utils/installedGames";
 
 export interface LibraryFilterState {
   bookmarkFilter: BookmarkFilter;
@@ -92,13 +96,18 @@ export function isBookmark(value: string): value is BookmarkFilter | "1" {
   );
 }
 
-/** Map installed game id → installation info, skipping non-positive ids. */
-export function buildInstalledGameMap<T extends { gameId: number }>(
-  installedGames: T[],
-): Map<number, T> {
+/** Map installed game id → installation info for the current server only. */
+export function buildInstalledGameMap<
+  T extends { gameId: number; owners?: InstalledGameOwner[] },
+>(installedGames: T[], serverIdentifiers: string[] = []): Map<number, T> {
   const map = new Map<number, T>();
   for (const ig of installedGames) {
-    if (ig.gameId > 0) map.set(ig.gameId, ig);
+    const owner = installedGameOwnerForServer(
+      { owners: ig.owners ?? [] },
+      serverIdentifiers,
+    );
+    const gameId = owner?.gameId ?? (serverIdentifiers.length ? 0 : ig.gameId);
+    if (gameId > 0) map.set(gameId, ig);
   }
   return map;
 }

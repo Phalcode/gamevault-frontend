@@ -1,3 +1,4 @@
+use serde::Serialize;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -111,6 +112,237 @@ pub(crate) fn resolve_version_id(config: &serde_json::Value, folder_version_id: 
     .unwrap_or(folder_version_id)
 }
 
+/// Which server an installed version belongs to, resolved from its config or
+/// the game folder's `.gamevault.metadata.json` discriminator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GameIdResolution {
+  /// The version belongs to the current server and has this game id.
+  GameId(i64),
+  /// The version belongs to another server and must be hidden.
+  NotThisServer,
+  /// Ownership is acceptable, but no game id was recorded.
+  Unknown,
+}
+
+/// One server that owns an installed version.
+///
+/// A version can be listed under several servers only for legacy installs whose
+/// game-folder metadata map has no per-version ownership information.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InstalledGameOwner {
+  /// Canonical server URL when known. Used for labels and cache namespaces.
+  pub server_url: Option<String>,
+  /// URLs/UUIDs that identify this server.
+  pub identifiers: Vec<String>,
+  /// Game id on this server; 0 when it could not be resolved.
+  pub game_id: i64,
+}
+
+/// Metadata keys that are preferences, not server identifiers.
+const NON_SERVER_METADATA_KEYS: [&str; 4] = [
+  "installer_executable",
+  "installer_parameters",
+  "uninstaller_executable",
+  "uninstaller_parameters",
+];
+
+fn normalized_server_url(value: &str) -> Option<String> {
+  let mut parsed = url::Url::parse(value.trim()).ok()?;
+  let _ = parsed.set_username("");
+  let _ = parsed.set_password(None);
+  parsed.set_query(None);
+  parsed.set_fragment(None);
+  let path = parsed.path().trim_end_matches('/');
+  Some(format!(
+    "{}{}",
+    parsed.origin().ascii_serialization().to_lowercase(),
+    if path == "/" { "" } else { path }
+  ))
+}
+
+fn normalize_server_key(value: &str) -> String {
+  normalized_server_url(value)
+    .unwrap_or_else(|| value.trim().trim_end_matches('/').to_string())
+}
+
+#[derive(Clone)]
+struct MetadataServerEntry {
+  /// Normalized key used for matching (`https://…` or a UUID).
+  identifier: String,
+  /// Normalized URL when the key is a URL.
+  url: Option<String>,
+  game_id: i64,
+}
+
+fn metadata_server_entries(
+  metadata: Option<&serde_json::Value>,
+) -> Vec<MetadataServerEntry> {
+  metadata
+    .and_then(|value| value.as_object())
+    .map(|object| {
+      object
+        .iter()
+        .filter(|(key, _)| {
+          !NON_SERVER_METADATA_KEYS
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(key.as_str()))
+        })
+        .filter_map(|(key, value)| {
+          let game_id = parse_i64_json(Some(value)).filter(|id| *id > 0)?;
+          let url = normalized_server_url(key);
+          Some(MetadataServerEntry {
+            identifier: url
+              .clone()
+              .unwrap_or_else(|| normalize_server_key(key)),
+            url,
+            game_id,
+          })
+        })
+        .collect()
+    })
+    .unwrap_or_default()
+}
+
+fn metadata_id_for_identifiers(
+  entries: &[MetadataServerEntry],
+  identifiers: &[String],
+) -> Option<i64> {
+  identifiers.iter().find_map(|identifier| {
+    let candidate = normalize_server_key(identifier);
+    entries
+      .iter()
+      .find(|entry| entry.identifier == candidate)
+      .map(|entry| entry.game_id)
+  })
+}
+
+/// Resolves every server a version can belong to.
+///
+/// New installs record exact ownership in the version config. Legacy installs
+/// fall back to the game-folder metadata map; URL keys are preferred over bare
+/// UUID keys so a modern URL+UUID pair is only reported once.
+pub(crate) fn resolve_installed_owners(
+  config: &serde_json::Value,
+  folder_metadata: Option<&serde_json::Value>,
+) -> Vec<InstalledGameOwner> {
+  let config_game_id =
+    parse_i64_json(config.get("gameid")).filter(|id| *id > 0);
+  let entries = metadata_server_entries(folder_metadata);
+
+  let config_uuid = config
+    .get("serveruuid")
+    .and_then(|value| value.as_str())
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty());
+  let config_url = config
+    .get("serverurl")
+    .and_then(|value| value.as_str())
+    .map(|value| normalize_server_key(value))
+    .filter(|value| !value.is_empty());
+
+  if config_uuid.is_some() || config_url.is_some() {
+    let mut identifiers: Vec<String> = Vec::new();
+    if let Some(url) = &config_url {
+      identifiers.push(url.clone());
+    }
+    if let Some(uuid) = &config_uuid {
+      if !identifiers.contains(uuid) {
+        identifiers.push(uuid.clone());
+      }
+    }
+    let game_id = config_game_id
+      .or_else(|| metadata_id_for_identifiers(&entries, &identifiers))
+      .or_else(|| entries.first().map(|entry| entry.game_id))
+      .unwrap_or(0);
+    return vec![InstalledGameOwner {
+      server_url: config_url,
+      identifiers,
+      game_id,
+    }];
+  }
+
+  if entries.is_empty() {
+    return Vec::new();
+  }
+
+  let url_entries: Vec<&MetadataServerEntry> =
+    entries.iter().filter(|entry| entry.url.is_some()).collect();
+  let owners = if url_entries.is_empty() {
+    entries
+      .iter()
+      .map(|entry| InstalledGameOwner {
+        server_url: None,
+        identifiers: vec![entry.identifier.clone()],
+        game_id: entry.game_id,
+      })
+      .collect()
+  } else {
+    url_entries
+      .iter()
+      .map(|entry| InstalledGameOwner {
+        server_url: entry.url.clone(),
+        identifiers: vec![entry.identifier.clone()],
+        game_id: entry.game_id,
+      })
+      .collect()
+  };
+
+  owners
+}
+
+/// Returns the owner matching one of the current server identifiers.
+pub(crate) fn owner_for_server<'a>(
+  owners: &'a [InstalledGameOwner],
+  server_identifiers: &[String],
+) -> Option<&'a InstalledGameOwner> {
+  if server_identifiers.is_empty() {
+    return owners.first();
+  }
+
+  owners.iter().find(|owner| {
+    server_identifiers.iter().any(|identifier| {
+      let candidate = normalize_server_key(identifier);
+      owner.identifiers.iter().any(|known| known == &candidate)
+    })
+  })
+}
+
+/// Resolves an installed version's game id for the current server.
+///
+/// `server_identifiers` empty preserves the old "first owner" behavior for
+/// diagnostics. A version without any ownership marker keeps the legacy
+/// fallback based on its configured game id.
+pub(crate) fn resolve_installed_game_id(
+  config: &serde_json::Value,
+  folder_metadata: Option<&serde_json::Value>,
+  server_identifiers: &[String],
+) -> GameIdResolution {
+  let config_game_id =
+    parse_i64_json(config.get("gameid")).filter(|id| *id > 0);
+  let owners = resolve_installed_owners(config, folder_metadata);
+
+  if owners.is_empty() {
+    return config_game_id
+      .map(GameIdResolution::GameId)
+      .unwrap_or(GameIdResolution::Unknown);
+  }
+
+  if server_identifiers.is_empty() {
+    return config_game_id
+      .or_else(|| owners.first().map(|owner| owner.game_id))
+      .filter(|id| *id > 0)
+      .map(GameIdResolution::GameId)
+      .unwrap_or(GameIdResolution::Unknown);
+  }
+
+  match owner_for_server(&owners, server_identifiers) {
+    Some(owner) if owner.game_id > 0 => GameIdResolution::GameId(owner.game_id),
+    Some(_) => GameIdResolution::Unknown,
+    None => GameIdResolution::NotThisServer,
+  }
+}
+
 pub(crate) fn resolve_version_subdir(version_path: &Path, preferred: &str, legacy: &str) -> PathBuf {
   let preferred_path = version_path.join(preferred);
   if preferred_path.exists() {
@@ -127,8 +359,15 @@ pub(crate) fn resolve_version_subdir(version_path: &Path, preferred: &str, legac
 
 #[cfg(test)]
 mod tests {
-  use super::{parse_version_folder, resolve_version_id};
+  use super::{
+    parse_version_folder, resolve_installed_game_id, resolve_installed_owners,
+    resolve_version_id, GameIdResolution,
+  };
   use serde_json::json;
+
+  fn identifiers(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| value.to_string()).collect()
+  }
 
   #[test]
   fn parses_legacy_version_folder() {
@@ -146,6 +385,197 @@ mod tests {
   #[test]
   fn falls_back_to_legacy_folder_version_id() {
     assert_eq!(resolve_version_id(&json!({}), 775), 775);
+  }
+
+  #[test]
+  fn matches_new_version_config_by_server_uuid() {
+    let config = json!({
+      "gameid": 42,
+      "serveruuid": "uuid-a",
+      "serverurl": "https://a.example",
+    });
+    let metadata = json!({ "uuid-b": 7, "uuid-a": 42 });
+
+    assert_eq!(
+      resolve_installed_game_id(&config, Some(&metadata), &identifiers(&["uuid-a"])),
+      GameIdResolution::GameId(42),
+    );
+  }
+
+  #[test]
+  fn matches_new_version_config_by_normalized_url() {
+    let config = json!({
+      "gameid": 42,
+      "serverurl": "https://a.example/",
+    });
+
+    assert_eq!(
+      resolve_installed_game_id(
+        &config,
+        None,
+        &identifiers(&["https://a.example"]),
+      ),
+      GameIdResolution::GameId(42),
+    );
+  }
+
+  #[test]
+  fn hides_new_version_config_for_another_server() {
+    let config = json!({
+      "gameid": 42,
+      "serverurl": "https://a.example",
+    });
+
+    assert_eq!(
+      resolve_installed_game_id(
+        &config,
+        None,
+        &identifiers(&["https://b.example", "uuid-b"]),
+      ),
+      GameIdResolution::NotThisServer,
+    );
+  }
+
+  #[test]
+  fn resolves_legacy_install_from_folder_metadata() {
+    let metadata = json!({
+      "uuid-b": 7,
+      "uuid-a": 42,
+      "installer_executable": "setup.exe",
+      "installer_parameters": "/S",
+    });
+
+    assert_eq!(
+      resolve_installed_game_id(
+        &json!({}),
+        Some(&metadata),
+        &identifiers(&["uuid-a", "https://a.example"]),
+      ),
+      GameIdResolution::GameId(42),
+    );
+  }
+
+  #[test]
+  fn hides_legacy_install_of_another_server() {
+    let metadata = json!({ "uuid-a": 42, "installer_executable": "setup.exe" });
+
+    assert_eq!(
+      resolve_installed_game_id(
+        &json!({}),
+        Some(&metadata),
+        &identifiers(&["uuid-b", "https://b.example"]),
+      ),
+      GameIdResolution::NotThisServer,
+    );
+  }
+
+  #[test]
+  fn normalizes_legacy_metadata_urls() {
+    let metadata = json!({ "https://A.Example/GameVault/": 42 });
+
+    assert_eq!(
+      resolve_installed_game_id(
+        &json!({}),
+        Some(&metadata),
+        &identifiers(&["https://a.example/GameVault"]),
+      ),
+      GameIdResolution::GameId(42),
+    );
+  }
+
+  #[test]
+  fn keeps_legacy_install_without_server_marker() {
+    let metadata = json!({ "installer_executable": "setup.exe" });
+
+    assert_eq!(
+      resolve_installed_game_id(
+        &json!({ "gameid": 42 }),
+        Some(&metadata),
+        &identifiers(&["https://b.example"]),
+      ),
+      GameIdResolution::GameId(42),
+    );
+  }
+
+  #[test]
+  fn returns_unknown_without_any_game_id() {
+    assert_eq!(
+      resolve_installed_game_id(
+        &json!({ "serverurl": "https://a.example" }),
+        None,
+        &identifiers(&["https://a.example"]),
+      ),
+      GameIdResolution::Unknown,
+    );
+  }
+
+  #[test]
+  fn ignores_preference_keys_that_look_numeric() {
+    let metadata = json!({
+      "installer_parameters": "7",
+      "uninstaller_parameters": "8",
+    });
+
+    assert_eq!(
+      resolve_installed_game_id(
+        &json!({}),
+        Some(&metadata),
+        &identifiers(&["https://a.example"]),
+      ),
+      GameIdResolution::Unknown,
+    );
+  }
+
+  #[test]
+  fn reports_new_install_ownership_once() {
+    let config = json!({
+      "gameid": 42,
+      "serveruuid": "uuid-a",
+      "serverurl": "https://a.example/",
+    });
+
+    let owners = resolve_installed_owners(&config, None);
+
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].server_url.as_deref(), Some("https://a.example"));
+    assert_eq!(owners[0].game_id, 42);
+    assert_eq!(
+      owners[0].identifiers,
+      vec!["https://a.example", "uuid-a"]
+    );
+  }
+
+  #[test]
+  fn prefers_legacy_url_keys_over_uuid_aliases() {
+    let metadata = json!({
+      "https://a.example": 42,
+      "uuid-a": 42,
+    });
+
+    let owners = resolve_installed_owners(&json!({}), Some(&metadata));
+
+    assert_eq!(owners.len(), 1);
+    assert_eq!(owners[0].server_url.as_deref(), Some("https://a.example"));
+    assert_eq!(owners[0].identifiers, vec!["https://a.example"]);
+  }
+
+  #[test]
+  fn reports_two_legacy_server_owners() {
+    let metadata = json!({
+      "https://a.example": 42,
+      "https://b.example": 7,
+    });
+
+    let owners = resolve_installed_owners(&json!({}), Some(&metadata));
+
+    assert_eq!(owners.len(), 2);
+    assert_eq!(
+      owners
+        .iter()
+        .map(|owner| owner.game_id)
+        .collect::<Vec<_>>(),
+      vec![42, 7]
+    );
   }
 }
 

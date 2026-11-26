@@ -5,12 +5,15 @@
 ### Changes
 
 - Download cards now offer a "Create Desktop Shortcut" toggle. When enabled, a desktop shortcut is created automatically as soon as the game finishes installing.
+- [#95](https://github.com/Phalcode/gamevault-frontend/issues/95) Installed games from every server now stay visible and playable when connected to another server, labelled "From other Server" with the origin URL in the tooltip and Game Settings. Their installation and launch options remain available, while installed markers only apply to games actually installed on the current server, even when game IDs collide.
+- Playtime from games installed from another server is now collected while connected elsewhere and sent to the game's own server the next time you connect to it.
 - Fixed the Windows desktop app crashing right after launch on current Windows 11 builds.
 - SSO login in the web UI now runs in the window you started from instead of a popup. The popup could complete the login on its own while the original window stayed on the login form, and the reload that followed could end with "Your session has expired" right after signing in.
 - Fixed SSO login in the desktop app when the identity provider runs its own login popup, like Authentik's Plex source. The app now allows those popups instead of silently blocking them, so the login can finish.
 
 ### Thanks
 
+- @ChrisS85
 - @utlilb
 
 ## 17.2.0

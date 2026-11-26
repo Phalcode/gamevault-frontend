@@ -2,8 +2,9 @@ use crate::events::{emit_game_launch_failed, InstalledGameInfo};
 use crate::executables::{self, ScanLimits};
 use crate::settings::load_settings;
 use crate::util::{
-    is_ignored_executable, parse_i64_json, parse_version_folder, resolve_version_id,
-    resolve_version_subdir, stable_id_from_path,
+    is_ignored_executable, parse_i64_json, parse_version_folder,
+    resolve_installed_owners, resolve_version_id, resolve_version_subdir,
+    stable_id_from_path,
 };
 use serde::Serialize;
 use std::fs;
@@ -31,9 +32,11 @@ pub(crate) async fn list_installed_games(
 ) -> Result<Vec<InstalledGameInfo>, String> {
     // Scanning the library reads every version folder on disk, which can take a
     // while and must not block the UI thread.
-    tauri::async_runtime::spawn_blocking(move || list_installed_games_blocking(selected_root))
-        .await
-        .map_err(|error| format!("Listing installed games failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        list_installed_games_blocking(selected_root)
+    })
+    .await
+    .map_err(|error| format!("Listing installed games failed: {error}"))?
 }
 
 /// Blocking implementation, also used by the time tracker on its own thread.
@@ -123,27 +126,17 @@ pub(crate) fn list_installed_games_blocking(
                 .map(|v| v.trim().to_string())
                 .filter(|v| !v.is_empty());
 
-            let config_game_id = parse_i64_json(cfg_value.get("gameid"));
-            let metadata_game_id = game_metadata
-                .as_ref()
-                .and_then(|m| m.as_object())
-                .and_then(|obj| obj.values().find_map(|v| parse_i64_json(Some(v))));
-
             let version_path_str = version_path.to_string_lossy().to_string();
-            let resolved_game_id = config_game_id
-                .or(metadata_game_id)
-                .filter(|id| *id > 0)
+            let owners = resolve_installed_owners(&cfg_value, game_metadata.as_ref());
+            let resolved_game_id = owners
+                .iter()
+                .map(|owner| owner.game_id)
+                .find(|id| *id > 0)
+                .or_else(|| {
+                    parse_i64_json(cfg_value.get("gameid"))
+                        .filter(|id| *id > 0)
+                })
                 .unwrap_or_else(|| stable_id_from_path(&version_path_str));
-
-            let cache_dir = root.join(".cache").join("games");
-            let cache_file = cache_dir.join(format!("{}.json", resolved_game_id));
-            let cached_metadata: Option<serde_json::Value> = if cache_file.exists() {
-                fs::read_to_string(&cache_file)
-                    .ok()
-                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            } else {
-                None
-            };
 
             // The version config is (re)written when an install completes, so its
             // modified time is a good proxy for "when was this installed".
@@ -158,12 +151,12 @@ pub(crate) fn list_installed_games_blocking(
                 game_id: resolved_game_id,
                 game_title: resolved_game_title.clone(),
                 game_metadata: game_metadata.clone(),
-                cached_metadata,
                 game_type,
                 version_id,
                 version_name,
                 installation_directory: installations_dir.to_string_lossy().to_string(),
                 version_directory: version_path_str,
+                owners,
                 installed_at,
             });
         }

@@ -25,6 +25,7 @@ import { VersionSelectDialog } from "@/components/VersionSelectDialog";
 import { RootPathSelectDialog } from "@/components/RootPathSelectDialog";
 import { getRootPaths } from "@/utils/rootPaths";
 import { buildShareUrl } from "@/utils/shareUrl";
+import { getServerNamespace } from "@/utils/mediaCache";
 import { trackEvent } from "@/utils/analytics";
 import { formatDate, formatTime, formatYear } from "@/utils/date";
 import { hasOpenOverlay, isEditableTarget } from "@/utils/overlay";
@@ -67,6 +68,7 @@ import { Alert, AlertTitle } from "@tw/alert";
 import { GameSettings } from "@/components/admin/GameSettings";
 import { useAuthMediaUrl } from "@/hooks/useAuthMediaUrl";
 import { useInstalledGames } from "@/hooks/useInstalledGames";
+import { installedGameOwnerForServer } from "@/utils/installedGames";
 import { isTauriApp } from "@/utils/tauri";
 import { onGameDeleted } from "@/utils/gameUpdates";
 import { maskDisplayName, useStreamerMode } from "@/utils/streamerMode";
@@ -117,11 +119,19 @@ export default function GameView() {
   const [pendingRootPath, setPendingRootPath] = useState<string | null>(null);
   const isTauri = isTauriApp();
   const { isOnline } = useOnlineStatus();
-  const { installedGames, refetch: refetchInstalledGames } =
-    useInstalledGames();
+  const {
+    installedGames,
+    serverIdentifiers: currentServerIdentifiers,
+    refetch: refetchInstalledGames,
+  } = useInstalledGames();
   const installedInfo = useMemo(
-    () => installedGames.find((ig) => ig.gameId === numericId),
-    [installedGames, numericId],
+    () =>
+      installedGames.find(
+        (ig) =>
+          installedGameOwnerForServer(ig, currentServerIdentifiers)?.gameId ===
+          numericId,
+      ),
+    [installedGames, currentServerIdentifiers, numericId],
   );
 
   // Whether the locally installed version differs from the server's current
@@ -190,6 +200,7 @@ export default function GameView() {
           try {
             const { invoke } = await import("@tauri-apps/api/core");
             const cached = await invoke<string | null>("load_cached_game", {
+              serverNamespace: getServerNamespace(serverUrl),
               gameId: Number(numericId),
             });
             if (cached && !cancelled) {

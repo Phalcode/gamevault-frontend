@@ -119,11 +119,15 @@ export async function launchInstalledGame(
  * state of their own (deep links).
  *
  * Deliberately silent: a `gamevault://start` link for a game that is not
- * installed, has no executable configured, or whose executable is missing must
- * do nothing at all. Problems are only visible in the console.
+ * installed on the current server, has no executable configured, or whose
+ * executable is missing must do nothing at all. Problems are only visible in
+ * the console.
  */
-export async function launchInstalledGameById(gameId: number): Promise<void> {
-  const game = await findInstalledGameById(gameId);
+export async function launchInstalledGameById(
+  gameId: number,
+  serverIdentifiers: string[],
+): Promise<void> {
+  const game = await findInstalledGameById(gameId, serverIdentifiers);
   if (!game) {
     console.warn(`Ignoring start link: game ${gameId} is not installed`);
     return;

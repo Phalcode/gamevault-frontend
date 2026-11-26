@@ -2,10 +2,21 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { isTauriApp } from "@/utils/tauri";
 import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
+import { useServerStatus } from "@/hooks/useServerStatus";
 import { getRootPaths } from "@/utils/rootPaths";
 import { onGameUpdated } from "@/utils/gameUpdates";
 import { getServerNamespace, resolveApiMediaBlob } from "@/utils/mediaCache";
-import { normalizeInstalledGame } from "@/utils/installedGames";
+import {
+  normalizeServerIdentityUrl,
+  serverIdentifiers,
+  serverUrlForIdentifier,
+} from "@/utils/serverIdentity";
+import {
+  normalizeInstalledGame,
+  installedGameDisplayOwner,
+  installedGameOwnerForServer,
+  type InstalledGameOwner,
+} from "@/utils/installedGames";
 
 export interface InstalledGameInfo {
   gameId: number;
@@ -17,6 +28,8 @@ export interface InstalledGameInfo {
   versionName: string;
   installationDirectory: string;
   versionDirectory: string;
+  /** Servers that own this installation, with each server's game id. */
+  owners: InstalledGameOwner[];
   /** Unix timestamp (ms) when this version was installed; 0 if unknown. */
   installedAt: number;
   /** Unix timestamp (ms) of the last time the game was played; 0 if unknown. */
@@ -27,6 +40,12 @@ export interface InstalledGameInfo {
 interface ScanConfig {
   isOnline: boolean;
   serverUrl: string;
+  serverIdentifiers: string[];
+  serverNamespace: string;
+  /** Normalized server URL; changing it switches the visible library. */
+  serverKey: string;
+  /** Server identity including UUID; changing it forces a rescan. */
+  identityKey: string;
   currentUserId: unknown;
   authFetch: (input: string, init?: RequestInit) => Promise<Response>;
 }
@@ -62,6 +81,8 @@ let loadPromise: Promise<void> | null = null;
 let loadedAt = 0;
 let stale = true;
 let activeConfig: ScanConfig | null = null;
+let activeServerKey: string | null = null;
+let activeIdentityKey: string | null = null;
 const listeners = new Set<() => void>();
 
 function publish(patch: Partial<InstalledGamesState>): void {
@@ -90,11 +111,12 @@ export function invalidateInstalledGames(): void {
 }
 
 // Games whose metadata + images have already been cached during this app
-// session. Without this, every `isOnline` transition re-ran the whole cache for
+// session, keyed per server so switching servers cannot reuse the wrong cache.
+// Without this, every `isOnline` transition re-ran the whole cache for
 // every installed game — a burst of multi-megabyte IPC transfers that kept the
 // renderer and the Tauri event loop busy.
-const cachedGameIds = new Set<number>();
-const cacheInFlight = new Set<number>();
+const cachedGameIds = new Set<string>();
+const cacheInFlight = new Set<string>();
 
 async function ensureGameCache(
   gameId: number,
@@ -102,15 +124,18 @@ async function ensureGameCache(
   force = false,
 ): Promise<void> {
   if (!isTauriApp() || !config.isOnline) return;
-  if (cacheInFlight.has(gameId)) return;
-  if (!force && cachedGameIds.has(gameId)) return;
-  cacheInFlight.add(gameId);
+  if (activeConfig?.identityKey !== config.identityKey) return;
+
+  const cacheKey = `${config.serverNamespace}:${gameId}`;
+  if (cacheInFlight.has(cacheKey)) return;
+  if (!force && cachedGameIds.has(cacheKey)) return;
+  cacheInFlight.add(cacheKey);
 
   try {
     const base = config.serverUrl.replace(/\/+$/, "");
     const { invoke } = await import("@tauri-apps/api/core");
     const { blobToBase64 } = await import("@/utils/binary");
-    const serverNamespace = getServerNamespace(config.serverUrl);
+    const serverNamespace = config.serverNamespace;
 
     // Fetch full game object
     const gameRes = await config.authFetch(`${base}/api/games/${gameId}`);
@@ -119,6 +144,7 @@ async function ensureGameCache(
 
     // Cache game data
     await invoke("cache_game_data", {
+      serverNamespace,
       gameId,
       json: JSON.stringify(gameJson),
     });
@@ -168,29 +194,49 @@ async function ensureGameCache(
     }
 
     // Update the shared list with the freshly cached metadata
-    cachedGameIds.add(gameId);
-    publish({
-      installedGames: state.installedGames.map((game) =>
-        game.gameId === gameId ? { ...game, cachedMetadata: gameJson } : game,
-      ),
-    });
+    cachedGameIds.add(cacheKey);
+    if (activeConfig?.identityKey === config.identityKey) {
+      publish({
+        installedGames: state.installedGames.map((game) => {
+          const owner = installedGameOwnerForServer(
+            game,
+            config.serverIdentifiers,
+          );
+          return owner?.gameId === gameId
+            ? { ...game, cachedMetadata: gameJson }
+            : game;
+        }),
+      });
+    }
   } catch {
     // Best-effort: never block the user
   } finally {
-    cacheInFlight.delete(gameId);
+    cacheInFlight.delete(cacheKey);
   }
 }
 
 /** Current user's last-played timestamps, reused across mounts. */
 let lastPlayed = new Map<number, number>();
 let lastPlayedAt = 0;
+let lastPlayedServerNamespace: string | null = null;
 
-function applyLastPlayed(games: InstalledGameInfo[]): InstalledGameInfo[] {
-  if (lastPlayed.size === 0) return games;
-  return games.map((game) => ({
-    ...game,
-    lastPlayedAt: lastPlayed.get(game.gameId) ?? 0,
-  }));
+function applyLastPlayed(
+  games: InstalledGameInfo[],
+  config: ScanConfig,
+): InstalledGameInfo[] {
+  if (
+    lastPlayedServerNamespace !== config.serverNamespace ||
+    lastPlayed.size === 0
+  ) {
+    return games;
+  }
+  return games.map((game) => {
+    const owner = installedGameOwnerForServer(game, config.serverIdentifiers);
+    return {
+      ...game,
+      lastPlayedAt: owner ? (lastPlayed.get(owner.gameId) ?? 0) : 0,
+    };
+  });
 }
 
 /**
@@ -205,7 +251,13 @@ async function refreshLastPlayed(
   force = false,
 ): Promise<void> {
   if (!config.isOnline || !config.serverUrl || !config.currentUserId) return;
-  if (!force && Date.now() - lastPlayedAt < LAST_PLAYED_TTL_MS) return;
+  if (
+    !force &&
+    lastPlayedServerNamespace === config.serverNamespace &&
+    Date.now() - lastPlayedAt < LAST_PLAYED_TTL_MS
+  ) {
+    return;
+  }
 
   try {
     const base = config.serverUrl.replace(/\/+$/, "");
@@ -229,20 +281,86 @@ async function refreshLastPlayed(
         next.set(gid, Math.max(next.get(gid) ?? 0, ts));
       }
     }
+
+    if (activeConfig?.identityKey !== config.identityKey) return;
     lastPlayed = next;
     lastPlayedAt = Date.now();
-    publish({ installedGames: applyLastPlayed(state.installedGames) });
+    lastPlayedServerNamespace = config.serverNamespace;
+    publish({
+      installedGames: applyLastPlayed(state.installedGames, config),
+    });
   } catch {
     // Best-effort; last-played enrichment is non-critical.
   }
 }
 
+function isActiveScan(config: ScanConfig): boolean {
+  return (
+    activeConfig?.identityKey === config.identityKey &&
+    activeServerKey === config.serverKey
+  );
+}
+
+/** Cache namespace and game id used to load an install's cached metadata. */
+function cacheTargetForOwner(
+  owner: InstalledGameOwner | undefined,
+  config: ScanConfig,
+): { serverNamespace: string; gameId: number } | null {
+  if (!owner || owner.gameId <= 0) return null;
+
+  const ownerUrl =
+    owner.serverUrl ??
+    owner.identifiers.map(serverUrlForIdentifier).find(Boolean) ??
+    null;
+  if (ownerUrl) {
+    try {
+      return {
+        serverNamespace: getServerNamespace(ownerUrl),
+        gameId: owner.gameId,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  if (
+    installedGameOwnerForServer(
+      { owners: [owner] },
+      config.serverIdentifiers,
+    ) &&
+    config.serverNamespace
+  ) {
+    return { serverNamespace: config.serverNamespace, gameId: owner.gameId };
+  }
+
+  return null;
+}
+
+/** Cache namespace of the current server, for online metadata refreshes. */
+function currentOwnerCacheTarget(
+  game: InstalledGameInfo,
+  config: ScanConfig,
+): { serverNamespace: string; gameId: number } | null {
+  const owner = installedGameOwnerForServer(game, config.serverIdentifiers);
+  if (!owner || owner.gameId <= 0 || !config.serverNamespace) return null;
+  return { serverNamespace: config.serverNamespace, gameId: owner.gameId };
+}
+
 async function scanInstalledGames(config: ScanConfig): Promise<void> {
+  if (!config.serverUrl) {
+    loadedAt = Date.now();
+    stale = false;
+    publish({ installedGames: [], loading: false, error: null });
+    return;
+  }
+
   const rootPaths = isTauriApp() ? getRootPaths() : [];
   if (!rootPaths.length) {
     loadedAt = Date.now();
     stale = false;
-    publish({ installedGames: [], loading: false, error: null });
+    if (isActiveScan(config)) {
+      publish({ installedGames: [], loading: false, error: null });
+    }
     return;
   }
 
@@ -267,16 +385,20 @@ async function scanInstalledGames(config: ScanConfig): Promise<void> {
       }
     }
 
-    // Load cached metadata from offline-cache for games missing it.
-    // list_installed_games reads from {root}/.cache/games/ but
-    // cache_game_data writes to {app_data}/offline-cache/games/ —
-    // two different paths. load_cached_game bridges the gap.
+    // Load cached metadata from the cache of the server that owns each
+    // installation, not from whichever server happens to be active.
     for (const game of allResults) {
-      if (game.gameId <= 0) continue;
       if (game.cachedMetadata) continue;
+      const displayOwner = installedGameDisplayOwner(
+        game,
+        config.serverIdentifiers,
+      );
+      const target = cacheTargetForOwner(displayOwner, config);
+      if (!target) continue;
       try {
         const cached = await invoke<string | null>("load_cached_game", {
-          gameId: game.gameId,
+          serverNamespace: target.serverNamespace,
+          gameId: target.gameId,
         });
         if (cached) {
           game.cachedMetadata = JSON.parse(cached);
@@ -286,10 +408,12 @@ async function scanInstalledGames(config: ScanConfig): Promise<void> {
       }
     }
 
+    if (!isActiveScan(config)) return;
+
     loadedAt = Date.now();
     stale = false;
     publish({
-      installedGames: applyLastPlayed(allResults),
+      installedGames: applyLastPlayed(allResults, config),
       loading: false,
       error: null,
     });
@@ -304,15 +428,20 @@ async function scanInstalledGames(config: ScanConfig): Promise<void> {
       // game at once is what produced the multi-megabyte IPC burst (and the
       // ~140MB JS heap spike) that stalled the webview in the field log.
       void allResults
-        .filter((game) => game.gameId > 0)
         .reduce(
           (chain, game) =>
-            chain.then(() => ensureGameCache(game.gameId, config)),
+            chain.then(() => {
+              if (!isActiveScan(config)) return;
+              const target = currentOwnerCacheTarget(game, config);
+              if (!target) return;
+              return ensureGameCache(target.gameId, config);
+            }),
           Promise.resolve() as Promise<void>,
         )
         .catch(() => undefined);
     }
   } catch (err: any) {
+    if (!isActiveScan(config)) return;
     loadedAt = Date.now();
     stale = false;
     publish({
@@ -333,14 +462,55 @@ function loadInstalledGames(
   config: ScanConfig,
   options: { maxAgeMs?: number; force?: boolean } = {},
 ): Promise<void> {
-  activeConfig = config;
   const { maxAgeMs = 0, force = false } = options;
 
-  if (!force && !stale && Date.now() - loadedAt < maxAgeMs) {
+  if (!config.serverUrl) {
+    activeConfig = config;
+    activeServerKey = config.serverKey;
+    activeIdentityKey = config.identityKey;
+    lastPlayed = new Map();
+    lastPlayedAt = 0;
+    lastPlayedServerNamespace = null;
+    loadedAt = Date.now();
+    stale = false;
+    publish(EMPTY_STATE);
     return Promise.resolve();
   }
-  if (loadPromise) return loadPromise;
 
+  const serverChanged =
+    activeServerKey !== null && activeServerKey !== config.serverKey;
+  const identityChanged =
+    activeIdentityKey !== null && activeIdentityKey !== config.identityKey;
+  const sameIdentity =
+    activeServerKey === config.serverKey &&
+    activeIdentityKey === config.identityKey;
+
+  if (serverChanged) {
+    lastPlayed = new Map();
+    lastPlayedAt = 0;
+    lastPlayedServerNamespace = null;
+    stale = true;
+  } else if (identityChanged) {
+    stale = true;
+  }
+
+  // Always point future invalidations at the newest server before waiting for
+  // an in-flight scan of the previous server.
+  activeConfig = config;
+
+  if (sameIdentity && !force && !stale && Date.now() - loadedAt < maxAgeMs) {
+    return Promise.resolve();
+  }
+
+  if (loadPromise) {
+    if (sameIdentity) return loadPromise;
+    return loadPromise.then(() =>
+      loadInstalledGames(config, { ...options, force: true }),
+    );
+  }
+
+  activeServerKey = config.serverKey;
+  activeIdentityKey = config.identityKey;
   loadPromise = scanInstalledGames(config).finally(() => {
     loadPromise = null;
   });
@@ -353,9 +523,11 @@ function bindGameUpdated(): void {
   if (gameUpdatedBound) return;
   gameUpdatedBound = true;
   onGameUpdated((updatedGame) => {
+    const currentIdentifiers = activeConfig?.serverIdentifiers ?? [];
     publish({
-      installedGames: state.installedGames.map((game) =>
-        game.gameId === updatedGame.id
+      installedGames: state.installedGames.map((game) => {
+        const owner = installedGameOwnerForServer(game, currentIdentifiers);
+        return owner?.gameId === updatedGame.id
           ? {
               ...game,
               gameTitle:
@@ -364,8 +536,8 @@ function bindGameUpdated(): void {
                 game.gameTitle,
               cachedMetadata: updatedGame,
             }
-          : game,
-      ),
+          : game;
+      }),
     });
     if (activeConfig?.isOnline) {
       void ensureGameCache(updatedGame.id, activeConfig, true);
@@ -376,11 +548,45 @@ function bindGameUpdated(): void {
 export function useInstalledGames() {
   const { authFetch, serverUrl, user } = useAuth();
   const { isOnline } = useOnlineStatus();
+  const { info: serverInfo } = useServerStatus();
   const currentUserId = (user as any)?.id ?? (user as any)?.ID ?? 0;
 
+  const normalizedUrl = normalizeServerIdentityUrl(serverUrl);
+  const serverNamespace = useMemo(() => {
+    if (!normalizedUrl) return "";
+    try {
+      return getServerNamespace(normalizedUrl);
+    } catch {
+      return "";
+    }
+  }, [normalizedUrl]);
+  const identities = useMemo(
+    () => serverIdentifiers(serverUrl, serverInfo?.server_uuid),
+    [serverUrl, serverInfo?.server_uuid],
+  );
+  const identityKey = identities.join("\n");
+
   const config = useMemo<ScanConfig>(
-    () => ({ isOnline, serverUrl, currentUserId, authFetch }),
-    [isOnline, serverUrl, currentUserId, authFetch],
+    () => ({
+      isOnline,
+      serverUrl: normalizedUrl,
+      serverIdentifiers: identities,
+      serverNamespace,
+      serverKey: normalizedUrl,
+      identityKey,
+      currentUserId,
+      authFetch,
+    }),
+    [
+      isOnline,
+      normalizedUrl,
+      serverInfo?.server_uuid,
+      identities,
+      serverNamespace,
+      identityKey,
+      currentUserId,
+      authFetch,
+    ],
   );
 
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
@@ -404,6 +610,8 @@ export function useInstalledGames() {
     installedGames: snapshot.installedGames,
     loading: snapshot.loading,
     error: snapshot.error,
+    serverIdentifiers: identities,
+    serverNamespace,
     refetch,
   };
 }

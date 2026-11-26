@@ -21,6 +21,7 @@ import { formatBytes } from "@/utils/downloadFormat";
 import type { GameVaultConfig } from "@/models/gamevaultconfig";
 import { useAuth } from "@/context/AuthContext";
 import { useAlertDialog } from "@/context/AlertDialogContext";
+import { useServerStatus } from "@/hooks/useServerStatus";
 import { useUmu, type UmuStatusInfo } from "@/context/UmuContext";
 import { isWindowsExecutablePath } from "@/components/downloads/install-utils";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
@@ -40,6 +41,11 @@ import {
   createGameDesktopShortcut,
   loadGameCoverBase64,
 } from "@/utils/desktopShortcut";
+import { serverIdentifiers } from "@/utils/serverIdentity";
+import {
+  installedGameOwnerForServer,
+  normalizeInstalledGame,
+} from "@/utils/installedGames";
 import {
   PhotoIcon,
   CircleStackIcon,
@@ -62,6 +68,8 @@ interface Props {
   onClose: () => void;
   onGameUpdated?: (g: GamevaultGame) => void;
   onUninstalled?: () => void;
+  /** Show only installation/launch options for an install from another server. */
+  installedGameOverride?: InstalledGameOverride;
 }
 
 // No cool object binding in react, so we manually pick fields for custom metadata. But at least this is type save
@@ -119,6 +127,11 @@ type InstalledGameInfo = {
   versionName: string;
   installationDirectory: string;
   versionDirectory: string;
+};
+
+type InstalledGameOverride = InstalledGameInfo & {
+  serverIdentifiers: string[];
+  originServerUrl?: string | null;
 };
 
 import { getRootPaths } from "@/utils/rootPaths";
@@ -195,19 +208,28 @@ export function GameSettings({
   onClose,
   onGameUpdated,
   onUninstalled,
+  installedGameOverride,
 }: Props) {
   const { serverUrl, authFetch, user } = useAuth() as any;
+  const { info: serverInfo } = useServerStatus();
   const { showAlert } = useAlertDialog();
   const isAdmin = Number(user?.role) >= Number(GamevaultUserRoleEnum._3);
-  const [activeTab, setActiveTab] = useState<TabKey>("images");
+  const installedOnly = !!installedGameOverride;
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    installedOnly ? "installation" : "images",
+  );
   const [saving, setSaving] = useState(false);
   const [deletingVersionId, setDeletingVersionId] = useState<number | null>(
     null,
   );
-  const [fullGame, setFullGame] = useState<GamevaultGame | null>(null);
-  const [loadingFullGame, setLoadingFullGame] = useState(true);
+  const [fullGame, setFullGame] = useState<GamevaultGame | null>(
+    installedGameOverride ? game : null,
+  );
+  const [loadingFullGame, setLoadingFullGame] = useState(
+    !installedGameOverride,
+  );
   const [installedGame, setInstalledGame] = useState<InstalledGameInfo | null>(
-    null,
+    installedGameOverride ?? null,
   );
   const [uninstalling, setUninstalling] = useState(false);
   const isTauri = isTauriApp();
@@ -328,6 +350,12 @@ export function GameSettings({
 
   // Fetch full game object on mount
   useEffect(() => {
+    if (installedGameOverride) {
+      setFullGame(game);
+      setLoadingFullGame(false);
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       try {
@@ -349,7 +377,7 @@ export function GameSettings({
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, authFetch, game]);
+  }, [serverUrl, authFetch, game, installedGameOverride]);
 
   // Use fullGame if available, otherwise fallback to game prop
   const workingGame = fullGame || game;
@@ -405,15 +433,18 @@ export function GameSettings({
     [isTauri, showAlert, workingGame.metadata?.title, workingGame.title],
   );
 
-  const findInstalledGame =
-    useCallback(async (): Promise<InstalledGameInfo | null> => {
+  const findInstalledGameFor = useCallback(
+    async (
+      identities: string[],
+      targetGameId: number,
+    ): Promise<InstalledGameInfo | null> => {
       if (!isTauri) return null;
       const rootPaths = getRootPaths();
       if (!rootPaths.length) return null;
 
       const { invoke } = await import("@tauri-apps/api/core");
 
-      const allResults: any[] = [];
+      const allResults: ReturnType<typeof normalizeInstalledGame>[] = [];
       const seen = new Set<string>();
 
       for (const root of rootPaths) {
@@ -422,66 +453,72 @@ export function GameSettings({
         }).catch(() => [] as any[]);
 
         for (const r of rawResults) {
-          const id = r.gameId ?? r.game_id ?? 0;
-          const vd = r.versionDirectory ?? r.version_directory ?? "";
-          const key = `${id}:${vd}`;
-          if (id > 0 && !seen.has(key)) {
+          const info = normalizeInstalledGame(r);
+          const owner = installedGameOwnerForServer(info, identities);
+          if (!owner || owner.gameId !== targetGameId) continue;
+          if (
+            !info.installationDirectory.trim() ||
+            !info.versionDirectory.trim()
+          ) {
+            continue;
+          }
+
+          const key = `${owner.gameId}:${info.versionDirectory}`;
+          if (!seen.has(key)) {
             seen.add(key);
-            allResults.push(r);
+            allResults.push({ ...info, gameId: owner.gameId });
           }
         }
       }
 
-      const match = allResults
-        .filter(
-          (r) =>
-            Number(r.gameId ?? r.game_id ?? 0) === workingGame.id &&
-            typeof (r.installationDirectory ?? r.installation_directory) ===
-              "string" &&
-            (r.installationDirectory ?? r.installation_directory ?? "").trim()
-              .length > 0 &&
-            typeof (r.versionDirectory ?? r.version_directory) === "string" &&
-            (r.versionDirectory ?? r.version_directory ?? "").trim().length > 0,
-        )
-        .sort(
-          (a, b) =>
-            Number(b.versionId ?? b.version_id ?? 0) -
-            Number(a.versionId ?? a.version_id ?? 0),
-        )[0];
+      const match = allResults.sort(
+        (a, b) => Number(b.versionId) - Number(a.versionId),
+      )[0];
 
       if (!match) return null;
 
       return {
-        gameId: Number(match.gameId ?? match.game_id ?? workingGame.id),
+        gameId: match.gameId,
         gameTitle:
-          String(match.gameTitle ?? match.game_title ?? "").trim() ||
+          match.gameTitle.trim() ||
           workingGame.metadata?.title ||
           workingGame.title ||
           "Game",
-        gameType:
-          typeof (match.gameType ?? match.game_type) === "string" &&
-          (match.gameType ?? match.game_type ?? "").trim().length > 0
-            ? (match.gameType ?? match.game_type)
-            : undefined,
-        versionId: Number(match.versionId ?? match.version_id ?? 0),
-        versionName: String(
-          match.versionName ?? match.version_name ?? "",
-        ).trim(),
-        installationDirectory: String(
-          match.installationDirectory ?? match.installation_directory ?? "",
-        ),
-        versionDirectory: String(
-          match.versionDirectory ?? match.version_directory ?? "",
-        ),
+        gameType: match.gameType ?? undefined,
+        versionId: match.versionId,
+        versionName: match.versionName.trim(),
+        installationDirectory: match.installationDirectory,
+        versionDirectory: match.versionDirectory,
       };
-    }, [
-      isTauri,
-      workingGame.id,
-      workingGame.metadata?.title,
-      workingGame.title,
-    ]);
+    },
+    [isTauri, workingGame.metadata?.title, workingGame.title],
+  );
+
+  const findInstalledGame = useCallback(
+    () =>
+      findInstalledGameFor(
+        serverIdentifiers(serverUrl, serverInfo?.server_uuid),
+        workingGame.id,
+      ),
+    [findInstalledGameFor, serverUrl, serverInfo?.server_uuid, workingGame.id],
+  );
+
+  const findRemainingInstalledVersion = useCallback(async () => {
+    if (installedGameOverride) {
+      return findInstalledGameFor(
+        installedGameOverride.serverIdentifiers,
+        installedGameOverride.gameId,
+      );
+    }
+    return findInstalledGame();
+  }, [findInstalledGame, findInstalledGameFor, installedGameOverride]);
 
   useEffect(() => {
+    if (installedGameOverride) {
+      setInstalledGame(installedGameOverride);
+      return;
+    }
+
     let cancelled = false;
 
     (async () => {
@@ -501,16 +538,23 @@ export function GameSettings({
     return () => {
       cancelled = true;
     };
-  }, [findInstalledGame]);
+  }, [findInstalledGame, installedGameOverride]);
 
   useEffect(() => {
+    if (installedOnly) {
+      if (activeTab !== "installation" && activeTab !== "launch-options") {
+        setActiveTab("installation");
+      }
+      return;
+    }
+
     if (
       !installationTabsVisible &&
       (activeTab === "installation" || activeTab === "launch-options")
     ) {
       setActiveTab("images");
     }
-  }, [activeTab, installationTabsVisible]);
+  }, [activeTab, installationTabsVisible, installedOnly]);
 
   // If offline, redirect away from server-dependent tabs
   useEffect(() => {
@@ -693,13 +737,16 @@ export function GameSettings({
       );
 
       // The cover is only a fallback for executables without an icon; a
-      // failure to load it must not block the shortcut itself.
-      const coverBase64 = await loadGameCoverBase64({
-        serverUrl,
-        authFetch,
-        gameId: installedGame.gameId,
-        coverId: workingGame.metadata?.cover?.id,
-      });
+      // failure to load it must not block the shortcut itself. Never load it
+      // from the current server for an install owned by a different server.
+      const coverBase64 = installedOnly
+        ? null
+        : await loadGameCoverBase64({
+            serverUrl,
+            authFetch,
+            gameId: installedGame.gameId,
+            coverId: workingGame.metadata?.cover?.id,
+          });
 
       const result = await createGameDesktopShortcut({
         gameId: installedGame.gameId,
@@ -725,6 +772,7 @@ export function GameSettings({
     }
   }, [
     installedGame,
+    installedOnly,
     selectedLaunchExe,
     workingGame.metadata?.title,
     workingGame.metadata?.cover?.id,
@@ -1110,7 +1158,7 @@ export function GameSettings({
         );
         // Shortcuts only make sense while some version of the game is
         // installed, so they go away with the last installed version.
-        const remaining = await findInstalledGame();
+        const remaining = await findRemainingInstalledVersion();
         setInstalledGame(remaining);
         if (!remaining) await removeDesktopShortcuts(installedGame.gameId);
         onUninstalled?.();
@@ -1185,7 +1233,7 @@ export function GameSettings({
           );
           // Shortcuts only make sense while some version of the game is
           // installed, so they go away with the last installed version.
-          const remaining = await findInstalledGame();
+          const remaining = await findRemainingInstalledVersion();
           setInstalledGame(remaining);
           if (!remaining) await removeDesktopShortcuts(installedGame.gameId);
           onUninstalled?.();
@@ -1256,7 +1304,7 @@ export function GameSettings({
     });
   }, [
     cleanupLeftoverFiles,
-    findInstalledGame,
+    findRemainingInstalledVersion,
     installedGame,
     onClose,
     onUninstalled,
@@ -2509,7 +2557,7 @@ export function GameSettings({
             {/* Left sidebar - vertical tabs */}
             <div className="w-full sm:w-52 border-b sm:border-b-0 sm:border-r border-gv-line py-2 sm:py-4">
               <nav className="flex flex-row sm:flex-col gap-1 px-2 sm:px-3 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                {(!isTauri || isOnline) && (
+                {!installedOnly && (!isTauri || isOnline) && (
                   <>
                     <button
                       onClick={() => setActiveTab("images")}
@@ -4256,28 +4304,30 @@ export function GameSettings({
                           </SettingsRow>
                         </SettingsRowGroup>
 
-                        <SettingsRowGroup>
-                          <SettingsRow
-                            label="Desktop Shortcut"
-                            description="Create a shortcut on your desktop that starts this game. It uses the selected executable's icon, or the game's cover image when the executable has no icon."
-                          >
-                            <div className="flex sm:justify-end">
-                              <Button
-                                color="indigo"
-                                onClick={() =>
-                                  void handleCreateDesktopShortcut()
-                                }
-                                disabled={
-                                  !selectedLaunchExe || creatingShortcut
-                                }
-                              >
-                                {creatingShortcut
-                                  ? "Creating shortcut…"
-                                  : "Create Desktop Shortcut"}
-                              </Button>
-                            </div>
-                          </SettingsRow>
-                        </SettingsRowGroup>
+                        {!installedOnly && (
+                          <SettingsRowGroup>
+                            <SettingsRow
+                              label="Desktop Shortcut"
+                              description="Create a shortcut on your desktop that starts this game. It uses the selected executable's icon, or the game's cover image when the executable has no icon."
+                            >
+                              <div className="flex sm:justify-end">
+                                <Button
+                                  color="indigo"
+                                  onClick={() =>
+                                    void handleCreateDesktopShortcut()
+                                  }
+                                  disabled={
+                                    !selectedLaunchExe || creatingShortcut
+                                  }
+                                >
+                                  {creatingShortcut
+                                    ? "Creating shortcut…"
+                                    : "Create Desktop Shortcut"}
+                                </Button>
+                              </div>
+                            </SettingsRow>
+                          </SettingsRowGroup>
+                        )}
 
                         {/* umu-launcher (Linux) — collapsed until it is needed */}
                         {isLinux && (
@@ -4518,6 +4568,15 @@ export function GameSettings({
             </div>
             {installedGame?.versionName && (
               <div>Installed version: {installedGame.versionName}</div>
+            )}
+            {installedGameOverride && (
+              <div
+                className="truncate max-w-[300px]"
+                title={installedGameOverride.originServerUrl ?? undefined}
+              >
+                Origin:{" "}
+                {installedGameOverride.originServerUrl ?? "Unknown server"}
+              </div>
             )}
           </div>
         </>
