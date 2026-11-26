@@ -63,6 +63,17 @@ fn extract_zip_archive(
     std::io::copy(&mut entry, &mut out_file)
       .map_err(|e| (false, format!("Failed to write output file: {e}")))?;
 
+    // ZIP tools on macOS and Linux store each file's Unix mode. Without its
+    // execute bits, the binary inside a macOS app bundle or a Linux game can
+    // not be started. A failure is only logged: file systems without Unix
+    // permissions (FAT, some network shares) may refuse the change.
+    #[cfg(unix)]
+    if let Some(mode) = entry.unix_mode() {
+      if let Err(e) = crate::util::add_execute_bits(&out_file, mode) {
+        log::warn!("Failed to make {current_file:?} executable: {e}");
+      }
+    }
+
     processed += 1;
     emit_extract_progress(
       app,
@@ -126,6 +137,8 @@ fn extract_rar_archive(
       .map_err(|e| (false, format!("Failed to open RAR archive: {e}")))?
   };
 
+  // UnRAR applies the stored Unix mode itself on Unix, so RAR extraction
+  // keeps execute bits without extra work here.
   let mut processed = 0u64;
   while let Some(header) = processing.read_header().map_err(|e| {
     let msg = e.to_string();
@@ -223,6 +236,16 @@ fn extract_7z_archive(
         }
         output.write_all(&buffer[..read_size])?;
         written_size += read_size as u64;
+      }
+
+      // 7-Zip on Unix stores the POSIX mode in the high 16 bits of the
+      // Windows attributes field. Keep its execute bits, or a game binary
+      // from a .7z archive could not be started.
+      #[cfg(unix)]
+      if let Some(mode) = crate::util::unix_mode_from_7z_attributes(entry.windows_attributes()) {
+        if let Err(e) = crate::util::add_execute_bits(&output, mode) {
+          log::warn!("Failed to make {:?} executable: {e}", entry.name());
+        }
       }
 
       emit_extract_progress(
@@ -538,6 +561,24 @@ fn extract_single_file_from_reader<R: Read>(
     .map_err(|e| (false, format!("Failed to create output file: {e}")))?;
   std::io::copy(&mut reader, &mut output)
     .map_err(|e| (false, format!("Failed to extract compressed file: {e}")))?;
+
+  // A single decompressed file carries no permission metadata, so decide from
+  // its content whether it is a program that needs the execute bit.
+  #[cfg(unix)]
+  {
+    let mut magic = [0u8; 8];
+    let mut executable = false;
+    if let Ok(mut probe) = fs::File::open(&output_path) {
+      if let Ok(read) = probe.read(&mut magic) {
+        executable = crate::util::looks_like_executable(&magic[..read]);
+      }
+    }
+    if executable {
+      if let Err(e) = crate::util::add_execute_bits(&output, 0o755) {
+        log::warn!("Failed to make {:?} executable: {e}", output_path);
+      }
+    }
+  }
 
   emit_extract_progress(app, game_id, "extracting", 1, Some(1), current_file, None);
   Ok(())

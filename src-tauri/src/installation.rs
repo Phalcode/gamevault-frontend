@@ -59,8 +59,8 @@ fn compute_directory_size(path: &Path) -> Result<u64, String> {
 }
 
 // Recursively applies `chmod +x` to `.sh` shell scripts in the installation
-// directory. Copying files does not preserve the original executable bit, so
-// on Linux we restore it automatically for extracted shell scripts.
+// directory. Archives packed on Windows carry no executable bit, so on Linux
+// we set it automatically for extracted shell scripts.
 #[cfg(unix)]
 fn make_sh_scripts_executable(root: &Path) -> Result<(), String> {
   use std::os::unix::fs::PermissionsExt;
@@ -168,6 +168,19 @@ fn copy_path_with_progress(
       Some(relative.to_string_lossy().replace('\\', "/")),
       None,
     );
+  }
+
+  // The copy creates the file without execute bits. Keep the ones extraction
+  // gave the source, or the game binary could not be started.
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::PermissionsExt;
+    let kept = source_file.metadata().and_then(|metadata| {
+      crate::util::add_execute_bits(&destination_file, metadata.permissions().mode())
+    });
+    if let Err(e) = kept {
+      log::warn!("Failed to make {relative:?} executable: {e}");
+    }
   }
 
   Ok(())
