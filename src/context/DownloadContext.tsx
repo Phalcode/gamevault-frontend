@@ -96,6 +96,11 @@ export interface ActiveDownload {
   installationError?: string;
   installationExitCode?: number | null;
   /**
+   * How the current installation run was started. Only installer runs write a
+   * launch log, so failures can offer it only for those.
+   */
+  installationSource?: "installer" | "copy";
+  /**
    * UI preference: create a desktop shortcut once this card finishes
    * installing. Session-scoped and reset after a successful installation.
    */
@@ -2249,6 +2254,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         installationCurrentFile: undefined,
         installationError: undefined,
         installationExitCode: null,
+        installationSource: "copy",
       });
       trackEvent("install_started", { mode: "copy", gameType: d.gameType });
 
@@ -2349,6 +2355,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
         installationCurrentFile: installerRelativePath,
         installationError: undefined,
         installationExitCode: null,
+        installationSource: "installer",
       });
       trackEvent("install_started", {
         mode: "installer",
@@ -2600,6 +2607,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
               installationStatus: "error",
               installationProgress: null,
               installationError: state.error || "Installation copy failed.",
+              installationSource: "copy",
             });
           }
           continue;
@@ -2633,6 +2641,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
             installationError: state.error || "Installer exited with an error.",
             installationExitCode:
               typeof state.exitCode === "number" ? state.exitCode : null,
+            installationSource: "installer",
           });
         }
       }

@@ -57,6 +57,13 @@ function getStatusChip(download: ActiveDownload): {
   if (download.installationStatus === "completed") {
     return { label: "Installed", color: "green", icon: CheckCircleIcon };
   }
+  if (download.installationStatus === "error") {
+    return {
+      label: "Install Failed",
+      color: "red",
+      icon: ExclamationTriangleIcon,
+    };
+  }
   if (
     download.installationStatus === "copying" ||
     download.installationStatus === "launching" ||

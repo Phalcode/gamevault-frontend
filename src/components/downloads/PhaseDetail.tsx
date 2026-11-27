@@ -1,4 +1,5 @@
 import { Badge } from "@/components/tailwind/badge";
+import { Button } from "@/components/tailwind/button";
 import { Input } from "@tw/input";
 import { Checkbox, CheckboxField } from "@tw/checkbox";
 import { Label } from "@tw/fieldset";
@@ -13,6 +14,7 @@ import {
   KeyIcon,
 } from "@heroicons/react/24/outline";
 import { formatDecimal } from "@/utils/number";
+import { openLaunchLogWindow } from "@/utils/launchLog";
 
 type PhaseDetailProps = {
   download: ActiveDownload;
@@ -246,7 +248,17 @@ export function PhaseDetail({
               )}
 
               {download.installationError && (
-                <ErrorNote message={download.installationError} />
+                <div className="space-y-1.5">
+                  <ErrorNote message={download.installationError} />
+                  {download.installationSource === "installer" && (
+                    <Button
+                      plain
+                      onClick={() => void openLaunchLogWindow().catch(() => {})}
+                    >
+                      View launch log
+                    </Button>
+                  )}
+                </div>
               )}
 
               {download.installationStatus === "completed" &&

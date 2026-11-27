@@ -519,11 +519,81 @@ pub(crate) fn resolve_windows_install_path(installation_path: String) -> String 
 
 /// Shared state handed back after spawning the stdout/stderr reader threads.
 #[cfg(target_os = "linux")]
+#[derive(Clone)]
 pub(crate) struct UmuStreamHandle {
   /// Set once the game/installer is believed to have started.
   pub running: Arc<AtomicBool>,
   /// Last few output lines (capped), used for the failure log.
   pub lines: Arc<Mutex<VecDeque<String>>>,
+  /// Set once the run has ended. Guards the terminal event: a `setup` line
+  /// read at the same moment must not be emitted after it, or the frontend
+  /// overlay would reopen after it was already dismissed.
+  settled: Arc<Mutex<bool>>,
+}
+
+#[cfg(target_os = "linux")]
+impl UmuStreamHandle {
+  /// Emit a `running` phase unless the run already ended.
+  pub(crate) fn emit_running(&self, app: &tauri::AppHandle, game_title: Option<&str>) -> bool {
+    let settled = self
+      .settled
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if *settled {
+      return false;
+    }
+    emit_umu_status(app, game_title, "running", None, None);
+    true
+  }
+
+  /// End the run and emit its terminal phase exactly once. Holding the lock
+  /// makes the terminal event the last `umu-status` event of the run: a
+  /// `setup` line read at the same moment either comes first or is suppressed.
+  pub(crate) fn settle(
+    &self,
+    app: &tauri::AppHandle,
+    game_title: Option<&str>,
+    phase: &str,
+    message: Option<String>,
+  ) {
+    let mut settled = self
+      .settled
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if *settled {
+      return;
+    }
+    *settled = true;
+    emit_umu_status(app, game_title, phase, None, message);
+  }
+
+  /// Whether the run already ended.
+  pub(crate) fn is_settled(&self) -> bool {
+    *self
+      .settled
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+  }
+}
+
+/// Forwards one output line as a `umu-status` `setup` event unless the game
+/// started or the run already ended. The lock is held while emitting so
+/// `UmuStreamHandle::settle` cannot emit its terminal phase in between.
+#[cfg(target_os = "linux")]
+fn emit_setup_line(
+  app: &tauri::AppHandle,
+  game_title: Option<&str>,
+  settled: &Mutex<bool>,
+  running: &AtomicBool,
+  line: String,
+) {
+  let settled = settled
+    .lock()
+    .unwrap_or_else(|poisoned| poisoned.into_inner());
+  if *settled || running.load(Ordering::SeqCst) {
+    return;
+  }
+  emit_umu_status(app, game_title, "setup", Some(line), None);
 }
 
 #[cfg(target_os = "linux")]
@@ -539,6 +609,7 @@ fn stream_umu_lines<R: Read + Send + 'static>(
   stream_kind: &'static str,
   lines: Arc<Mutex<VecDeque<String>>>,
   running: Arc<AtomicBool>,
+  settled: Arc<Mutex<bool>>,
   log: Option<Arc<crate::launch_log::LaunchLog>>,
 ) {
   thread::spawn(move || {
@@ -567,11 +638,9 @@ fn stream_umu_lines<R: Read + Send + 'static>(
           if trimmed.contains("fsync") || trimmed.contains("Proton: Executable") {
             running.store(true, Ordering::SeqCst);
           }
-          // Once the game runs, Proton's output belongs in the log window only
-          // (otherwise it would re-open the setup overlay).
-          if !running.load(Ordering::SeqCst) {
-            emit_umu_status(&app, game_title.as_deref(), "setup", Some(trimmed), None);
-          }
+          // Once the game runs or the run has ended, Proton's output belongs
+          // in the log window only; it must never reopen the setup overlay.
+          emit_setup_line(&app, game_title.as_deref(), &settled, &running, trimmed);
         }
         Err(_) => break,
       }
@@ -590,6 +659,7 @@ pub(crate) fn spawn_umu_streamers(
 ) -> UmuStreamHandle {
   let running = Arc::new(AtomicBool::new(false));
   let lines: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+  let settled = Arc::new(Mutex::new(false));
   let game_title = game_title.map(String::from);
   let app_handle = app.clone();
 
@@ -601,6 +671,7 @@ pub(crate) fn spawn_umu_streamers(
       "out",
       lines.clone(),
       running.clone(),
+      settled.clone(),
       log.clone(),
     );
   }
@@ -612,10 +683,15 @@ pub(crate) fn spawn_umu_streamers(
       "err",
       lines.clone(),
       running.clone(),
+      settled.clone(),
       log.clone(),
     );
   }
-  UmuStreamHandle { running, lines }
+  UmuStreamHandle {
+    running,
+    lines,
+    settled,
+  }
 }
 
 /// True when any running process matches the given (Windows) executable path
@@ -1162,17 +1238,17 @@ pub(crate) fn spawn_umu_launch_monitor(
         // Marker lines from umu/wine indicate the window is about to open.
         if handle.running.load(Ordering::SeqCst) {
           reported_running = true;
-          emit_umu_status(&app, Some(&game_title), "running", None, None);
+          handle.emit_running(&app, Some(&game_title));
         } else if last_process_check.elapsed() >= Duration::from_secs(2) {
           last_process_check = Instant::now();
           if detect_process_running(&exe_path) {
             reported_running = true;
-            emit_umu_status(&app, Some(&game_title), "running", None, None);
+            handle.emit_running(&app, Some(&game_title));
           }
         } else if start.elapsed() >= Duration::from_secs(600) {
           // Safety net: assume the game started even if undetected.
           reported_running = true;
-          emit_umu_status(&app, Some(&game_title), "running", None, None);
+          handle.emit_running(&app, Some(&game_title));
         }
       }
 
@@ -1203,13 +1279,14 @@ pub(crate) fn spawn_umu_launch_monitor(
       if let Some(launch_log) = launch_log.as_ref() {
         launch_log.finish_failed(&app, exit_code);
       }
-      emit_umu_status(&app, Some(&game_title), "error", None, Some(message.clone()));
+      // `settle` also stops late output lines from reopening the setup overlay.
+      handle.settle(&app, Some(&game_title), "error", Some(message.clone()));
       emit_game_launch_failed(&app, game_title, exit_code, message);
     } else {
       if let Some(launch_log) = launch_log.as_ref() {
         launch_log.finish_success(&app, exit_code);
       }
-      emit_umu_status(&app, Some(&game_title), "exit", None, None);
+      handle.settle(&app, Some(&game_title), "exit", None);
     }
   });
 }

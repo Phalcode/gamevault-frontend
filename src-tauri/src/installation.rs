@@ -418,6 +418,8 @@ fn wait_for_installation_populated(path: &Path) -> bool {
 /// umu-launcher when missing, streams its setup output via `umu-status`
 /// events (drives the "Setting up umu launcher…" overlay) and keeps the
 /// regular `installer-status` protocol so the download card stays in sync.
+/// A terminal `umu-status` `exit` is emitted as soon as the installer process
+/// ends, which dismisses the setup overlay even when the run fails.
 #[cfg(target_os = "linux")]
 fn run_installer_via_umu(
   app: tauri::AppHandle,
@@ -576,21 +578,27 @@ fn run_installer_via_umu(
   );
 
   // Let the umu overlay know once the installer window actually appears (umu
-  // emits "running" right when the wine container finishes setting up).
+  // emits "running" right when the wine container finishes setting up). The
+  // thread stops as soon as the installer exits, so it cannot emit a late
+  // `running` event after the terminal phase emitted below.
   {
     let exe_path = installer_path.to_path_buf();
-    let running_flag = handle.running.clone();
+    let umu_handle = handle.clone();
     let overlay_app = app.clone();
     thread::spawn(move || {
       let started = Instant::now();
       loop {
-        if running_flag.load(Ordering::SeqCst) || crate::umu::detect_process_running(&exe_path) {
-          crate::events::emit_umu_status(&overlay_app, None, "running", None, None);
+        if umu_handle.is_settled() {
           break;
         }
-        // Safety net: assume the installer started even if undetected.
-        if started.elapsed() >= Duration::from_secs(600) {
-          crate::events::emit_umu_status(&overlay_app, None, "running", None, None);
+        if umu_handle.running.load(Ordering::SeqCst)
+          || crate::umu::detect_process_running(&exe_path)
+          || started.elapsed() >= Duration::from_secs(600)
+        {
+          // The last condition is a safety net: assume the installer started
+          // even if it was never detected. `emit_running` is a no-op when the
+          // installer already exited.
+          umu_handle.emit_running(&overlay_app, None);
           break;
         }
         thread::sleep(Duration::from_millis(500));
@@ -600,6 +608,12 @@ fn run_installer_via_umu(
 
   let status = child.wait();
   let exit_code = status.as_ref().ok().and_then(|s| s.code());
+
+  // The installer process is gone, so the umu runtime setup it needed is over.
+  // Stop the watcher and any late `setup` lines, and always emit the terminal
+  // phase now: the overlay must not stay up while the verification below
+  // decides whether the installation actually succeeded.
+  handle.settle(&app, None, "exit", None);
 
   if status.map(|s| s.success()).unwrap_or(false) {
     log.push(

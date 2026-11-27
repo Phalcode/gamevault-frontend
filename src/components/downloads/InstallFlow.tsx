@@ -12,6 +12,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useEffect, useRef, useState } from "react";
 import { formatDecimal } from "@/utils/number";
+import { openLaunchLogWindow } from "@/utils/launchLog";
 import {
   FORCE_INSTALL_TYPES,
   formatGameTypeLabel,
@@ -265,8 +266,17 @@ export function InstallFlow({
       )}
 
       {download.installationError && (
-        <div className="text-xs text-red-600 dark:text-red-400">
-          {download.installationError}
+        <div className="flex items-start justify-between gap-3 text-xs text-red-600 dark:text-red-400">
+          <span className="min-w-0">{download.installationError}</span>
+          {download.installationSource === "installer" && (
+            <Button
+              plain
+              className="shrink-0"
+              onClick={() => void openLaunchLogWindow().catch(() => {})}
+            >
+              View launch log
+            </Button>
+          )}
         </div>
       )}
 
