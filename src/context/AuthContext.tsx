@@ -59,6 +59,8 @@ interface AuthContextValue {
   authFetch: (input: string, init?: RequestInit) => Promise<Response>;
   /** Returns a fresh, valid access token (refreshing if needed), or null. */
   getAccessToken: () => Promise<string | null>;
+  /** Adopt tokens obtained elsewhere (e.g. the native keep-alive) and persist them. */
+  syncTokens: (tokens: AuthTokens) => Promise<void>;
   refreshCurrentUser: () => Promise<GamevaultUser | null>;
 }
 
@@ -175,7 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isTokenNearExpiry = useCallback(() => {
     const nxt = nextTokenRefreshRef.current;
     if (!nxt) return true;
-    const threshold = Date.now() + 60_000;
+    const threshold = Date.now() + 120_000;
     return nxt.getTime() <= threshold;
   }, []);
   const performRefresh = useCallback(() => {
@@ -215,6 +217,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     promise.then(clear, clear);
 
     return promise;
+  }, []);
+
+  /**
+   * Adopt tokens obtained outside the webview (the native keep-alive) and
+   * persist them, so a session refreshed while the window was hidden to the
+   * tray stays in sync with the webview.
+   */
+  const syncTokens = useCallback(async (tokens: AuthTokens) => {
+    const merged: AuthTokens = { ...(authRef.current || {}), ...tokens };
+    authRef.current = merged;
+    setAuth(merged);
+    if (merged.refresh_token) await setRefreshToken(merged.refresh_token);
+    nextTokenRefreshRef.current = merged.access_token
+      ? computeNextTokenRefresh(merged.access_token)
+      : new Date();
+    offlineModeRef.current = false;
   }, []);
 
   /**
@@ -309,6 +327,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [isTokenNearExpiry, performRefresh, handleSessionExpired]);
+
+  // Refresh the session the instant the user returns to the window. While the
+  // window is hidden to the tray the webview's timers are throttled or frozen,
+  // so on focus/visibility we refresh before any request fires. The native
+  // keep-alive covers the fully-hidden case; this is the fast path on return.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void ensureFreshToken();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [ensureFreshToken]);
 
   /**
    * Authenticated fetch. Before issuing the request it ensures the access
@@ -745,6 +779,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     logout,
     authFetch,
     getAccessToken,
+    syncTokens,
     refreshCurrentUser,
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
