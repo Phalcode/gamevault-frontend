@@ -18,6 +18,11 @@ pub(crate) struct TrackerConfig {
   pub server_url: String,
   pub user_id: i64,
   pub access_token: String,
+  /// Refresh token used by the native keep-alive to renew the session while
+  /// the window is hidden to the tray (the webview's timers are throttled or
+  /// frozen then, so it cannot refresh on its own). `None` until the frontend
+  /// has handed one over.
+  pub refresh_token: Option<String>,
   pub download_paths: Vec<String>,
 }
 

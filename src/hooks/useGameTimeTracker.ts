@@ -3,6 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useOnlineStatus } from "@/context/OfflineContext";
 import { isTauriApp } from "@/utils/tauri";
 import { getRootPaths } from "@/utils/rootPaths";
+import { getRefreshToken } from "@/utils/tokenStorage";
 import { countBucket, trackEvent } from "@/utils/analytics";
 
 /**
@@ -43,6 +44,15 @@ interface TrackerStatusSummary {
 }
 
 const AUTH_EXPIRED_EVENT = "tracker-auth-expired";
+
+/** Payload of the native `tracker-session-updated` event. */
+interface TrackerSessionUpdatedPayload {
+  accessToken: string;
+  refreshToken: string;
+}
+
+/** Emitted by the native keep-alive after it rotated the session. */
+const SESSION_UPDATED_EVENT = "tracker-session-updated";
 
 /**
  * How often the hook refreshes the session and hands it to the native tracker.
@@ -174,7 +184,7 @@ async function reconcileOfflineTime(options: {
 }
 
 export function useGameTimeTracker() {
-  const { serverUrl, user, auth, getAccessToken } = useAuth();
+  const { serverUrl, user, auth, getAccessToken, syncTokens } = useAuth();
   const { onReconnect } = useOnlineStatus();
   const startedRef = useRef<{ serverUrl: string; userId: number } | null>(null);
   const syncInFlightRef = useRef(false);
@@ -189,7 +199,10 @@ export function useGameTimeTracker() {
   const pushToken = useCallback((token: string) => {
     if (pushedTokenRef.current === token) return;
     pushedTokenRef.current = token;
-    void invokeTracker("update_tracker_auth", { accessToken: token });
+    void invokeTracker("update_tracker_auth", {
+      accessToken: token,
+      refreshToken: getRefreshToken(),
+    });
   }, []);
 
   // Start / restart tracker as soon as credentials are available. We key the
@@ -267,6 +280,7 @@ export function useGameTimeTracker() {
       serverUrl,
       userId,
       accessToken,
+      refreshToken: getRefreshToken(),
       downloadPath: null,
       downloadPaths,
     });
@@ -397,6 +411,49 @@ export function useGameTimeTracker() {
     };
   }, [getAccessToken, pushToken, serverUrl]);
 
+  // The native keep-alive refreshed the session while the window was hidden to
+  // the tray (where the webview's timers are throttled or frozen). Adopt the
+  // rotated tokens: persist the new refresh token to the vault and use the new
+  // access token, so the webview and the native tracker stay in sync.
+  useEffect(() => {
+    if (!isTauriApp()) return;
+
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+
+    void (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        const stop = await listen<TrackerSessionUpdatedPayload>(
+          SESSION_UPDATED_EVENT,
+          (event) => {
+            void syncTokens({
+              access_token: event.payload.accessToken,
+              refresh_token: event.payload.refreshToken,
+            });
+          },
+        );
+
+        if (disposed) {
+          stop();
+        } else {
+          unlisten = stop;
+        }
+      } catch (error) {
+        await logTrackerLine(
+          "error",
+          "auth",
+          `could not subscribe to ${SESSION_UPDATED_EVENT}: ${String(error)}`,
+        );
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [syncTokens]);
+
   // Keep the native tracker's session copy fresh. Token refresh is otherwise
   // lazy (nothing asks for a new token while the UI sits idle), and a token
   // that is only refreshed at its expiry moment is always rejected once before
@@ -405,7 +462,6 @@ export function useGameTimeTracker() {
     if (!isTauriApp()) return;
 
     const id = window.setInterval(() => {
-      if (!startedRef.current) return;
       void getAccessToken().then((token) => {
         if (token) {
           pushToken(token);

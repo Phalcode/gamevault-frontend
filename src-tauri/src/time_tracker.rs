@@ -46,6 +46,18 @@ pub(crate) struct TrackerAuthExpiredEvent {
   pub retry_in_secs: u64,
 }
 
+/// Event telling the frontend that the native keep-alive rotated the session,
+/// so it can persist the new refresh token and adopt the new access token.
+const SESSION_UPDATED_EVENT: &str = "tracker-session-updated";
+
+/// Payload for [`SESSION_UPDATED_EVENT`].
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionUpdatedEvent {
+  pub access_token: String,
+  pub refresh_token: String,
+}
+
 /// A previously scanned candidate list, reused while the folder is unchanged.
 #[derive(Clone)]
 struct CachedCandidates {
@@ -84,6 +96,7 @@ pub(crate) async fn start_game_time_tracker(
   server_url: String,
   user_id: i64,
   access_token: String,
+  refresh_token: Option<String>,
   download_path: Option<String>,
   download_paths: Option<Vec<String>>,
 ) -> Result<(), String> {
@@ -138,6 +151,7 @@ pub(crate) async fn start_game_time_tracker(
     server_url,
     user_id,
     access_token,
+    refresh_token,
     download_paths: paths,
   };
 
@@ -187,11 +201,17 @@ pub(crate) async fn stop_game_time_tracker(
 }
 
 #[tauri::command]
-pub(crate) async fn update_tracker_auth(access_token: String) -> Result<(), String> {
+pub(crate) async fn update_tracker_auth(
+  access_token: String,
+  refresh_token: Option<String>,
+) -> Result<(), String> {
   let mut updated = false;
   if let Ok(mut cfg) = tracker_config().lock() {
     if let Some(ref mut c) = *cfg {
       c.access_token = access_token.clone();
+      if refresh_token.is_some() {
+        c.refresh_token = refresh_token.clone();
+      }
       updated = true;
     }
   }
@@ -224,6 +244,86 @@ pub(crate) async fn update_tracker_auth(access_token: String) -> Result<(), Stri
     ],
   );
   Ok(())
+}
+
+/// Native session keep-alive.
+///
+/// The webview's timers are throttled or frozen while the window is hidden to
+/// the tray, so the JS keep-alive cannot renew the access token and the session
+/// dies after the access-token lifetime (~5 min). The tracker loop runs on the
+/// Rust side regardless of window visibility, so it renews the session here: it
+/// exchanges the refresh token for a fresh pair, stores it in the shared config
+/// (so concurrent increments use the new access token), clears any auth backoff,
+/// and hands the rotated tokens back to the frontend so the new refresh token is
+/// persisted to the vault and the webview adopts the new access token.
+///
+/// Returns the updated config on success, or `None` when there is no refresh
+/// token, the server rejected it, or the network failed (the caller then keeps
+/// the existing config and the normal 401/backoff path applies).
+async fn refresh_session(app: &tauri::AppHandle, config: &TrackerConfig) -> Option<TrackerConfig> {
+  let refresh_token = config.refresh_token.as_ref()?;
+  let client = reqwest::Client::new();
+  let url = format!("{}/api/auth/refresh", config.server_url);
+  let response = client
+    .post(&url)
+    .header("Authorization", format!("Bearer {refresh_token}"))
+    .header("Accept", "application/json")
+    .header("Content-Type", "application/json")
+    .body("")
+    .send()
+    .await
+    .ok()?;
+
+  if !response.status().is_success() {
+    tracker_log::push_kv(
+      "warn",
+      "http",
+      &[
+        ("event", "session_refresh_rejected".to_string()),
+        ("status", response.status().as_u16().to_string()),
+      ],
+    );
+    return None;
+  }
+
+  let body = response.text().await.ok()?;
+  let value: serde_json::Value = serde_json::from_str(&body).ok()?;
+  let access_token = value.get("access_token")?.as_str()?.to_string();
+  let refresh_token = value
+    .get("refresh_token")
+    .and_then(|value| value.as_str())
+    .map(|value| value.to_string())
+    .unwrap_or_else(|| refresh_token.clone());
+
+  // Persist the rotated pair in the shared config so the next tick and any
+  // concurrent increment use the fresh access token.
+  if let Ok(mut cfg) = tracker_config().lock() {
+    if let Some(ref mut current) = *cfg {
+      current.access_token = access_token.clone();
+      current.refresh_token = Some(refresh_token.clone());
+    }
+  }
+
+  // The session is valid again: end any rejection backoff.
+  if let Ok(mut stats) = tracker_stats().lock() {
+    stats.auth_backoff_until = None;
+    stats.auth_streak = 0;
+  }
+
+  tracker_log::push("info", "http", "session refreshed by the native keep-alive");
+
+  let _ = app.emit(
+    SESSION_UPDATED_EVENT,
+    SessionUpdatedEvent {
+      access_token: access_token.clone(),
+      refresh_token: refresh_token.clone(),
+    },
+  );
+
+  let mut updated = config.clone();
+  updated.access_token = access_token;
+  updated.refresh_token = Some(refresh_token);
+  Some(updated)
 }
 
 /// One entry of the per-game accounting ledger, used for log lines.
@@ -336,6 +436,22 @@ async fn game_time_tracker_loop(mut stop_rx: watch::Receiver<bool>, app: tauri::
         }
       },
       Err(_) => continue,
+    };
+
+    // Native session keep-alive: renew the session even while the window is
+    // hidden to the tray, where the webview's timers are throttled or frozen.
+    // Refresh roughly every 4 minutes (inside the 5-minute access-token
+    // lifetime), or immediately after a stall, so the session never expires
+    // while the app is idle in the tray.
+    let config = if config.refresh_token.is_some()
+      && (tick_number % 4 == 0 || dropped_ticks > 0)
+    {
+      match refresh_session(&app, &config).await {
+        Some(updated) => updated,
+        None => config,
+      }
+    } else {
+      config
     };
 
     if config.download_paths.is_empty() || config.server_url.is_empty() {
